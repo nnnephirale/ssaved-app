@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>SSaved - Responsive</title>
+    <title>SSaved - Hybrid Controls</title>
     
     <script src="https://cdn.tailwindcss.com"></script>
     
@@ -46,7 +46,7 @@
         }
         #undoBtn.hidden-btn {
             opacity: 0;
-            transform: translateX(-10px); /* Changed direction for mobile stack */
+            transform: translateX(-10px);
             pointer-events: none;
             width: 0;
             padding: 0;
@@ -106,7 +106,6 @@
             cursor: move !important; 
         }
         
-        /* Directional Hints */
         .card-shift-forward { transform: translateX(-30px); transition: transform 0.3s ease; }
         .card-shift-backward { transform: translateX(30px); transition: transform 0.3s ease; }
 
@@ -137,7 +136,19 @@
                     <span id="undoText">Undo</span>
                 </button>
 
-                <div class="flex items-center gap-2 bg-slate-100/50 px-3 py-1.5 rounded-lg border border-slate-200/50 shrink-0">
+                <div class="md:hidden flex items-center bg-slate-100/80 p-1 rounded-lg border border-slate-200/50 shrink-0">
+                    <button onclick="setColumns(1)" id="col-btn-1" class="w-8 h-8 flex items-center justify-center rounded-md text-slate-500 hover:text-slate-900 transition-all">
+                        <i class="ph-bold ph-rectangle"></i>
+                    </button>
+                    <button onclick="setColumns(2)" id="col-btn-2" class="w-8 h-8 flex items-center justify-center rounded-md text-slate-500 hover:text-slate-900 transition-all">
+                        <i class="ph-bold ph-columns"></i>
+                    </button>
+                    <button onclick="setColumns(3)" id="col-btn-3" class="w-8 h-8 flex items-center justify-center rounded-md text-slate-500 hover:text-slate-900 transition-all">
+                        <i class="ph-bold ph-layout"></i>
+                    </button>
+                </div>
+
+                <div class="hidden md:flex items-center gap-2 bg-slate-100/50 px-3 py-1.5 rounded-lg border border-slate-200/50 shrink-0">
                     <i class="ph ph-corners-in text-slate-400 text-sm"></i>
                     <input type="range" min="600" max="2400" value="1390" class="w-20 md:w-24 accent-slate-900" id="widthSlider" oninput="updateContainerWidth(this.value)">
                     <i class="ph ph-corners-out text-slate-400 text-sm"></i>
@@ -170,7 +181,8 @@
             <p class="text-base font-medium text-slate-500">No screenshots yet</p>
             <p class="text-sm text-slate-400 mt-1">Tap "Add New" to start</p>
         </div>
-        <div id="gridContainer" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6 pb-20"></div>
+        
+        <div id="gridContainer" class="grid md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6 pb-20 transition-all duration-300"></div>
     </main>
 
     <div id="statusBar" class="fixed bottom-6 left-1/2 -translate-x-1/2 bg-slate-900/90 backdrop-blur text-white px-4 py-2 rounded-full shadow-xl flex items-center gap-3 hidden transition-all z-50 hover:bg-slate-900 cursor-default whitespace-nowrap">
@@ -196,10 +208,11 @@
             await initDB();
             loadCardsFromDB();
             setupGlobalDrag();
-            initWidthSlider(); 
+            initWidthSlider();      // For Desktop
+            initColumnSettings();   // For Mobile
         });
 
-        // --- WIDTH SLIDER ---
+        // --- DESKTOP WIDTH SLIDER ---
         function updateContainerWidth(val) {
             const container = document.getElementById('mainContainer');
             if (val > 2350) container.style.maxWidth = '100%';
@@ -212,6 +225,37 @@
                 document.getElementById('widthSlider').value = savedWidth;
                 updateContainerWidth(savedWidth);
             }
+        }
+
+        // --- MOBILE COLUMN TOGGLE ---
+        function setColumns(count) {
+            const grid = document.getElementById('gridContainer');
+            // Remove previous mobile settings
+            grid.classList.remove('grid-cols-1', 'grid-cols-2', 'grid-cols-3');
+            // Apply new mobile setting
+            grid.classList.add(`grid-cols-${count}`);
+            
+            localStorage.setItem('ssaved_cols', count);
+            updateColumnButtons(count);
+        }
+
+        function updateColumnButtons(activeCount) {
+            [1, 2, 3].forEach(n => {
+                const btn = document.getElementById(`col-btn-${n}`);
+                if(!btn) return;
+                if (n === parseInt(activeCount)) {
+                    btn.classList.add('bg-white', 'text-slate-900', 'shadow-sm', 'font-bold');
+                    btn.classList.remove('text-slate-500');
+                } else {
+                    btn.classList.remove('bg-white', 'text-slate-900', 'shadow-sm', 'font-bold');
+                    btn.classList.add('text-slate-500');
+                }
+            });
+        }
+
+        function initColumnSettings() {
+            const saved = localStorage.getItem('ssaved_cols') || 1; // Default to 1 on mobile
+            setColumns(saved);
         }
 
         // --- DB LOGIC ---
