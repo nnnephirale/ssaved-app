@@ -338,6 +338,21 @@
             opacity: 0;
             pointer-events: none;
         }
+
+        /* --- DROPDOWN MENU --- */
+        #addMenuMobile, #addMenuDesktop {
+            animation: dropdownFadeIn 0.15s ease-out;
+        }
+        @keyframes dropdownFadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(-8px) scale(0.96);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0) scale(1);
+            }
+        }
     </style>
 </head>
 <body class="text-neutral-900 font-sans antialiased selection:bg-rose-100 selection:text-rose-900 min-h-screen">
@@ -352,38 +367,70 @@
 
     <header id="mainHeader" class="header-glass px-4 md:px-6 py-3 fixed top-0 w-full z-40 transition-transform duration-300 ease-in-out">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3 max-w-[1390px] mx-auto">
+            <!-- Mobile Header Row -->
             <div class="flex items-center justify-between w-full md:w-auto">
-                <div class="flex items-center gap-3">
+                <div class="flex items-center gap-2">
                     <h1 class="text-lg font-semibold tracking-tight text-neutral-800">SSaved</h1>
+                    <!-- Mobile: Link icon next to title -->
+                    <button onclick="showShareModal()" class="md:hidden w-8 h-8 flex items-center justify-center text-neutral-400 hover:text-neutral-900 rounded-md transition-all" title="Share Link">
+                        <i class="ph ph-link text-lg"></i>
+                    </button>
                     <span id="saveIndicator" class="text-[10px] font-medium uppercase tracking-wider text-neutral-300 opacity-0 transition-opacity">Saved</span>
                 </div>
-                <button onclick="triggerUpload()" class="md:hidden btn-primary flex items-center gap-2 px-3 py-1.5 text-sm"><i class="ph-bold ph-plus"></i> Add</button>
+                <!-- Mobile: Add button with dropdown -->
+                <div class="md:hidden relative">
+                    <button onclick="toggleAddMenu('mobile')" class="btn-primary flex items-center gap-2 px-3 py-1.5 text-sm">
+                        <i class="ph-bold ph-plus"></i> Add
+                    </button>
+                    <div id="addMenuMobile" class="absolute right-0 top-full mt-2 w-48 bg-white rounded-xl shadow-xl border border-neutral-100 py-1 hidden z-50">
+                        <button onclick="triggerUpload(); closeAddMenus()" class="w-full px-4 py-2.5 text-left text-sm text-neutral-700 hover:bg-neutral-50 flex items-center gap-3">
+                            <i class="ph ph-image text-neutral-400"></i> Add Screenshot
+                        </button>
+                        <button onclick="createNewFolder(); closeAddMenus()" class="w-full px-4 py-2.5 text-left text-sm text-neutral-700 hover:bg-neutral-50 flex items-center gap-3">
+                            <i class="ph ph-folder-plus text-neutral-400"></i> New Folder
+                        </button>
+                    </div>
+                </div>
             </div>
             
+            <!-- Desktop & Mobile Controls Row -->
             <div class="flex items-center gap-2 md:gap-3 overflow-x-auto no-scrollbar w-full md:w-auto pb-1 md:pb-0">
                 <button id="undoBtn" onclick="triggerUndo()" class="hidden-btn flex items-center gap-2 px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-100 rounded-lg text-sm font-medium whitespace-nowrap shrink-0">
                     <i class="ph-bold ph-arrow-u-up-left"></i> <span id="undoText">Undo</span>
                 </button>
 
-                <button onclick="createNewFolder()" class="btn-secondary flex items-center gap-2 px-3 py-1.5 text-xs uppercase tracking-wide shrink-0">
-                    <i class="ph-bold ph-folder-plus"></i> New Folder
-                </button>
-
+                <!-- Mobile: Column toggle -->
                 <div class="md:hidden flex bg-neutral-100/80 p-1 rounded-lg border border-neutral-200/50 shrink-0">
                     <button onclick="setMobileCols(1)" id="col-btn-1" class="w-8 h-8 flex items-center justify-center rounded-md text-neutral-400 hover:text-neutral-900 transition-all"><i class="ph-bold ph-rectangle"></i></button>
                     <button onclick="setMobileCols(2)" id="col-btn-2" class="w-8 h-8 flex items-center justify-center rounded-md text-neutral-400 hover:text-neutral-900 transition-all"><i class="ph-bold ph-columns"></i></button>
                 </div>
 
+                <!-- Desktop: Width slider -->
                 <div class="hidden md:flex items-center gap-2 bg-neutral-100/50 px-3 py-1.5 rounded-lg border border-neutral-200/50 shrink-0">
                     <i class="ph ph-corners-in text-neutral-400 text-sm"></i>
                     <input type="range" min="600" max="2400" value="1390" class="w-20 md:w-24" id="widthSlider" oninput="updateWidth(this.value)">
                 </div>
 
-                <div class="flex items-center gap-1 bg-neutral-100/50 p-1 rounded-lg border border-neutral-200/50 shrink-0">
+                <!-- Desktop: Share button (inside overflow container) -->
+                <div class="hidden md:flex items-center gap-1 bg-neutral-100/50 p-1 rounded-lg border border-neutral-200/50 shrink-0">
                     <button onclick="showShareModal()" class="w-8 h-8 flex items-center justify-center text-neutral-400 hover:text-neutral-900 hover:bg-white rounded-md transition-all" title="Share Link"><i class="ph ph-link text-lg"></i></button>
-                    <div class="hidden md:block w-px h-4 bg-neutral-200 mx-1"></div>
-                    <button onclick="triggerUpload()" class="hidden md:flex btn-primary items-center gap-2 px-3 py-1.5 text-sm"><i class="ph-bold ph-plus"></i> <span>Add New</span></button>
-                    <input type="file" id="fileInput" multiple accept="image/*" class="hidden" onchange="handleFiles(this.files)">
+                </div>
+                
+                <input type="file" id="fileInput" multiple accept="image/*" class="hidden" onchange="handleFiles(this.files)">
+            </div>
+            
+            <!-- Desktop: Add button (outside overflow container so dropdown isn't clipped) -->
+            <div class="hidden md:block relative shrink-0">
+                <button onclick="toggleAddMenu('desktop')" class="btn-primary flex items-center gap-2 px-3 py-1.5 text-sm">
+                    <i class="ph-bold ph-plus"></i> <span>Add New</span>
+                </button>
+                <div id="addMenuDesktop" class="absolute right-0 top-full mt-2 w-52 bg-white rounded-xl shadow-xl border border-neutral-100 py-1 hidden z-50">
+                    <button onclick="triggerUpload(); closeAddMenus()" class="w-full px-4 py-2.5 text-left text-sm text-neutral-700 hover:bg-neutral-50 flex items-center gap-3">
+                        <i class="ph ph-image text-neutral-400"></i> Add Screenshot
+                    </button>
+                    <button onclick="createNewFolder(); closeAddMenus()" class="w-full px-4 py-2.5 text-left text-sm text-neutral-700 hover:bg-neutral-50 flex items-center gap-3">
+                        <i class="ph ph-folder-plus text-neutral-400"></i> New Folder
+                    </button>
                 </div>
             </div>
         </div>
@@ -1338,6 +1385,7 @@
             input.value = window.location.href;
             modal.classList.remove('hidden');
             modal.classList.add('flex');
+            closeAddMenus();
         }
 
         function closeShareModal() {
@@ -1355,6 +1403,32 @@
                 document.getElementById('copyConfirm').classList.add('opacity-0');
             }, 2000);
         }
+
+        // --- ADD MENU DROPDOWN ---
+        function toggleAddMenu(type) {
+            const mobileMenu = document.getElementById('addMenuMobile');
+            const desktopMenu = document.getElementById('addMenuDesktop');
+            
+            if (type === 'mobile') {
+                desktopMenu.classList.add('hidden');
+                mobileMenu.classList.toggle('hidden');
+            } else {
+                mobileMenu.classList.add('hidden');
+                desktopMenu.classList.toggle('hidden');
+            }
+        }
+
+        function closeAddMenus() {
+            document.getElementById('addMenuMobile')?.classList.add('hidden');
+            document.getElementById('addMenuDesktop')?.classList.add('hidden');
+        }
+
+        // Close menus when clicking outside
+        document.addEventListener('click', (e) => {
+            if (!e.target.closest('#addMenuMobile') && !e.target.closest('#addMenuDesktop') && !e.target.closest('[onclick*="toggleAddMenu"]')) {
+                closeAddMenus();
+            }
+        });
 
         // Close modal on backdrop click
         document.getElementById('shareModal')?.addEventListener('click', (e) => {
