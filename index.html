@@ -432,7 +432,7 @@
             <!-- Desktop: Add button (outside overflow container so dropdown isn't clipped) -->
             <div class="hidden md:block relative shrink-0">
                 <button onclick="toggleAddMenu('desktop')" class="btn-primary flex items-center gap-2 px-3 py-1.5 text-sm">
-                    <i class="ph-bold ph-plus"></i> <span>Add New</span>
+                    <i class="ph-bold ph-plus"></i> <span>Add</span>
                 </button>
                 <div id="addMenuDesktop" class="absolute right-0 top-full mt-2 w-52 bg-white rounded-xl shadow-xl border border-neutral-100 py-1 hidden z-50">
                     <button onclick="triggerUpload(); closeAddMenus()" class="w-full px-4 py-2.5 text-left text-sm text-neutral-700 hover:bg-neutral-50 flex items-center gap-3">
@@ -451,7 +451,7 @@
         <div id="emptyState" class="hidden min-h-[70vh] flex flex-col items-center justify-center text-neutral-400">
             <div class="w-20 h-20 bg-neutral-100 rounded-2xl flex items-center justify-center mb-5 text-neutral-300"><i class="ph-fill ph-images text-4xl"></i></div>
             <p class="text-base font-medium text-neutral-500">No screenshots yet</p>
-            <p class="text-sm text-neutral-400 mt-1">Tap "Add New" to start</p>
+            <p class="text-sm text-neutral-400 mt-1">Tap "Add" to start</p>
         </div>
 
         <div id="folderWrapper" class="flex flex-col gap-12 pb-32"></div>
@@ -497,9 +497,9 @@
 
         // --- STATE ---
         let appData = { cards: [], folders: [] };
-        let deletedCardsStack = [], undoTimeout = null, dragSrcId = null, dragSrcFolderId = null;
+        let deletedCardsStack = [], undoTimeout = null, dragSrcId = null, dragSrcTags = null;
         let collectionId = null;
-        
+
         const INBOX_ID = 'inbox';
 
         // --- INIT ---
@@ -630,7 +630,7 @@
                 link: c.link || '#',
                 imageUrl: getPublicImageUrl(c.image_path),
                 imagePath: c.image_path,
-                folderId: c.folder_id || INBOX_ID,
+                tags: c.tags || (c.folder_id ? [c.folder_id] : [INBOX_ID]), // Support both old and new format
                 order: c.order,
                 suggestions: c.suggestions || [],
                 isScanning: false
@@ -682,7 +682,8 @@
                 notes: card.notes,
                 link: card.link,
                 image_path: card.imagePath,
-                folder_id: card.folderId,
+                folder_id: card.tags && card.tags.length > 0 ? card.tags[0] : INBOX_ID, // Keep for backwards compat
+                tags: card.tags || [INBOX_ID], // New tags array
                 order: card.order,
                 suggestions: card.suggestions
             };
@@ -722,7 +723,7 @@
         }
 
         function reindexCards(folderId) {
-            const subset = appData.cards.filter(c => c.folderId === folderId).sort((a,b) => a.order - b.order);
+            const subset = appData.cards.filter(c => c.tags && c.tags.includes(folderId)).sort((a,b) => a.order - b.order);
             subset.forEach((c, i) => { c.order = i; saveCardToDB(c); });
         }
 
@@ -745,7 +746,8 @@
             const gridClass = `grid-cols-${mCols} md:grid-cols-2 lg:grid-cols-3`;
 
             appData.folders.forEach(folder => {
-                const fCards = appData.cards.filter(c => c.folderId === folder.id).sort((a,b) => a.order - b.order);
+                // Cards can have multiple tags, so they can appear in multiple folders
+                const fCards = appData.cards.filter(c => c.tags && c.tags.includes(folder.id)).sort((a,b) => a.order - b.order);
                 const cardsHtml = fCards.map(c => generateCardHTML(c, rIds)).join('');
                 const chevron = folder.isCollapsed ? 'ph-caret-right' : 'ph-caret-down';
                 const gridState = folder.isCollapsed ? 'hidden' : '';
@@ -972,7 +974,7 @@
         function handleDragStart(e, id) {
             dragSrcId = id;
             const c = appData.cards.find(x => x.id === id);
-            dragSrcFolderId = c ? c.folderId : null;
+            dragSrcTags = c ? [...(c.tags || [INBOX_ID])] : null;
 
             e.dataTransfer.effectAllowed = 'move';
             e.dataTransfer.setData('text/plain', id);
@@ -1003,10 +1005,10 @@
         }
 
         function handleFolderDragOver(e, folderId) {
-            if (!dragSrcId || dragSrcFolderId === folderId) return;
+            if (!dragSrcId || !dragSrcTags) return;
             e.preventDefault(); e.dataTransfer.dropEffect = 'move';
             document.getElementById(`folder-${folderId}`).classList.add('folder-drop-active');
-            
+
             const f = appData.folders.find(x => x.id === folderId);
             if(f && f.isCollapsed) { f.isCollapsed = false; saveFolderToDB(f); render(); }
         }
@@ -1019,13 +1021,17 @@
         function handleFolderDrop(e, folderId) {
             e.preventDefault();
             document.getElementById(`folder-${folderId}`).classList.remove('folder-drop-active');
-            if (dragSrcId && dragSrcFolderId !== folderId) {
+            if (dragSrcId && dragSrcTags) {
                 const c = appData.cards.find(x => x.id === dragSrcId);
                 if (c) {
-                    c.folderId = folderId; c.order = 0; 
-                    saveCardToDB(c);
-                    reindexCards(folderId); reindexCards(dragSrcFolderId);
-                    transitionRender();
+                    // Add tag if not already present (multi-tag support)
+                    if (!c.tags.includes(folderId)) {
+                        c.tags.push(folderId);
+                        c.order = 0;
+                        saveCardToDB(c);
+                        reindexCards(folderId);
+                        transitionRender();
+                    }
                 }
             }
         }
@@ -1035,9 +1041,12 @@
             if (!dragSrcId || dragSrcId === targetId) return;
 
             const targetCard = appData.cards.find(c => c.id === targetId);
-            if (targetCard.folderId !== dragSrcFolderId) return;
+            // Check if cards share at least one common tag
+            const commonTags = dragSrcTags.filter(tag => targetCard.tags && targetCard.tags.includes(tag));
+            if (commonTags.length === 0) return;
 
-            const folderCards = appData.cards.filter(c => c.folderId === dragSrcFolderId).sort((a,b) => a.order - b.order);
+            const folderId = commonTags[0]; // Use first common tag for reordering
+            const folderCards = appData.cards.filter(c => c.tags && c.tags.includes(folderId)).sort((a,b) => a.order - b.order);
             const from = folderCards.findIndex(c => c.id === dragSrcId);
             const to = folderCards.findIndex(c => c.id === targetId);
 
@@ -1061,9 +1070,12 @@
             if (!dragSrcId || dragSrcId === targetId) return;
 
             const targetCard = appData.cards.find(c => c.id === targetId);
-            
-            if (targetCard.folderId === dragSrcFolderId) {
-                const folderCards = appData.cards.filter(c => c.folderId === dragSrcFolderId).sort((a,b) => a.order - b.order);
+            const commonTags = dragSrcTags.filter(tag => targetCard.tags && targetCard.tags.includes(tag));
+
+            if (commonTags.length > 0) {
+                // Reorder within the same folder
+                const folderId = commonTags[0];
+                const folderCards = appData.cards.filter(c => c.tags && c.tags.includes(folderId)).sort((a,b) => a.order - b.order);
                 const from = folderCards.findIndex(c => c.id === dragSrcId);
                 const to = folderCards.findIndex(c => c.id === targetId);
 
@@ -1075,17 +1087,20 @@
                     transitionRender();
                 }
             } else {
-                handleFolderDrop(e, targetCard.folderId);
+                // Add tag from target card's first tag
+                if (targetCard.tags && targetCard.tags.length > 0) {
+                    handleFolderDrop(e, targetCard.tags[0]);
+                }
             }
         }
 
         function handleDragEnd() {
             document.body.classList.remove('global-dragging');
             document.querySelectorAll('.is-dragging, .card-shift-forward, .card-shift-backward, .folder-drop-active').forEach(el => {
-                el.classList.remove('is-dragging', 'card-shift-forward', 'card-shift-backward', 'folder-drop-active'); 
+                el.classList.remove('is-dragging', 'card-shift-forward', 'card-shift-backward', 'folder-drop-active');
                 el.style.transform = '';
             });
-            dragSrcId = null; dragSrcFolderId = null;
+            dragSrcId = null; dragSrcTags = null;
         }
 
         // --- ACTIONS ---
@@ -1111,11 +1126,16 @@
 
         async function deleteFolder(id) {
             if(id === INBOX_ID) return;
-            if(!confirm("Delete this folder? Cards inside will be moved to Inbox.")) return;
-            
-            const cardsToMove = appData.cards.filter(c => c.folderId === id);
-            for (const c of cardsToMove) {
-                c.folderId = INBOX_ID;
+            if(!confirm("Delete this folder? Cards will keep their other tags.")) return;
+
+            // Remove this tag from all cards that have it
+            const cardsWithTag = appData.cards.filter(c => c.tags && c.tags.includes(id));
+            for (const c of cardsWithTag) {
+                c.tags = c.tags.filter(tag => tag !== id);
+                // If card has no tags left, add it to Inbox
+                if (c.tags.length === 0) {
+                    c.tags = [INBOX_ID];
+                }
                 await saveCardToDB(c);
             }
 
@@ -1124,7 +1144,6 @@
                 appData.folders.splice(idx, 1);
                 await deleteFolderFromDB(id);
             }
-            reindexCards(INBOX_ID);
             render();
         }
 
@@ -1185,7 +1204,7 @@
                     link: '#',
                     imageUrl,
                     imagePath,
-                    folderId: INBOX_ID,
+                    tags: [INBOX_ID],
                     order: 0,
                     suggestions: [],
                     isScanning: true
@@ -1334,22 +1353,24 @@
         
         async function triggerUndo() {
             if (!deletedCardsStack.length) return;
-            const c = deletedCardsStack.pop(); 
+            const c = deletedCardsStack.pop();
             c.isRestored = true;
-            
+
             // Re-upload image if it was deleted
             // For simplicity, we'll just re-save the card (image path should still be valid briefly)
             // In production, you might want to keep deleted images for a grace period
-            
-            const folderCards = appData.cards.filter(x => x.folderId === c.folderId).sort((a,b) => a.order - b.order);
+
+            // Use first tag for positioning
+            const firstTag = c.tags && c.tags.length > 0 ? c.tags[0] : INBOX_ID;
+            const folderCards = appData.cards.filter(x => x.tags && x.tags.includes(firstTag)).sort((a,b) => a.order - b.order);
             const insertIdx = Math.min(c.order, folderCards.length);
             folderCards.splice(insertIdx, 0, c);
-            
+
             folderCards.forEach((card, i) => { card.order = i; saveCardToDB(card); });
-            
-            appData.cards = appData.cards.filter(x => x.folderId !== c.folderId).concat(folderCards);
-            
-            transitionRender(c.id); 
+
+            appData.cards = appData.cards.filter(x => x.id !== c.id).concat([c]);
+
+            transitionRender(c.id);
             updateUndoUI();
         }
 
