@@ -960,12 +960,33 @@
 
         // --- DRAG & DROP ---
         function handleDragStart(e, id) {
-            dragSrcId = id; 
+            dragSrcId = id;
             const c = appData.cards.find(x => x.id === id);
             dragSrcFolderId = c ? c.folderId : null;
 
-            e.dataTransfer.effectAllowed = 'move'; 
+            e.dataTransfer.effectAllowed = 'move';
             e.dataTransfer.setData('text/plain', id);
+
+            // Create custom drag image to preserve rounded corners
+            const draggedCard = document.getElementById(`card-${id}`);
+            if (draggedCard) {
+                // Clone the card for the drag image
+                const clone = draggedCard.cloneNode(true);
+                clone.style.position = 'absolute';
+                clone.style.top = '-9999px';
+                clone.style.width = draggedCard.offsetWidth + 'px';
+                clone.style.opacity = '0.9';
+                document.body.appendChild(clone);
+
+                // Set the custom drag image
+                e.dataTransfer.setDragImage(clone, draggedCard.offsetWidth / 2, draggedCard.offsetHeight / 2);
+
+                // Remove clone after drag starts
+                setTimeout(() => {
+                    document.body.removeChild(clone);
+                }, 0);
+            }
+
             document.body.classList.add('global-dragging');
             setTimeout(() => document.getElementById(`card-${id}`)?.classList.add('is-dragging'), 0);
         }
