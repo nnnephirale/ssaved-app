@@ -499,20 +499,110 @@
         let appData = { cards: [], folders: [] };
         let deletedCardsStack = [], undoTimeout = null, dragSrcId = null, dragSrcTags = null;
         let collectionId = null;
+        let deletionTimers = new Map(); // Track scheduled deletions
 
         const INBOX_ID = 'inbox';
+        const DELETION_GRACE_PERIOD = 15 * 60 * 1000; // 15 minutes in milliseconds
 
         // --- INIT ---
         window.addEventListener('DOMContentLoaded', async () => {
             await initCollection();
             setupGlobalDrag();
             initScrollBehavior();
-            
+            cleanupOldDeletedCards(); // Clean up any cards past grace period
+
             // Prefs (local only)
             const w = localStorage.getItem('ssaved_width');
             if (w) { document.getElementById('widthSlider').value = w; updateWidth(w); }
             setMobileCols(localStorage.getItem('ssaved_cols') || 1);
         });
+
+        // --- DELETION MANAGEMENT ---
+        function schedulePermamentDeletion(cardId, deletedAt) {
+            const deletionTime = new Date(deletedAt).getTime() + DELETION_GRACE_PERIOD;
+            const now = Date.now();
+            const delay = deletionTime - now;
+
+            if (delay <= 0) {
+                // Already past grace period, delete immediately
+                permanentlyDeleteCard(cardId);
+            } else {
+                // Schedule deletion
+                const timerId = setTimeout(() => {
+                    permanentlyDeleteCard(cardId);
+                    deletionTimers.delete(cardId);
+                }, delay);
+                deletionTimers.set(cardId, timerId);
+            }
+        }
+
+        function cancelPermanentDeletion(cardId) {
+            if (deletionTimers.has(cardId)) {
+                clearTimeout(deletionTimers.get(cardId));
+                deletionTimers.delete(cardId);
+            }
+        }
+
+        async function permanentlyDeleteCard(cardId) {
+            console.log('Permanently deleting card:', cardId);
+            // Get the card to find its image path
+            const { data: card } = await db
+                .from('cards')
+                .select('image_path')
+                .eq('id', cardId)
+                .single();
+
+            if (card?.image_path) {
+                // Delete image from storage
+                await db.storage.from('images').remove([card.image_path]);
+            }
+
+            // Delete card record from database
+            await db.from('cards').delete().eq('id', cardId);
+
+            // Remove from undo stack if present
+            deletedCardsStack = deletedCardsStack.filter(c => c.id !== cardId);
+            updateUndoUI();
+        }
+
+        async function cleanupOldDeletedCards() {
+            // Find all cards with deleted_at timestamp older than grace period
+            const cutoffTime = new Date(Date.now() - DELETION_GRACE_PERIOD).toISOString();
+
+            const { data: oldDeletedCards } = await db
+                .from('cards')
+                .select('id, deleted_at, image_path')
+                .eq('collection_id', collectionId)
+                .not('deleted_at', 'is', null)
+                .lt('deleted_at', cutoffTime);
+
+            if (oldDeletedCards && oldDeletedCards.length > 0) {
+                console.log(`Cleaning up ${oldDeletedCards.length} old deleted cards`);
+
+                for (const card of oldDeletedCards) {
+                    // Delete image from storage
+                    if (card.image_path) {
+                        await db.storage.from('images').remove([card.image_path]);
+                    }
+                    // Delete card record
+                    await db.from('cards').delete().eq('id', card.id);
+                }
+            }
+
+            // Schedule deletion for recently deleted cards still within grace period
+            const { data: recentlyDeletedCards } = await db
+                .from('cards')
+                .select('id, deleted_at')
+                .eq('collection_id', collectionId)
+                .not('deleted_at', 'is', null)
+                .gte('deleted_at', cutoffTime);
+
+            if (recentlyDeletedCards && recentlyDeletedCards.length > 0) {
+                recentlyDeletedCards.forEach(card => {
+                    schedulePermamentDeletion(card.id, card.deleted_at);
+                });
+            }
+        }
 
         // --- COLLECTION MANAGEMENT ---
         async function initCollection() {
@@ -623,18 +713,21 @@
                 .eq('collection_id', id)
                 .order('order');
             
-            appData.cards = (cards || []).map(c => ({
-                id: c.id,
-                username: c.username || '',
-                notes: c.notes || '',
-                link: c.link || '#',
-                imageUrl: getPublicImageUrl(c.image_path),
-                imagePath: c.image_path,
-                tags: c.tags || (c.folder_id ? [c.folder_id] : [INBOX_ID]), // Support both old and new format
-                order: c.order,
-                suggestions: c.suggestions || [],
-                isScanning: false
-            }));
+            appData.cards = (cards || [])
+                .filter(c => !c.deleted_at) // Filter out soft-deleted cards
+                .map(c => ({
+                    id: c.id,
+                    username: c.username || '',
+                    notes: c.notes || '',
+                    link: c.link || '#',
+                    imageUrl: getPublicImageUrl(c.image_path),
+                    imagePath: c.image_path,
+                    tags: c.tags || (c.folder_id ? [c.folder_id] : [INBOX_ID]), // Support both old and new format
+                    order: c.order,
+                    suggestions: c.suggestions || [],
+                    isScanning: false,
+                    deletedAt: c.deleted_at || null
+                }));
             
             render();
             return true;
@@ -685,7 +778,8 @@
                 folder_id: card.tags && card.tags.length > 0 ? card.tags[0] : INBOX_ID, // Keep for backwards compat
                 tags: card.tags || [INBOX_ID], // New tags array
                 order: card.order,
-                suggestions: card.suggestions
+                suggestions: card.suggestions,
+                deleted_at: card.deletedAt || null // Soft delete timestamp
             };
             console.log('Saving card to DB:', dbCard);
             const { error } = await db.from('cards').upsert(dbCard);
@@ -1344,10 +1438,17 @@
             const idx = appData.cards.findIndex(c => c.id === id);
             if(idx > -1) {
                 const card = appData.cards.splice(idx, 1)[0];
+
+                // Soft delete: set timestamp instead of hard delete
+                card.deletedAt = new Date().toISOString();
+                await saveCardToDB(card);
+
                 deletedCardsStack.push(card);
-                await deleteCardFromDB(id);
-                transitionRender(); 
+                transitionRender();
                 updateUndoUI();
+
+                // Schedule permanent deletion after 15 minutes
+                schedulePermamentDeletion(id, card.deletedAt);
             }
         }
         
@@ -1355,10 +1456,10 @@
             if (!deletedCardsStack.length) return;
             const c = deletedCardsStack.pop();
             c.isRestored = true;
+            c.deletedAt = null; // Clear soft-delete timestamp
 
-            // Re-upload image if it was deleted
-            // For simplicity, we'll just re-save the card (image path should still be valid briefly)
-            // In production, you might want to keep deleted images for a grace period
+            // Cancel scheduled permanent deletion
+            cancelPermanentDeletion(c.id);
 
             // Use first tag for positioning
             const firstTag = c.tags && c.tags.length > 0 ? c.tags[0] : INBOX_ID;
