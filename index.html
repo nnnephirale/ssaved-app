@@ -669,6 +669,14 @@
         async function createCollection(id) {
             console.log('🆕 Creating collection:', id);
 
+            // Check if collection already exists
+            const { data: existingColl } = await db.from('collections').select('id').eq('id', id).single();
+            if (existingColl) {
+                console.log('⚠️ Collection already exists, loading instead');
+                await loadCollection(id);
+                return;
+            }
+
             // Create collection record
             const { data: collData, error: collError } = await db.from('collections').insert({ id }).select();
             if (collError) {
