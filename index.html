@@ -638,19 +638,8 @@
                         }
                     }
                 } else {
-                    // No ID in URL - check localStorage for existing collection
-                    id = localStorage.getItem('ssaved_collection_id');
-                    if (id) {
-                        collectionId = id;
-                        const exists = await loadCollection(id);
-                        if (!exists) {
-                            // Stored ID is invalid, create new
-                            await createNewCollection();
-                        }
-                    } else {
-                        // First time user - create new collection
-                        await createNewCollection();
-                    }
+                    // No ID in URL - always create new collection
+                    await createNewCollection();
                 }
                 
                 // Update URL without reload
@@ -675,7 +664,6 @@
         async function createNewCollection() {
             collectionId = generateCollectionId();
             await createCollection(collectionId);
-            localStorage.setItem('ssaved_collection_id', collectionId);
         }
 
         async function createCollection(id) {
