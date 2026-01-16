@@ -455,6 +455,7 @@
             <div class="w-20 h-20 bg-neutral-100 rounded-2xl flex items-center justify-center mb-5 text-neutral-300"><i class="ph-fill ph-images text-4xl"></i></div>
             <p class="text-base font-medium text-neutral-500">No screenshots yet</p>
             <p class="text-sm text-neutral-400 mt-1">Tap "Add" to start</p>
+            <button onclick="showRecentCollections()" class="mt-4 text-xs text-neutral-400 hover:text-neutral-600 underline transition-colors">View recent collections</button>
         </div>
 
         <div id="folderWrapper" class="flex flex-col gap-12 pb-32"></div>
@@ -716,6 +717,9 @@
             if (!collection) return false;
 
             collectionName = collection.name || id; // Use name or fall back to ID
+
+            // Save to recent collections in localStorage
+            saveToRecentCollections(id, collectionName);
             
             // Load folders
             const { data: folders } = await db
@@ -779,6 +783,38 @@
                 collectionName = newName.trim();
                 await db.from('collections').update({ name: collectionName }).eq('id', collectionId);
                 updateHeaderName();
+                saveToRecentCollections(collectionId, collectionName);
+            }
+        }
+
+        function saveToRecentCollections(id, name) {
+            try {
+                let recent = JSON.parse(localStorage.getItem('ssaved_recent_collections') || '[]');
+                // Remove if already exists
+                recent = recent.filter(c => c.id !== id);
+                // Add to front
+                recent.unshift({ id, name, lastAccessed: new Date().toISOString() });
+                // Keep only last 10
+                recent = recent.slice(0, 10);
+                localStorage.setItem('ssaved_recent_collections', JSON.stringify(recent));
+            } catch (e) {
+                console.error('Failed to save recent collection:', e);
+            }
+        }
+
+        function showRecentCollections() {
+            try {
+                const recent = JSON.parse(localStorage.getItem('ssaved_recent_collections') || '[]');
+                if (recent.length === 0) {
+                    alert('No recent collections found.');
+                    return;
+                }
+
+                const list = recent.map((c, i) => `${i + 1}. ${c.name} (${c.id})`).join('\n');
+                const message = 'Recent Collections:\n\n' + list + '\n\nCopy the ID or URL from your browser history to access them.';
+                alert(message);
+            } catch (e) {
+                console.error('Failed to load recent collections:', e);
             }
         }
 
