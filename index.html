@@ -379,8 +379,11 @@
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3 max-w-[1390px] mx-auto">
             <!-- Mobile Header Row -->
             <div class="flex items-center justify-between w-full md:w-auto">
-                <div class="flex items-center gap-2">
-                    <h1 class="text-lg font-semibold tracking-tight text-neutral-800">SSaved</h1>
+                <div class="flex items-center gap-2 group">
+                    <h1 class="text-lg font-semibold tracking-tight text-neutral-800 cursor-pointer hover:text-neutral-600 transition-colors" onclick="renameCollection()" title="Click to rename">SSaved</h1>
+                    <button onclick="renameCollection()" class="w-6 h-6 flex items-center justify-center text-neutral-300 hover:text-neutral-600 rounded transition-all opacity-0 group-hover:opacity-100" title="Rename collection">
+                        <i class="ph ph-pencil-simple text-sm"></i>
+                    </button>
                     <!-- Mobile: Link icon next to title -->
                     <button onclick="showShareModal()" class="md:hidden w-8 h-8 flex items-center justify-center text-neutral-400 hover:text-neutral-900 rounded-md transition-all" title="Share Link">
                         <i class="ph ph-link text-lg"></i>
@@ -499,10 +502,38 @@
         let appData = { cards: [], folders: [] };
         let deletedCardsStack = [], undoTimeout = null, dragSrcId = null, dragSrcTags = null;
         let collectionId = null;
+        let collectionName = null; // Display name for the collection
         let deletionTimers = new Map(); // Track scheduled deletions
 
         const INBOX_ID = 'inbox';
         const DELETION_GRACE_PERIOD = 15 * 60 * 1000; // 15 minutes in milliseconds
+
+        // Word lists for human-readable collection IDs
+        const ADJECTIVES = [
+            'autumn', 'hidden', 'bitter', 'misty', 'silent', 'empty', 'dry', 'dark',
+            'summer', 'icy', 'delicate', 'quiet', 'white', 'cool', 'spring', 'winter',
+            'patient', 'twilight', 'dawn', 'crimson', 'wispy', 'weathered', 'blue',
+            'billowing', 'broken', 'cold', 'damp', 'falling', 'frosty', 'green',
+            'long', 'late', 'lingering', 'bold', 'little', 'morning', 'muddy', 'old',
+            'red', 'rough', 'still', 'small', 'sparkling', 'throbbing', 'shy',
+            'wandering', 'withered', 'wild', 'black', 'young', 'holy', 'solitary',
+            'fragrant', 'aged', 'snowy', 'proud', 'floral', 'restless', 'divine',
+            'polished', 'ancient', 'purple', 'lively', 'nameless', 'lucky', 'odd',
+            'dazzling', 'upbeat', 'brave', 'calm', 'eager', 'jolly', 'kind'
+        ];
+
+        const NOUNS = [
+            'waterfall', 'river', 'breeze', 'moon', 'rain', 'wind', 'sea', 'morning',
+            'snow', 'lake', 'sunset', 'pine', 'shadow', 'leaf', 'dawn', 'glitter',
+            'forest', 'hill', 'cloud', 'meadow', 'sun', 'glade', 'bird', 'brook',
+            'butterfly', 'bush', 'dew', 'dust', 'field', 'fire', 'flower', 'firefly',
+            'feather', 'grass', 'haze', 'mountain', 'night', 'pond', 'darkness',
+            'snowflake', 'silence', 'sound', 'sky', 'shape', 'surf', 'thunder',
+            'violet', 'water', 'wildflower', 'wave', 'water', 'resonance', 'sun',
+            'wood', 'dream', 'cherry', 'tree', 'fog', 'frost', 'voice', 'paper',
+            'frog', 'smoke', 'star', 'mouse', 'ocean', 'galaxy', 'payne', 'liskov',
+            'lovelace', 'hopper', 'turing', 'shirley', 'hamilton', 'tesla'
+        ];
 
         // --- INIT ---
         window.addEventListener('DOMContentLoaded', async () => {
@@ -645,13 +676,10 @@
         }
 
         function generateCollectionId() {
-            // Generate a random 12-character alphanumeric ID
-            const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
-            let id = '';
-            for (let i = 0; i < 12; i++) {
-                id += chars.charAt(Math.floor(Math.random() * chars.length));
-            }
-            return id;
+            // Generate a human-readable adjective-noun ID (e.g., "dazzling-payne")
+            const adjective = ADJECTIVES[Math.floor(Math.random() * ADJECTIVES.length)];
+            const noun = NOUNS[Math.floor(Math.random() * NOUNS.length)];
+            return `${adjective}-${noun}`;
         }
 
         async function createNewCollection() {
@@ -661,29 +689,33 @@
         }
 
         async function createCollection(id) {
-            // Create collection record
-            await db.from('collections').insert({ id });
-            
+            // Create collection record with name
+            collectionName = id; // Default name is the ID
+            await db.from('collections').insert({ id, name: collectionName });
+
             // Create default Inbox folder
             const inboxFolder = { id: INBOX_ID, collection_id: id, name: 'Inbox', order: 0, is_collapsed: false };
             await db.from('folders').insert(inboxFolder);
-            
+
             appData.folders = [{ id: INBOX_ID, name: 'Inbox', order: 0, isCollapsed: false }];
             appData.cards = [];
+            updateHeaderName();
             render();
         }
 
         async function loadCollection(id) {
             setLoadingText('Loading your collection...');
-            
-            // Check if collection exists
+
+            // Check if collection exists and load name
             const { data: collection } = await db
                 .from('collections')
-                .select('id')
+                .select('id, name')
                 .eq('id', id)
                 .single();
-            
+
             if (!collection) return false;
+
+            collectionName = collection.name || id; // Use name or fall back to ID
             
             // Load folders
             const { data: folders } = await db
@@ -729,8 +761,25 @@
                     deletedAt: c.deleted_at || null
                 }));
             
+            updateHeaderName();
             render();
             return true;
+        }
+
+        function updateHeaderName() {
+            const headerTitle = document.querySelector('h1');
+            if (headerTitle && collectionName) {
+                headerTitle.textContent = collectionName;
+            }
+        }
+
+        async function renameCollection() {
+            const newName = prompt('Rename collection:', collectionName);
+            if (newName && newName.trim() && newName !== collectionName) {
+                collectionName = newName.trim();
+                await db.from('collections').update({ name: collectionName }).eq('id', collectionId);
+                updateHeaderName();
+            }
         }
 
         function updateUrl() {
