@@ -381,6 +381,10 @@
             <div class="flex items-center justify-between w-full md:w-auto">
                 <div class="flex items-center gap-2">
                     <h1 class="text-lg font-semibold tracking-tight text-neutral-800">SSaved</h1>
+                    <!-- Pencil icon for renaming collection slug -->
+                    <button onclick="renameCollection()" class="w-8 h-8 flex items-center justify-center text-neutral-400 hover:text-neutral-900 rounded-md transition-all" title="Rename URL">
+                        <i class="ph ph-pencil-simple text-base"></i>
+                    </button>
                     <!-- Mobile: Link icon next to title -->
                     <button onclick="showShareModal()" class="md:hidden w-8 h-8 flex items-center justify-center text-neutral-400 hover:text-neutral-900 rounded-md transition-all" title="Share Link">
                         <i class="ph ph-link text-lg"></i>
@@ -499,6 +503,7 @@
         let appData = { cards: [], folders: [] };
         let deletedCardsStack = [], undoTimeout = null, dragSrcId = null, dragSrcTags = null;
         let collectionId = null;
+        let collectionSlug = null; // URL-friendly slug
         let deletionTimers = new Map(); // Track scheduled deletions
 
         const INBOX_ID = 'inbox';
@@ -607,17 +612,30 @@
         // --- COLLECTION MANAGEMENT ---
         async function initCollection() {
             try {
-                // Check URL for collection ID
+                // Check URL for collection ID or slug
                 const urlParams = new URLSearchParams(window.location.search);
-                let id = urlParams.get('c');
-                
-                if (id) {
-                    // Try to load existing collection
-                    collectionId = id;
-                    const exists = await loadCollection(id);
-                    if (!exists) {
-                        // Collection doesn't exist, create it
-                        await createCollection(id);
+                let param = urlParams.get('c');
+
+                if (param) {
+                    // Try to resolve slug to ID first
+                    const { data: slugCollection } = await db
+                        .from('collections')
+                        .select('id')
+                        .eq('slug', param)
+                        .single();
+
+                    if (slugCollection) {
+                        // Found by slug, use the ID
+                        collectionId = slugCollection.id;
+                        await loadCollection(collectionId);
+                    } else {
+                        // Not a slug, treat as ID
+                        collectionId = param;
+                        const exists = await loadCollection(param);
+                        if (!exists) {
+                            // Collection doesn't exist, create it
+                            await createCollection(param);
+                        }
                     }
                 } else {
                     // No ID in URL - check localStorage for existing collection
@@ -661,13 +679,27 @@
         }
 
         async function createCollection(id) {
+            console.log('🆕 Creating collection:', id);
+
             // Create collection record
-            await db.from('collections').insert({ id });
-            
+            const { data: collData, error: collError } = await db.from('collections').insert({ id }).select();
+            if (collError) {
+                console.error('❌ Collection creation error:', collError);
+                alert('Failed to create collection: ' + collError.message);
+                return;
+            }
+            console.log('✅ Collection created:', collData);
+
             // Create default Inbox folder
             const inboxFolder = { id: INBOX_ID, collection_id: id, name: 'Inbox', order: 0, is_collapsed: false };
-            await db.from('folders').insert(inboxFolder);
-            
+            const { data: folderData, error: folderError } = await db.from('folders').insert(inboxFolder).select();
+            if (folderError) {
+                console.error('❌ Folder creation error:', folderError);
+                alert('Failed to create inbox: ' + folderError.message);
+                return;
+            }
+            console.log('✅ Inbox created:', folderData);
+
             appData.folders = [{ id: INBOX_ID, name: 'Inbox', order: 0, isCollapsed: false }];
             appData.cards = [];
             render();
@@ -679,11 +711,14 @@
             // Check if collection exists
             const { data: collection } = await db
                 .from('collections')
-                .select('id')
+                .select('id, slug')
                 .eq('id', id)
                 .single();
-            
+
             if (!collection) return false;
+
+            // Store slug if it exists
+            collectionSlug = collection.slug;
             
             // Load folders
             const { data: folders } = await db
@@ -733,9 +768,51 @@
             return true;
         }
 
+        async function renameCollection() {
+            const newSlug = prompt('Enter a URL-friendly name for this collection (letters, numbers, and hyphens only):', collectionSlug || '');
+
+            if (!newSlug) return; // User cancelled
+
+            // Validate slug format
+            const slugRegex = /^[a-z0-9-]+$/;
+            if (!slugRegex.test(newSlug)) {
+                alert('Invalid slug. Use only lowercase letters, numbers, and hyphens.');
+                return;
+            }
+
+            try {
+                // Update slug in database
+                const { error } = await db
+                    .from('collections')
+                    .update({ slug: newSlug })
+                    .eq('id', collectionId);
+
+                if (error) {
+                    if (error.code === '23505') {
+                        alert('That URL is already taken. Please choose a different one.');
+                    } else {
+                        alert('Failed to rename: ' + error.message);
+                    }
+                    return;
+                }
+
+                // Update local state
+                collectionSlug = newSlug;
+
+                // Update URL without reload
+                updateUrl();
+
+                showSaveIndicator();
+            } catch (error) {
+                console.error('Rename error:', error);
+                alert('Failed to rename: ' + error.message);
+            }
+        }
+
         function updateUrl() {
             const url = new URL(window.location);
-            url.searchParams.set('c', collectionId);
+            // Use slug if available, otherwise use ID
+            url.searchParams.set('c', collectionSlug || collectionId);
             window.history.replaceState({}, '', url);
         }
 
