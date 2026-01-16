@@ -686,8 +686,9 @@
             }
             console.log('✅ Collection created:', collData);
 
-            // Create default Inbox folder
-            const inboxFolder = { id: INBOX_ID, collection_id: id, name: 'Inbox', order: 0, is_collapsed: false };
+            // Create default Inbox folder with collection-specific ID
+            const inboxFolderId = `${id}_inbox`;
+            const inboxFolder = { id: inboxFolderId, collection_id: id, name: 'Inbox', order: 0, is_collapsed: false };
             const { data: folderData, error: folderError } = await db.from('folders').insert(inboxFolder).select();
             if (folderError) {
                 console.error('❌ Folder creation error:', folderError);
@@ -696,7 +697,7 @@
             }
             console.log('✅ Inbox created:', folderData);
 
-            appData.folders = [{ id: INBOX_ID, name: 'Inbox', order: 0, isCollapsed: false }];
+            appData.folders = [{ id: inboxFolderId, name: 'Inbox', order: 0, isCollapsed: false }];
             appData.cards = [];
             render();
         }
@@ -730,11 +731,12 @@
                 isCollapsed: f.is_collapsed
             }));
             
-            // Ensure Inbox exists
-            if (!appData.folders.find(f => f.id === INBOX_ID)) {
-                const inboxFolder = { id: INBOX_ID, collection_id: id, name: 'Inbox', order: 0, is_collapsed: false };
+            // Ensure Inbox exists (check by name, not ID)
+            if (!appData.folders.find(f => f.name === 'Inbox')) {
+                const inboxFolderId = `${id}_inbox`;
+                const inboxFolder = { id: inboxFolderId, collection_id: id, name: 'Inbox', order: 0, is_collapsed: false };
                 await db.from('folders').insert(inboxFolder);
-                appData.folders.unshift({ id: INBOX_ID, name: 'Inbox', order: 0, isCollapsed: false });
+                appData.folders.unshift({ id: inboxFolderId, name: 'Inbox', order: 0, isCollapsed: false });
             }
             
             // Load cards
@@ -744,21 +746,31 @@
                 .eq('collection_id', id)
                 .order('order');
             
+            // Get actual inbox folder ID for this collection
+            const inboxFolder = appData.folders.find(f => f.name === 'Inbox');
+            const actualInboxId = inboxFolder ? inboxFolder.id : `${id}_inbox`;
+
             appData.cards = (cards || [])
                 .filter(c => !c.deleted_at) // Filter out soft-deleted cards
-                .map(c => ({
-                    id: c.id,
-                    username: c.username || '',
-                    notes: c.notes || '',
-                    link: c.link || '#',
-                    imageUrl: getPublicImageUrl(c.image_path),
-                    imagePath: c.image_path,
-                    tags: c.tags || (c.folder_id ? [c.folder_id] : [INBOX_ID]), // Support both old and new format
-                    order: c.order,
-                    suggestions: c.suggestions || [],
-                    isScanning: false,
-                    deletedAt: c.deleted_at || null
-                }));
+                .map(c => {
+                    // Support old format: map old "inbox" ID to actual inbox ID
+                    let tags = c.tags || (c.folder_id ? [c.folder_id] : [INBOX_ID]);
+                    tags = tags.map(t => t === INBOX_ID ? actualInboxId : t);
+
+                    return {
+                        id: c.id,
+                        username: c.username || '',
+                        notes: c.notes || '',
+                        link: c.link || '#',
+                        imageUrl: getPublicImageUrl(c.image_path),
+                        imagePath: c.image_path,
+                        tags,
+                        order: c.order,
+                        suggestions: c.suggestions || [],
+                        isScanning: false,
+                        deletedAt: c.deleted_at || null
+                    };
+                });
             
             render();
             return true;
@@ -1364,6 +1376,10 @@
                 const imageUrl = getPublicImageUrl(imagePath);
                 console.log('Image URL:', imageUrl);
                 
+                // Get the actual inbox folder ID for this collection
+                const inboxFolder = appData.folders.find(f => f.name === 'Inbox');
+                const inboxId = inboxFolder ? inboxFolder.id : `${collectionId}_inbox`;
+
                 const card = {
                     id,
                     username: '',
@@ -1371,7 +1387,7 @@
                     link: '#',
                     imageUrl,
                     imagePath,
-                    tags: [INBOX_ID],
+                    tags: [inboxId],
                     order: 0,
                     suggestions: [],
                     isScanning: true
