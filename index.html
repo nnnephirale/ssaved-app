@@ -381,10 +381,6 @@
             <div class="flex items-center justify-between w-full md:w-auto">
                 <div class="flex items-center gap-2">
                     <h1 class="text-lg font-semibold tracking-tight text-neutral-800">SSaved</h1>
-                    <!-- Pencil icon for renaming collection slug -->
-                    <button onclick="renameCollection()" class="w-8 h-8 flex items-center justify-center text-neutral-400 hover:text-neutral-900 rounded-md transition-all" title="Rename URL">
-                        <i class="ph ph-pencil-simple text-base"></i>
-                    </button>
                     <!-- Mobile: Link icon next to title -->
                     <button onclick="showShareModal()" class="md:hidden w-8 h-8 flex items-center justify-center text-neutral-400 hover:text-neutral-900 rounded-md transition-all" title="Share Link">
                         <i class="ph ph-link text-lg"></i>
@@ -436,7 +432,7 @@
             <!-- Desktop: Add button (outside overflow container so dropdown isn't clipped) -->
             <div class="hidden md:block relative shrink-0">
                 <button onclick="toggleAddMenu('desktop')" class="btn-primary flex items-center gap-2 px-3 py-1.5 text-sm">
-                    <i class="ph-bold ph-plus"></i> <span>Add</span>
+                    <i class="ph-bold ph-plus"></i> <span>Add New</span>
                 </button>
                 <div id="addMenuDesktop" class="absolute right-0 top-full mt-2 w-52 bg-white rounded-xl shadow-xl border border-neutral-100 py-1 hidden z-50">
                     <button onclick="triggerUpload(); closeAddMenus()" class="w-full px-4 py-2.5 text-left text-sm text-neutral-700 hover:bg-neutral-50 flex items-center gap-3">
@@ -455,7 +451,7 @@
         <div id="emptyState" class="hidden min-h-[70vh] flex flex-col items-center justify-center text-neutral-400">
             <div class="w-20 h-20 bg-neutral-100 rounded-2xl flex items-center justify-center mb-5 text-neutral-300"><i class="ph-fill ph-images text-4xl"></i></div>
             <p class="text-base font-medium text-neutral-500">No screenshots yet</p>
-            <p class="text-sm text-neutral-400 mt-1">Tap "Add" to start</p>
+            <p class="text-sm text-neutral-400 mt-1">Tap "Add New" to start</p>
         </div>
 
         <div id="folderWrapper" class="flex flex-col gap-12 pb-32"></div>
@@ -501,145 +497,52 @@
 
         // --- STATE ---
         let appData = { cards: [], folders: [] };
-        let deletedCardsStack = [], undoTimeout = null, dragSrcId = null, dragSrcTags = null;
+        let deletedCardsStack = [], undoTimeout = null, dragSrcId = null, dragSrcFolderId = null;
         let collectionId = null;
-        let collectionSlug = null; // URL-friendly slug
-        let deletionTimers = new Map(); // Track scheduled deletions
-
-        const INBOX_ID = 'inbox';
-        const DELETION_GRACE_PERIOD = 15 * 60 * 1000; // 15 minutes in milliseconds
+        
+        const INBOX_ID = 'inbox'; // Will be set to {collectionId}_inbox on load
 
         // --- INIT ---
         window.addEventListener('DOMContentLoaded', async () => {
             await initCollection();
             setupGlobalDrag();
             initScrollBehavior();
-            cleanupOldDeletedCards(); // Clean up any cards past grace period
-
+            
             // Prefs (local only)
             const w = localStorage.getItem('ssaved_width');
             if (w) { document.getElementById('widthSlider').value = w; updateWidth(w); }
             setMobileCols(localStorage.getItem('ssaved_cols') || 1);
         });
 
-        // --- DELETION MANAGEMENT ---
-        function schedulePermamentDeletion(cardId, deletedAt) {
-            const deletionTime = new Date(deletedAt).getTime() + DELETION_GRACE_PERIOD;
-            const now = Date.now();
-            const delay = deletionTime - now;
-
-            if (delay <= 0) {
-                // Already past grace period, delete immediately
-                permanentlyDeleteCard(cardId);
-            } else {
-                // Schedule deletion
-                const timerId = setTimeout(() => {
-                    permanentlyDeleteCard(cardId);
-                    deletionTimers.delete(cardId);
-                }, delay);
-                deletionTimers.set(cardId, timerId);
-            }
-        }
-
-        function cancelPermanentDeletion(cardId) {
-            if (deletionTimers.has(cardId)) {
-                clearTimeout(deletionTimers.get(cardId));
-                deletionTimers.delete(cardId);
-            }
-        }
-
-        async function permanentlyDeleteCard(cardId) {
-            console.log('Permanently deleting card:', cardId);
-            // Get the card to find its image path
-            const { data: card } = await db
-                .from('cards')
-                .select('image_path')
-                .eq('id', cardId)
-                .single();
-
-            if (card?.image_path) {
-                // Delete image from storage
-                await db.storage.from('images').remove([card.image_path]);
-            }
-
-            // Delete card record from database
-            await db.from('cards').delete().eq('id', cardId);
-
-            // Remove from undo stack if present
-            deletedCardsStack = deletedCardsStack.filter(c => c.id !== cardId);
-            updateUndoUI();
-        }
-
-        async function cleanupOldDeletedCards() {
-            // Find all cards with deleted_at timestamp older than grace period
-            const cutoffTime = new Date(Date.now() - DELETION_GRACE_PERIOD).toISOString();
-
-            const { data: oldDeletedCards } = await db
-                .from('cards')
-                .select('id, deleted_at, image_path')
-                .eq('collection_id', collectionId)
-                .not('deleted_at', 'is', null)
-                .lt('deleted_at', cutoffTime);
-
-            if (oldDeletedCards && oldDeletedCards.length > 0) {
-                console.log(`Cleaning up ${oldDeletedCards.length} old deleted cards`);
-
-                for (const card of oldDeletedCards) {
-                    // Delete image from storage
-                    if (card.image_path) {
-                        await db.storage.from('images').remove([card.image_path]);
-                    }
-                    // Delete card record
-                    await db.from('cards').delete().eq('id', card.id);
-                }
-            }
-
-            // Schedule deletion for recently deleted cards still within grace period
-            const { data: recentlyDeletedCards } = await db
-                .from('cards')
-                .select('id, deleted_at')
-                .eq('collection_id', collectionId)
-                .not('deleted_at', 'is', null)
-                .gte('deleted_at', cutoffTime);
-
-            if (recentlyDeletedCards && recentlyDeletedCards.length > 0) {
-                recentlyDeletedCards.forEach(card => {
-                    schedulePermamentDeletion(card.id, card.deleted_at);
-                });
-            }
-        }
-
         // --- COLLECTION MANAGEMENT ---
         async function initCollection() {
             try {
-                // Check URL for collection ID or slug
+                // Check URL for collection ID
                 const urlParams = new URLSearchParams(window.location.search);
-                let param = urlParams.get('c');
-
-                if (param) {
-                    // Try to resolve slug to ID first
-                    const { data: slugCollection } = await db
-                        .from('collections')
-                        .select('id')
-                        .eq('slug', param)
-                        .single();
-
-                    if (slugCollection) {
-                        // Found by slug, use the ID
-                        collectionId = slugCollection.id;
-                        await loadCollection(collectionId);
-                    } else {
-                        // Not a slug, treat as ID
-                        collectionId = param;
-                        const exists = await loadCollection(param);
-                        if (!exists) {
-                            // Collection doesn't exist, create it
-                            await createCollection(param);
-                        }
+                let id = urlParams.get('c');
+                
+                if (id) {
+                    // Try to load existing collection
+                    collectionId = id;
+                    const exists = await loadCollection(id);
+                    if (!exists) {
+                        // Collection doesn't exist, create it
+                        await createCollection(id);
                     }
                 } else {
-                    // No ID in URL - always create new collection
-                    await createNewCollection();
+                    // No ID in URL - check localStorage for existing collection
+                    id = localStorage.getItem('ssaved_collection_id');
+                    if (id) {
+                        collectionId = id;
+                        const exists = await loadCollection(id);
+                        if (!exists) {
+                            // Stored ID is invalid, create new
+                            await createNewCollection();
+                        }
+                    } else {
+                        // First time user - create new collection
+                        await createNewCollection();
+                    }
                 }
                 
                 // Update URL without reload
@@ -651,53 +554,55 @@
             }
         }
 
+        // --- COLLECTION ID GENERATION ---
+        const ADJECTIVES = [
+            'autumn', 'hidden', 'bitter', 'misty', 'silent', 'empty', 'dry', 'dark',
+            'summer', 'icy', 'delicate', 'quiet', 'white', 'cool', 'spring', 'winter',
+            'patient', 'twilight', 'dawn', 'crimson', 'wispy', 'weathered', 'blue',
+            'billowing', 'broken', 'cold', 'damp', 'falling', 'frosty', 'green',
+            'long', 'late', 'lingering', 'bold', 'little', 'morning', 'muddy', 'old',
+            'red', 'rough', 'still', 'small', 'sparkling', 'throbbing', 'shy',
+            'wandering', 'withered', 'wild', 'black', 'young', 'holy', 'solitary',
+            'fragrant', 'aged', 'snowy', 'proud', 'floral', 'restless', 'divine',
+            'polished', 'ancient', 'purple', 'lively', 'nameless', 'lucky', 'odd',
+            'dazzling', 'upbeat', 'brave', 'calm', 'eager', 'jolly', 'kind'
+        ];
+
+        const NOUNS = [
+            'waterfall', 'river', 'breeze', 'moon', 'rain', 'wind', 'sea', 'morning',
+            'snow', 'lake', 'sunset', 'pine', 'shadow', 'leaf', 'dawn', 'glitter',
+            'forest', 'hill', 'cloud', 'meadow', 'sun', 'glade', 'bird', 'brook',
+            'butterfly', 'bush', 'dew', 'dust', 'field', 'fire', 'flower', 'firefly',
+            'feather', 'grass', 'haze', 'mountain', 'night', 'pond', 'darkness',
+            'snowflake', 'silence', 'sound', 'sky', 'shape', 'surf', 'thunder',
+            'violet', 'water', 'wildflower', 'wave', 'water', 'resonance', 'sun',
+            'wood', 'dream', 'cherry', 'tree', 'fog', 'frost', 'voice', 'paper',
+            'frog', 'smoke', 'star', 'mouse', 'ocean', 'galaxy', 'payne', 'liskov',
+            'lovelace', 'hopper', 'turing', 'shirley', 'hamilton', 'tesla'
+        ];
+
         function generateCollectionId() {
-            // Generate a random 12-character alphanumeric ID
-            const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
-            let id = '';
-            for (let i = 0; i < 12; i++) {
-                id += chars.charAt(Math.floor(Math.random() * chars.length));
-            }
-            return id;
+            const adj = ADJECTIVES[Math.floor(Math.random() * ADJECTIVES.length)];
+            const noun = NOUNS[Math.floor(Math.random() * NOUNS.length)];
+            return `${adj}-${noun}`;
         }
 
         async function createNewCollection() {
             collectionId = generateCollectionId();
             await createCollection(collectionId);
+            localStorage.setItem('ssaved_collection_id', collectionId);
         }
 
         async function createCollection(id) {
-            console.log('🆕 Creating collection:', id);
-
-            // Check if collection already exists
-            const { data: existingColl } = await db.from('collections').select('id').eq('id', id).single();
-            if (existingColl) {
-                console.log('⚠️ Collection already exists, loading instead');
-                await loadCollection(id);
-                return;
-            }
-
             // Create collection record
-            const { data: collData, error: collError } = await db.from('collections').insert({ id }).select();
-            if (collError) {
-                console.error('❌ Collection creation error:', collError);
-                alert('Failed to create collection: ' + collError.message);
-                return;
-            }
-            console.log('✅ Collection created:', collData);
+            await db.from('collections').insert({ id });
 
             // Create default Inbox folder with collection-specific ID
-            const inboxFolderId = `${id}_inbox`;
-            const inboxFolder = { id: inboxFolderId, collection_id: id, name: 'Inbox', order: 0, is_collapsed: false };
-            const { data: folderData, error: folderError } = await db.from('folders').insert(inboxFolder).select();
-            if (folderError) {
-                console.error('❌ Folder creation error:', folderError);
-                alert('Failed to create inbox: ' + folderError.message);
-                return;
-            }
-            console.log('✅ Inbox created:', folderData);
+            const inboxId = `${id}_inbox`;
+            const inboxFolder = { id: inboxId, collection_id: id, name: 'Inbox', order: 0, is_collapsed: false };
+            await db.from('folders').insert(inboxFolder);
 
-            appData.folders = [{ id: inboxFolderId, name: 'Inbox', order: 0, isCollapsed: false }];
+            appData.folders = [{ id: inboxId, name: 'Inbox', order: 0, isCollapsed: false }];
             appData.cards = [];
             render();
         }
@@ -708,14 +613,11 @@
             // Check if collection exists
             const { data: collection } = await db
                 .from('collections')
-                .select('id, slug')
+                .select('id')
                 .eq('id', id)
                 .single();
-
+            
             if (!collection) return false;
-
-            // Store slug if it exists
-            collectionSlug = collection.slug;
             
             // Load folders
             const { data: folders } = await db
@@ -730,13 +632,16 @@
                 order: f.order,
                 isCollapsed: f.is_collapsed
             }));
-            
-            // Ensure Inbox exists (check by name, not ID)
-            if (!appData.folders.find(f => f.name === 'Inbox')) {
-                const inboxFolderId = `${id}_inbox`;
-                const inboxFolder = { id: inboxFolderId, collection_id: id, name: 'Inbox', order: 0, is_collapsed: false };
-                await db.from('folders').insert(inboxFolder);
-                appData.folders.unshift({ id: inboxFolderId, name: 'Inbox', order: 0, isCollapsed: false });
+
+            // Get the actual inbox folder ID (either old "inbox" or new "{collectionId}_inbox")
+            const inboxFolder = appData.folders.find(f => f.name === 'Inbox');
+            const actualInboxId = inboxFolder ? inboxFolder.id : `${id}_inbox`;
+
+            // Ensure Inbox exists
+            if (!inboxFolder) {
+                const newInbox = { id: actualInboxId, collection_id: id, name: 'Inbox', order: 0, is_collapsed: false };
+                await db.from('folders').insert(newInbox);
+                appData.folders.unshift({ id: actualInboxId, name: 'Inbox', order: 0, isCollapsed: false });
             }
             
             // Load cards
@@ -746,81 +651,26 @@
                 .eq('collection_id', id)
                 .order('order');
             
-            // Get actual inbox folder ID for this collection
-            const inboxFolder = appData.folders.find(f => f.name === 'Inbox');
-            const actualInboxId = inboxFolder ? inboxFolder.id : `${id}_inbox`;
-
-            appData.cards = (cards || [])
-                .filter(c => !c.deleted_at) // Filter out soft-deleted cards
-                .map(c => {
-                    // Support old format: map old "inbox" ID to actual inbox ID
-                    let tags = c.tags || (c.folder_id ? [c.folder_id] : [INBOX_ID]);
-                    tags = tags.map(t => t === INBOX_ID ? actualInboxId : t);
-
-                    return {
-                        id: c.id,
-                        username: c.username || '',
-                        notes: c.notes || '',
-                        link: c.link || '#',
-                        imageUrl: getPublicImageUrl(c.image_path),
-                        imagePath: c.image_path,
-                        tags,
-                        order: c.order,
-                        suggestions: c.suggestions || [],
-                        isScanning: false,
-                        deletedAt: c.deleted_at || null
-                    };
-                });
+            appData.cards = (cards || []).map(c => ({
+                id: c.id,
+                username: c.username || '',
+                notes: c.notes || '',
+                link: c.link || '#',
+                imageUrl: getPublicImageUrl(c.image_path),
+                imagePath: c.image_path,
+                folderId: c.folder_id || actualInboxId,
+                order: c.order,
+                suggestions: c.suggestions || [],
+                isScanning: false
+            }));
             
             render();
             return true;
         }
 
-        async function renameCollection() {
-            const newSlug = prompt('Enter a URL-friendly name for this collection (letters, numbers, and hyphens only):', collectionSlug || '');
-
-            if (!newSlug) return; // User cancelled
-
-            // Validate slug format
-            const slugRegex = /^[a-z0-9-]+$/;
-            if (!slugRegex.test(newSlug)) {
-                alert('Invalid slug. Use only lowercase letters, numbers, and hyphens.');
-                return;
-            }
-
-            try {
-                // Update slug in database
-                const { error } = await db
-                    .from('collections')
-                    .update({ slug: newSlug })
-                    .eq('id', collectionId);
-
-                if (error) {
-                    if (error.code === '23505') {
-                        alert('That URL is already taken. Please choose a different one.');
-                    } else {
-                        alert('Failed to rename: ' + error.message);
-                    }
-                    return;
-                }
-
-                // Update local state
-                collectionSlug = newSlug;
-
-                // Update URL without reload
-                updateUrl();
-
-                showSaved();
-            } catch (error) {
-                console.error('Rename error:', error);
-                alert('Failed to rename: ' + error.message);
-            }
-        }
-
         function updateUrl() {
             const url = new URL(window.location);
-            // Use slug if available, otherwise use ID
-            url.searchParams.set('c', collectionSlug || collectionId);
+            url.searchParams.set('c', collectionId);
             window.history.replaceState({}, '', url);
         }
 
@@ -860,11 +710,9 @@
                 notes: card.notes,
                 link: card.link,
                 image_path: card.imagePath,
-                folder_id: card.tags && card.tags.length > 0 ? card.tags[0] : INBOX_ID, // Keep for backwards compat
-                tags: card.tags || [INBOX_ID], // New tags array
+                folder_id: card.folderId,
                 order: card.order,
-                suggestions: card.suggestions,
-                deleted_at: card.deletedAt || null // Soft delete timestamp
+                suggestions: card.suggestions
             };
             console.log('Saving card to DB:', dbCard);
             const { error } = await db.from('cards').upsert(dbCard);
@@ -902,7 +750,7 @@
         }
 
         function reindexCards(folderId) {
-            const subset = appData.cards.filter(c => c.tags && c.tags.includes(folderId)).sort((a,b) => a.order - b.order);
+            const subset = appData.cards.filter(c => c.folderId === folderId).sort((a,b) => a.order - b.order);
             subset.forEach((c, i) => { c.order = i; saveCardToDB(c); });
         }
 
@@ -925,8 +773,7 @@
             const gridClass = `grid-cols-${mCols} md:grid-cols-2 lg:grid-cols-3`;
 
             appData.folders.forEach(folder => {
-                // Cards can have multiple tags, so they can appear in multiple folders
-                const fCards = appData.cards.filter(c => c.tags && c.tags.includes(folder.id)).sort((a,b) => a.order - b.order);
+                const fCards = appData.cards.filter(c => c.folderId === folder.id).sort((a,b) => a.order - b.order);
                 const cardsHtml = fCards.map(c => generateCardHTML(c, rIds)).join('');
                 const chevron = folder.isCollapsed ? 'ph-caret-right' : 'ph-caret-down';
                 const gridState = folder.isCollapsed ? 'hidden' : '';
@@ -1153,7 +1000,7 @@
         function handleDragStart(e, id) {
             dragSrcId = id;
             const c = appData.cards.find(x => x.id === id);
-            dragSrcTags = c ? [...(c.tags || [INBOX_ID])] : null;
+            dragSrcFolderId = c ? c.folderId : null;
 
             e.dataTransfer.effectAllowed = 'move';
             e.dataTransfer.setData('text/plain', id);
@@ -1184,10 +1031,10 @@
         }
 
         function handleFolderDragOver(e, folderId) {
-            if (!dragSrcId || !dragSrcTags) return;
+            if (!dragSrcId || dragSrcFolderId === folderId) return;
             e.preventDefault(); e.dataTransfer.dropEffect = 'move';
             document.getElementById(`folder-${folderId}`).classList.add('folder-drop-active');
-
+            
             const f = appData.folders.find(x => x.id === folderId);
             if(f && f.isCollapsed) { f.isCollapsed = false; saveFolderToDB(f); render(); }
         }
@@ -1200,17 +1047,13 @@
         function handleFolderDrop(e, folderId) {
             e.preventDefault();
             document.getElementById(`folder-${folderId}`).classList.remove('folder-drop-active');
-            if (dragSrcId && dragSrcTags) {
+            if (dragSrcId && dragSrcFolderId !== folderId) {
                 const c = appData.cards.find(x => x.id === dragSrcId);
                 if (c) {
-                    // Add tag if not already present (multi-tag support)
-                    if (!c.tags.includes(folderId)) {
-                        c.tags.push(folderId);
-                        c.order = 0;
-                        saveCardToDB(c);
-                        reindexCards(folderId);
-                        transitionRender();
-                    }
+                    c.folderId = folderId; c.order = 0; 
+                    saveCardToDB(c);
+                    reindexCards(folderId); reindexCards(dragSrcFolderId);
+                    transitionRender();
                 }
             }
         }
@@ -1220,12 +1063,9 @@
             if (!dragSrcId || dragSrcId === targetId) return;
 
             const targetCard = appData.cards.find(c => c.id === targetId);
-            // Check if cards share at least one common tag
-            const commonTags = dragSrcTags.filter(tag => targetCard.tags && targetCard.tags.includes(tag));
-            if (commonTags.length === 0) return;
+            if (targetCard.folderId !== dragSrcFolderId) return;
 
-            const folderId = commonTags[0]; // Use first common tag for reordering
-            const folderCards = appData.cards.filter(c => c.tags && c.tags.includes(folderId)).sort((a,b) => a.order - b.order);
+            const folderCards = appData.cards.filter(c => c.folderId === dragSrcFolderId).sort((a,b) => a.order - b.order);
             const from = folderCards.findIndex(c => c.id === dragSrcId);
             const to = folderCards.findIndex(c => c.id === targetId);
 
@@ -1249,12 +1089,9 @@
             if (!dragSrcId || dragSrcId === targetId) return;
 
             const targetCard = appData.cards.find(c => c.id === targetId);
-            const commonTags = dragSrcTags.filter(tag => targetCard.tags && targetCard.tags.includes(tag));
-
-            if (commonTags.length > 0) {
-                // Reorder within the same folder
-                const folderId = commonTags[0];
-                const folderCards = appData.cards.filter(c => c.tags && c.tags.includes(folderId)).sort((a,b) => a.order - b.order);
+            
+            if (targetCard.folderId === dragSrcFolderId) {
+                const folderCards = appData.cards.filter(c => c.folderId === dragSrcFolderId).sort((a,b) => a.order - b.order);
                 const from = folderCards.findIndex(c => c.id === dragSrcId);
                 const to = folderCards.findIndex(c => c.id === targetId);
 
@@ -1266,20 +1103,17 @@
                     transitionRender();
                 }
             } else {
-                // Add tag from target card's first tag
-                if (targetCard.tags && targetCard.tags.length > 0) {
-                    handleFolderDrop(e, targetCard.tags[0]);
-                }
+                handleFolderDrop(e, targetCard.folderId);
             }
         }
 
         function handleDragEnd() {
             document.body.classList.remove('global-dragging');
             document.querySelectorAll('.is-dragging, .card-shift-forward, .card-shift-backward, .folder-drop-active').forEach(el => {
-                el.classList.remove('is-dragging', 'card-shift-forward', 'card-shift-backward', 'folder-drop-active');
+                el.classList.remove('is-dragging', 'card-shift-forward', 'card-shift-backward', 'folder-drop-active'); 
                 el.style.transform = '';
             });
-            dragSrcId = null; dragSrcTags = null;
+            dragSrcId = null; dragSrcFolderId = null;
         }
 
         // --- ACTIONS ---
@@ -1305,16 +1139,11 @@
 
         async function deleteFolder(id) {
             if(id === INBOX_ID) return;
-            if(!confirm("Delete this folder? Cards will keep their other tags.")) return;
-
-            // Remove this tag from all cards that have it
-            const cardsWithTag = appData.cards.filter(c => c.tags && c.tags.includes(id));
-            for (const c of cardsWithTag) {
-                c.tags = c.tags.filter(tag => tag !== id);
-                // If card has no tags left, add it to Inbox
-                if (c.tags.length === 0) {
-                    c.tags = [INBOX_ID];
-                }
+            if(!confirm("Delete this folder? Cards inside will be moved to Inbox.")) return;
+            
+            const cardsToMove = appData.cards.filter(c => c.folderId === id);
+            for (const c of cardsToMove) {
+                c.folderId = INBOX_ID;
                 await saveCardToDB(c);
             }
 
@@ -1323,6 +1152,7 @@
                 appData.folders.splice(idx, 1);
                 await deleteFolderFromDB(id);
             }
+            reindexCards(INBOX_ID);
             render();
         }
 
@@ -1376,9 +1206,9 @@
                 const imageUrl = getPublicImageUrl(imagePath);
                 console.log('Image URL:', imageUrl);
                 
-                // Get the actual inbox folder ID for this collection
+                // Get the actual inbox folder ID
                 const inboxFolder = appData.folders.find(f => f.name === 'Inbox');
-                const inboxId = inboxFolder ? inboxFolder.id : `${collectionId}_inbox`;
+                const actualInboxId = inboxFolder ? inboxFolder.id : `${collectionId}_inbox`;
 
                 const card = {
                     id,
@@ -1387,7 +1217,7 @@
                     link: '#',
                     imageUrl,
                     imagePath,
-                    tags: [inboxId],
+                    folderId: actualInboxId,
                     order: 0,
                     suggestions: [],
                     isScanning: true
@@ -1527,40 +1357,31 @@
             const idx = appData.cards.findIndex(c => c.id === id);
             if(idx > -1) {
                 const card = appData.cards.splice(idx, 1)[0];
-
-                // Soft delete: set timestamp instead of hard delete
-                card.deletedAt = new Date().toISOString();
-                await saveCardToDB(card);
-
                 deletedCardsStack.push(card);
-                transitionRender();
+                await deleteCardFromDB(id);
+                transitionRender(); 
                 updateUndoUI();
-
-                // Schedule permanent deletion after 15 minutes
-                schedulePermamentDeletion(id, card.deletedAt);
             }
         }
         
         async function triggerUndo() {
             if (!deletedCardsStack.length) return;
-            const c = deletedCardsStack.pop();
+            const c = deletedCardsStack.pop(); 
             c.isRestored = true;
-            c.deletedAt = null; // Clear soft-delete timestamp
-
-            // Cancel scheduled permanent deletion
-            cancelPermanentDeletion(c.id);
-
-            // Use first tag for positioning
-            const firstTag = c.tags && c.tags.length > 0 ? c.tags[0] : INBOX_ID;
-            const folderCards = appData.cards.filter(x => x.tags && x.tags.includes(firstTag)).sort((a,b) => a.order - b.order);
+            
+            // Re-upload image if it was deleted
+            // For simplicity, we'll just re-save the card (image path should still be valid briefly)
+            // In production, you might want to keep deleted images for a grace period
+            
+            const folderCards = appData.cards.filter(x => x.folderId === c.folderId).sort((a,b) => a.order - b.order);
             const insertIdx = Math.min(c.order, folderCards.length);
             folderCards.splice(insertIdx, 0, c);
-
+            
             folderCards.forEach((card, i) => { card.order = i; saveCardToDB(card); });
-
-            appData.cards = appData.cards.filter(x => x.id !== c.id).concat([c]);
-
-            transitionRender(c.id);
+            
+            appData.cards = appData.cards.filter(x => x.folderId !== c.folderId).concat(folderCards);
+            
+            transitionRender(c.id); 
             updateUndoUI();
         }
 
