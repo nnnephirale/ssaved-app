@@ -501,13 +501,16 @@
         let collectionId = null;
         
         const INBOX_ID = 'inbox'; // Will be set to {collectionId}_inbox on load
+        const DELETION_GRACE_PERIOD = 10 * 60 * 1000; // 10 minutes in milliseconds
+        const deletionTimers = new Map(); // Track scheduled deletions
 
         // --- INIT ---
         window.addEventListener('DOMContentLoaded', async () => {
             await initCollection();
+            await cleanupOldDeletedCards();
             setupGlobalDrag();
             initScrollBehavior();
-            
+
             // Prefs (local only)
             const w = localStorage.getItem('ssaved_width');
             if (w) { document.getElementById('widthSlider').value = w; updateWidth(w); }
@@ -661,9 +664,17 @@
                 folderId: c.folder_id || actualInboxId,
                 order: c.order,
                 suggestions: c.suggestions || [],
+                deletedAt: c.deleted_at, // Load deleted_at timestamp
                 isScanning: false
             }));
-            
+
+            // Schedule deletion for cards with deleted_at timestamp
+            appData.cards.forEach(card => {
+                if (card.deletedAt) {
+                    schedulePermanentDeletion(card.id, card.deletedAt);
+                }
+            });
+
             render();
             return true;
         }
@@ -773,7 +784,9 @@
             const gridClass = `grid-cols-${mCols} md:grid-cols-2 lg:grid-cols-3`;
 
             appData.folders.forEach(folder => {
-                const fCards = appData.cards.filter(c => c.folderId === folder.id).sort((a,b) => a.order - b.order);
+                const fCards = appData.cards
+                    .filter(c => c.folderId === folder.id && !c.deletedAt)
+                    .sort((a,b) => a.order - b.order);
                 const cardsHtml = fCards.map(c => generateCardHTML(c, rIds)).join('');
                 const chevron = folder.isCollapsed ? 'ph-caret-right' : 'ph-caret-down';
                 const gridState = folder.isCollapsed ? 'hidden' : '';
@@ -1354,34 +1367,116 @@
         }
 
         async function deleteCard(id) {
-            const idx = appData.cards.findIndex(c => c.id === id);
-            if(idx > -1) {
-                const card = appData.cards.splice(idx, 1)[0];
-                deletedCardsStack.push(card);
-                await deleteCardFromDB(id);
-                transitionRender(); 
-                updateUndoUI();
+            const card = appData.cards.find(c => c.id === id);
+            if (!card) return;
+
+            // Soft-delete: set timestamp instead of removing
+            card.deletedAt = new Date().toISOString();
+
+            // Save to Supabase with deleted_at timestamp
+            await db.from('cards').update({ deleted_at: card.deletedAt }).eq('id', id);
+
+            // Schedule permanent deletion after grace period
+            schedulePermanentDeletion(id, card.deletedAt);
+
+            // Remove from UI
+            transitionRender();
+            updateUndoUI();
+        }
+
+        function schedulePermanentDeletion(cardId, deletedAt) {
+            const deletionTime = new Date(deletedAt).getTime() + DELETION_GRACE_PERIOD;
+            const now = Date.now();
+            const delay = deletionTime - now;
+
+            if (delay <= 0) {
+                // Already past grace period, delete immediately
+                permanentlyDeleteCard(cardId);
+            } else {
+                // Schedule deletion
+                const timerId = setTimeout(() => {
+                    permanentlyDeleteCard(cardId);
+                    deletionTimers.delete(cardId);
+                }, delay);
+                deletionTimers.set(cardId, timerId);
             }
         }
-        
+
+        function cancelPermanentDeletion(cardId) {
+            if (deletionTimers.has(cardId)) {
+                clearTimeout(deletionTimers.get(cardId));
+                deletionTimers.delete(cardId);
+            }
+        }
+
+        async function permanentlyDeleteCard(cardId) {
+            console.log('Permanently deleting card:', cardId);
+
+            // Get the card to find its image path
+            const { data: card } = await db
+                .from('cards')
+                .select('image_path')
+                .eq('id', cardId)
+                .single();
+
+            if (card?.image_path) {
+                // Delete image from Supabase Storage
+                await db.storage.from('images').remove([card.image_path]);
+            }
+
+            // Delete card record from Supabase database
+            await db.from('cards').delete().eq('id', cardId);
+
+            // Remove from local appData if still present
+            const idx = appData.cards.findIndex(c => c.id === cardId);
+            if (idx > -1) {
+                appData.cards.splice(idx, 1);
+                transitionRender();
+            }
+        }
+
+        async function cleanupOldDeletedCards() {
+            if (!collectionId) return;
+
+            const cutoff = new Date(Date.now() - DELETION_GRACE_PERIOD).toISOString();
+
+            // Find cards past grace period
+            const { data: expiredCards } = await db
+                .from('cards')
+                .select('id, image_path')
+                .eq('collection_id', collectionId)
+                .not('deleted_at', 'is', null)
+                .lt('deleted_at', cutoff);
+
+            if (!expiredCards || expiredCards.length === 0) return;
+
+            // Permanently delete each expired card
+            for (const card of expiredCards) {
+                await permanentlyDeleteCard(card.id);
+            }
+
+            console.log(`Cleaned up ${expiredCards.length} expired cards`);
+        }
+
         async function triggerUndo() {
-            if (!deletedCardsStack.length) return;
-            const c = deletedCardsStack.pop(); 
-            c.isRestored = true;
-            
-            // Re-upload image if it was deleted
-            // For simplicity, we'll just re-save the card (image path should still be valid briefly)
-            // In production, you might want to keep deleted images for a grace period
-            
-            const folderCards = appData.cards.filter(x => x.folderId === c.folderId).sort((a,b) => a.order - b.order);
-            const insertIdx = Math.min(c.order, folderCards.length);
-            folderCards.splice(insertIdx, 0, c);
-            
-            folderCards.forEach((card, i) => { card.order = i; saveCardToDB(card); });
-            
-            appData.cards = appData.cards.filter(x => x.folderId !== c.folderId).concat(folderCards);
-            
-            transitionRender(c.id); 
+            // Find the most recently deleted card
+            const deletedCard = appData.cards
+                .filter(c => c.deletedAt)
+                .sort((a, b) => new Date(b.deletedAt) - new Date(a.deletedAt))[0];
+
+            if (!deletedCard) return;
+
+            // Cancel permanent deletion timer
+            cancelPermanentDeletion(deletedCard.id);
+
+            // Clear deleted_at timestamp
+            deletedCard.deletedAt = null;
+
+            // Update in Supabase
+            await db.from('cards').update({ deleted_at: null }).eq('id', deletedCard.id);
+
+            // Re-render to show card again
+            transitionRender();
             updateUndoUI();
         }
 
@@ -1395,12 +1490,16 @@
         }
         
         function updateUndoUI() {
-            const btn = document.getElementById('undoBtn'); 
+            const btn = document.getElementById('undoBtn');
             if(undoTimeout) clearTimeout(undoTimeout);
-            if(deletedCardsStack.length) { 
-                btn.classList.remove('hidden-btn'); 
-                document.getElementById('undoText').innerText = `Undo (${deletedCardsStack.length})`; 
-                undoTimeout = setTimeout(() => btn.classList.add('hidden-btn'), 5000); 
+
+            // Count deleted cards (cards with deletedAt timestamp)
+            const deletedCount = appData.cards.filter(c => c.deletedAt).length;
+
+            if(deletedCount > 0) {
+                btn.classList.remove('hidden-btn');
+                document.getElementById('undoText').innerText = `Undo (${deletedCount})`;
+                undoTimeout = setTimeout(() => btn.classList.add('hidden-btn'), 15000); // 15 seconds
             } else {
                 btn.classList.add('hidden-btn');
             }
