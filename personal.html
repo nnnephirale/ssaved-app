@@ -341,10 +341,10 @@
     <script>
         // --- STATE ---
         let appData = { cards: [], folders: [] };
-        let deletedCardsStack = [], undoTimeout = null, dragSrcId = null, dragSrcTags = null, db;
+        let deletedCardsStack = [], undoTimeout = null, dragSrcId = null, dragSrcFolderId = null, db;
 
         const DB_NAME = "SSavedDB";
-        const DB_VERSION = 3; // Bump for tags migration 
+        const DB_VERSION = 4; // Revert to single-folder design
         const INBOX_ID = 'inbox';
 
         // --- INIT ---
@@ -400,15 +400,15 @@
             };
 
             tx.objectStore("cards").getAll().onsuccess = (e) => {
-                const raw = e.target.result.map(c => ({...c, imageUrl: URL.createObjectURL(c.file), tags: c.tags || (c.folderId ? [c.folderId] : [INBOX_ID]) }));
+                const raw = e.target.result.map(c => ({...c, imageUrl: URL.createObjectURL(c.file), folderId: c.folderId || INBOX_ID }));
                 let fix = false; raw.forEach((c, i) => { if(c.order === undefined) { c.order = i; fix = true; }});
                 appData.cards = raw.sort((a, b) => a.order - b.order);
                 if(fix) reindexCards(INBOX_ID);
-                render(); 
+                render();
             };
         }
         function reindexCards(folderId) {
-            const subset = appData.cards.filter(c => c.tags && c.tags.includes(folderId)).sort((a,b) => a.order - b.order);
+            const subset = appData.cards.filter(c => c.folderId === folderId).sort((a,b) => a.order - b.order);
             subset.forEach((c, i) => { c.order = i; saveCardToDB(c); });
         }
 
@@ -431,7 +431,7 @@
             const gridClass = `grid-cols-${mCols} md:grid-cols-2 lg:grid-cols-3`;
 
             appData.folders.forEach(folder => {
-                const fCards = appData.cards.filter(c => c.tags && c.tags.includes(folder.id));
+                const fCards = appData.cards.filter(c => c.folderId === folder.id);
                 const cardsHtml = fCards.map(c => generateCardHTML(c, rIds)).join('');
                 const chevron = folder.isCollapsed ? 'ph-caret-right' : 'ph-caret-down';
                 const gridState = folder.isCollapsed ? 'hidden' : '';
@@ -545,7 +545,7 @@
         function handleDragStart(e, id) {
             dragSrcId = id;
             const c = appData.cards.find(x => x.id === id);
-            dragSrcTags = c ? [...(c.tags || [INBOX_ID])] : null;
+            dragSrcFolderId = c ? c.folderId : null;
 
             e.dataTransfer.effectAllowed = 'move';
             e.dataTransfer.setData('text/plain', id);
@@ -566,10 +566,10 @@
         }
 
         function handleFolderDragOver(e, folderId) {
-            if (!dragSrcId || (dragSrcTags && dragSrcTags.includes(folderId))) return;
+            if (!dragSrcId || dragSrcFolderId === folderId) return;
             e.preventDefault(); e.dataTransfer.dropEffect = 'move';
             document.getElementById(`folder-${folderId}`).classList.add('folder-drop-active');
-            
+
             const f = appData.folders.find(x => x.id === folderId);
             if(f && f.isCollapsed) { f.isCollapsed = false; saveFolderToDB(f); render(); }
         }
@@ -580,21 +580,14 @@
         function handleFolderDrop(e, folderId) {
             e.preventDefault();
             document.getElementById(`folder-${folderId}`).classList.remove('folder-drop-active');
-            if (dragSrcId && dragSrcTags && !dragSrcTags.includes(folderId)) {
+            if (dragSrcId && dragSrcFolderId !== folderId) {
                 const c = appData.cards.find(x => x.id === dragSrcId);
                 if (c) {
-                    // Add new folder tag
-                    if (!c.tags.includes(folderId)) c.tags.push(folderId);
-
-                    // Remove inbox tag when moving to a specific folder (not inbox itself)
-                    if (folderId !== INBOX_ID && c.tags.includes(INBOX_ID)) {
-                        c.tags = c.tags.filter(t => t !== INBOX_ID);
-                    }
-
-                    // Let reindexCards handle order assignment (removed c.order = 0)
+                    const oldFolderId = c.folderId;
+                    c.folderId = folderId; // Simple replacement - card moves to new folder
                     saveCardToDB(c);
                     reindexCards(folderId);
-                    dragSrcTags.forEach(oldTag => reindexCards(oldTag));
+                    if (oldFolderId) reindexCards(oldFolderId);
                     transitionRender();
                 }
             }
@@ -605,10 +598,10 @@
             if (!dragSrcId || dragSrcId === targetId) return;
 
             const targetCard = appData.cards.find(c => c.id === targetId);
-            const commonFolder = dragSrcTags?.find(tag => targetCard.tags && targetCard.tags.includes(tag));
+            const commonFolder = (dragSrcFolderId === targetCard.folderId) ? targetCard.folderId : null;
             if (!commonFolder) return;
 
-            const folderCards = appData.cards.filter(c => c.tags && c.tags.includes(commonFolder)).sort((a,b) => a.order - b.order);
+            const folderCards = appData.cards.filter(c => c.folderId === commonFolder).sort((a,b) => a.order - b.order);
             const from = folderCards.findIndex(c => c.id === dragSrcId);
             const to = folderCards.findIndex(c => c.id === targetId);
 
@@ -629,10 +622,10 @@
             if (!dragSrcId || dragSrcId === targetId) return;
 
             const targetCard = appData.cards.find(c => c.id === targetId);
-            const commonFolder = dragSrcTags?.find(tag => targetCard.tags && targetCard.tags.includes(tag));
+            const commonFolder = (dragSrcFolderId === targetCard.folderId) ? targetCard.folderId : null;
 
             if (commonFolder) {
-                const folderCards = appData.cards.filter(c => c.tags && c.tags.includes(commonFolder)).sort((a,b) => a.order - b.order);
+                const folderCards = appData.cards.filter(c => c.folderId === commonFolder).sort((a,b) => a.order - b.order);
                 const from = folderCards.findIndex(c => c.id === dragSrcId);
                 const to = folderCards.findIndex(c => c.id === targetId);
 
@@ -679,12 +672,11 @@
 
         function deleteFolder(id) {
             if(id === INBOX_ID) return;
-            if(!confirm("Delete this folder? Cards will keep other folder tags.")) return;
+            if(!confirm("Delete this folder? Cards will move back to Inbox.")) return;
 
-            const cardsWithTag = appData.cards.filter(c => c.tags && c.tags.includes(id));
-            cardsWithTag.forEach(c => {
-                c.tags = c.tags.filter(t => t !== id);
-                if (c.tags.length === 0) c.tags = [INBOX_ID];
+            const cardsInFolder = appData.cards.filter(c => c.folderId === id);
+            cardsInFolder.forEach(c => {
+                c.folderId = INBOX_ID;
                 saveCardToDB(c);
             });
 
@@ -712,9 +704,9 @@
         async function handleFiles(files) {
             if (!files.length) return;
             showStatus(true, `Processing ${files.length}...`);
-            const newCards = Array.from(files).map((f, i) => ({ 
-                id: Date.now() + i, file: f, imageUrl: URL.createObjectURL(f), 
-                username: "", notes: "", link: "#", isScanning: true, suggestions: [], tags: [INBOX_ID] 
+            const newCards = Array.from(files).map((f, i) => ({
+                id: Date.now() + i, file: f, imageUrl: URL.createObjectURL(f),
+                username: "", notes: "", link: "#", isScanning: true, suggestions: [], folderId: INBOX_ID
             }));
             
             newCards.forEach(c => saveCardToDB(c));
