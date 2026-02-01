@@ -401,8 +401,14 @@
 
             tx.objectStore("cards").getAll().onsuccess = (e) => {
                 const raw = e.target.result.map(c => ({...c, imageUrl: URL.createObjectURL(c.file), folderId: c.folderId || INBOX_ID }));
-                let fix = false; raw.forEach((c, i) => { if(c.order === undefined) { c.order = i; fix = true; }});
-                appData.cards = raw.sort((a, b) => a.order - b.order);
+
+                // DEDUPLICATE: Keep only last occurrence of each ID
+                const seen = new Map();
+                raw.forEach(c => seen.set(c.id, c));
+                const deduped = Array.from(seen.values());
+
+                let fix = false; deduped.forEach((c, i) => { if(c.order === undefined) { c.order = i; fix = true; }});
+                appData.cards = deduped.sort((a, b) => a.order - b.order);
                 if(fix) reindexCards(INBOX_ID);
                 render();
             };
@@ -635,7 +641,12 @@
                     const [moved] = folderCards.splice(from, 1);
                     folderCards.splice(to, 0, moved);
                     folderCards.forEach((c, i) => { c.order = i; saveCardToDB(c); });
-                    appData.cards.sort((a,b) => a.order - b.order);
+                    // Rebuild appData from scratch to prevent duplicates
+                    const otherCards = appData.cards.filter(c => c.folderId !== commonFolder);
+                    const updatedFolderCards = appData.cards
+                        .filter(c => c.folderId === commonFolder)
+                        .sort((a,b) => a.order - b.order);
+                    appData.cards = [...otherCards, ...updatedFolderCards];
                     transitionRender();
                 }
             } else {
@@ -804,7 +815,8 @@
             folderCards.forEach((card, i) => { card.order = i; saveCardToDB(card); });
 
             // 4. Update Main AppData (remove old cards from this folder, add updated list)
-            appData.cards = appData.cards.filter(x => x.folderId !== targetFolderId).concat(folderCards);
+            const otherCards = appData.cards.filter(x => x.folderId !== targetFolderId);
+            appData.cards = [...otherCards, ...folderCards];
 
             // 5. Render
             transitionRender(c.id);
