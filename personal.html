@@ -431,7 +431,9 @@
             const gridClass = `grid-cols-${mCols} md:grid-cols-2 lg:grid-cols-3`;
 
             appData.folders.forEach(folder => {
-                const fCards = appData.cards.filter(c => c.folderId === folder.id);
+                const fCards = appData.cards
+                    .filter(c => c.folderId === folder.id)
+                    .sort((a, b) => a.order - b.order);
                 const cardsHtml = fCards.map(c => generateCardHTML(c, rIds)).join('');
                 const chevron = folder.isCollapsed ? 'ph-caret-right' : 'ph-caret-down';
                 const gridState = folder.isCollapsed ? 'hidden' : '';
@@ -787,25 +789,25 @@
         // --- RESTORE FIX (INSERT INSTEAD OF APPEND) ---
         function triggerUndo() {
             if (!deletedCardsStack.length) return;
-            const c = deletedCardsStack.pop(); 
+            const c = deletedCardsStack.pop();
             c.isRestored = true;
-            
-            // 1. Get current list of cards in that folder
-            const firstTag = c.tags && c.tags.length > 0 ? c.tags[0] : INBOX_ID;
-            const folderCards = appData.cards.filter(x => x.tags && x.tags.includes(firstTag)).sort((a,b) => a.order - b.order);
-            
+
+            // 1. Get current list of cards in that folder (using folderId, not tags)
+            const targetFolderId = c.folderId || INBOX_ID;
+            const folderCards = appData.cards.filter(x => x.folderId === targetFolderId).sort((a,b) => a.order - b.order);
+
             // 2. Insert restored card into correct position
             const insertIdx = Math.min(c.order, folderCards.length);
             folderCards.splice(insertIdx, 0, c);
-            
+
             // 3. Re-assign order for everyone in that folder
             folderCards.forEach((card, i) => { card.order = i; saveCardToDB(card); });
-            
-            // 4. Update Main AppData
-            appData.cards = appData.cards.filter(x => x.folderId !== c.folderId).concat(folderCards);
-            
+
+            // 4. Update Main AppData (remove old cards from this folder, add updated list)
+            appData.cards = appData.cards.filter(x => x.folderId !== targetFolderId).concat(folderCards);
+
             // 5. Render
-            transitionRender(c.id); 
+            transitionRender(c.id);
             updateUndoUI();
         }
 
