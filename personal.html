@@ -583,8 +583,15 @@
             if (dragSrcId && dragSrcTags && !dragSrcTags.includes(folderId)) {
                 const c = appData.cards.find(x => x.id === dragSrcId);
                 if (c) {
+                    // Add new folder tag
                     if (!c.tags.includes(folderId)) c.tags.push(folderId);
-                    c.order = 0;
+
+                    // Remove inbox tag when moving to a specific folder (not inbox itself)
+                    if (folderId !== INBOX_ID && c.tags.includes(INBOX_ID)) {
+                        c.tags = c.tags.filter(t => t !== INBOX_ID);
+                    }
+
+                    // Let reindexCards handle order assignment (removed c.order = 0)
                     saveCardToDB(c);
                     reindexCards(folderId);
                     dragSrcTags.forEach(oldTag => reindexCards(oldTag));
