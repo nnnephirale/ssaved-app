@@ -350,20 +350,6 @@
             pointer-events: none;
         }
 
-        /* --- DROPDOWN MENU --- */
-        #addMenuMobile, #addMenuDesktop {
-            animation: dropdownFadeIn 0.15s ease-out;
-        }
-        @keyframes dropdownFadeIn {
-            from {
-                opacity: 0;
-                transform: translateY(-8px) scale(0.96);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0) scale(1);
-            }
-        }
     </style>
 </head>
 <body class="text-neutral-900 font-sans antialiased selection:bg-rose-100 selection:text-rose-900 min-h-screen">
@@ -388,19 +374,16 @@
                     </button>
                     <span id="saveIndicator" class="text-[10px] font-medium uppercase tracking-wider text-neutral-300 opacity-0 transition-opacity">Saved</span>
                 </div>
-                <!-- Mobile: Add button with dropdown -->
-                <div class="md:hidden relative">
-                    <button onclick="toggleAddMenu('mobile')" class="btn-primary flex items-center gap-2 px-3 py-1.5 text-sm">
-                        <i class="ph-bold ph-plus"></i> Add
+                <!-- Mobile: Add buttons -->
+                <div class="md:hidden flex items-center gap-2">
+                    <button onclick="triggerUpload()" class="btn-primary flex items-center gap-1.5 px-3 py-1.5 text-sm" title="Add Screenshot">
+                        <i class="ph-bold ph-plus text-sm"></i>
+                        <i class="ph-bold ph-image text-base"></i>
                     </button>
-                    <div id="addMenuMobile" class="absolute right-0 top-full mt-2 w-48 bg-white rounded-xl shadow-xl border border-neutral-100 py-1 hidden z-50">
-                        <button onclick="triggerUpload(); closeAddMenus()" class="w-full px-4 py-2.5 text-left text-sm text-neutral-700 hover:bg-neutral-50 flex items-center gap-3">
-                            <i class="ph ph-image text-neutral-400"></i> Add Screenshot
-                        </button>
-                        <button onclick="createNewFolder(); closeAddMenus()" class="w-full px-4 py-2.5 text-left text-sm text-neutral-700 hover:bg-neutral-50 flex items-center gap-3">
-                            <i class="ph ph-folder-plus text-neutral-400"></i> New Folder
-                        </button>
-                    </div>
+                    <button onclick="createNewFolder()" class="btn-primary flex items-center gap-1.5 px-3 py-1.5 text-sm" title="New Folder">
+                        <i class="ph-bold ph-plus text-sm"></i>
+                        <i class="ph-bold ph-folder-plus text-base"></i>
+                    </button>
                 </div>
             </div>
             
@@ -430,19 +413,16 @@
                 <input type="file" id="fileInput" multiple accept="image/*" class="hidden" onchange="handleFiles(this.files)">
             </div>
             
-            <!-- Desktop: Add button (outside overflow container so dropdown isn't clipped) -->
-            <div class="hidden md:block relative shrink-0">
-                <button onclick="toggleAddMenu('desktop')" class="btn-primary flex items-center gap-2 px-3 py-1.5 text-sm">
-                    <i class="ph-bold ph-plus"></i> <span>Add New</span>
+            <!-- Desktop: Add buttons -->
+            <div class="hidden md:flex items-center gap-2 shrink-0">
+                <button onclick="triggerUpload()" class="btn-primary flex items-center gap-1.5 px-3 py-1.5 text-sm" title="Add Screenshot">
+                    <i class="ph-bold ph-plus text-sm"></i>
+                    <i class="ph-bold ph-image text-base"></i>
                 </button>
-                <div id="addMenuDesktop" class="absolute right-0 top-full mt-2 w-52 bg-white rounded-xl shadow-xl border border-neutral-100 py-1 hidden z-50">
-                    <button onclick="triggerUpload(); closeAddMenus()" class="w-full px-4 py-2.5 text-left text-sm text-neutral-700 hover:bg-neutral-50 flex items-center gap-3">
-                        <i class="ph ph-image text-neutral-400"></i> Add Screenshot
-                    </button>
-                    <button onclick="createNewFolder(); closeAddMenus()" class="w-full px-4 py-2.5 text-left text-sm text-neutral-700 hover:bg-neutral-50 flex items-center gap-3">
-                        <i class="ph ph-folder-plus text-neutral-400"></i> New Folder
-                    </button>
-                </div>
+                <button onclick="createNewFolder()" class="btn-primary flex items-center gap-1.5 px-3 py-1.5 text-sm" title="New Folder">
+                    <i class="ph-bold ph-plus text-sm"></i>
+                    <i class="ph-bold ph-folder-plus text-base"></i>
+                </button>
             </div>
         </div>
     </header>
@@ -452,7 +432,7 @@
         <div id="emptyState" class="hidden min-h-[70vh] flex flex-col items-center justify-center text-neutral-400">
             <div class="w-20 h-20 bg-neutral-100 rounded-2xl flex items-center justify-center mb-5 text-neutral-300"><i class="ph-fill ph-images text-4xl"></i></div>
             <p class="text-base font-medium text-neutral-500">No screenshots yet</p>
-            <p class="text-sm text-neutral-400 mt-1">Tap "Add New" to start</p>
+            <p class="text-sm text-neutral-400 mt-1">Tap the add buttons to start</p>
         </div>
 
         <div id="folderWrapper" class="flex flex-col gap-12 pb-32"></div>
@@ -807,10 +787,15 @@
                          ondragover="handleFolderDragOver(event, '${folder.id}')"
                          ondragleave="handleFolderDragLeave(event, '${folder.id}')"
                          ondrop="handleFolderDrop(event, '${folder.id}')">
-                         
+
                         <div class="folder-tab bg-neutral-200/80 text-neutral-500 py-1.5 text-xs font-semibold uppercase tracking-wider rounded-t-lg transition-all duration-200 select-none group-hover/folder:bg-neutral-300/80 group-hover/folder:text-neutral-600 flex items-center gap-2 ${opacity}">
                             <i class="ph-bold ${chevron} text-xs"></i>
-                            ${folder.name} 
+                            <span class="folder-name-display" ondblclick="event.stopPropagation(); editFolderName('${folder.id}')">${folder.name}</span>
+                            <input type="text" id="folder-name-input-${folder.id}" class="folder-name-input hidden bg-white/90 px-2 py-0.5 rounded border border-neutral-300 text-neutral-700 text-xs font-semibold uppercase tracking-wider"
+                                   value="${folder.name}"
+                                   onblur="saveFolderName('${folder.id}')"
+                                   onkeydown="if(event.key==='Enter') this.blur(); if(event.key==='Escape') cancelEditFolderName('${folder.id}')"
+                                   onclick="event.stopPropagation()">
                             <span class="opacity-50 font-normal">${fCards.length}</span>
                         </div>
                         
@@ -1154,7 +1139,7 @@
         async function deleteFolder(id) {
             if(id === INBOX_ID) return;
             if(!confirm("Delete this folder? Cards inside will be moved to Inbox.")) return;
-            
+
             const cardsToMove = appData.cards.filter(c => c.folderId === id);
             for (const c of cardsToMove) {
                 c.folderId = INBOX_ID;
@@ -1168,6 +1153,49 @@
             }
             reindexCards(INBOX_ID);
             render();
+        }
+
+        // --- EDIT FOLDER NAME ---
+        function editFolderName(folderId) {
+            const input = document.getElementById(`folder-name-input-${folderId}`);
+            const display = input?.previousElementSibling;
+            if (!input || !display) return;
+
+            display.classList.add('hidden');
+            input.classList.remove('hidden');
+            input.focus();
+            input.select();
+        }
+
+        function cancelEditFolderName(folderId) {
+            const input = document.getElementById(`folder-name-input-${folderId}`);
+            const display = input?.previousElementSibling;
+            const folder = appData.folders.find(f => f.id === folderId);
+            if (!input || !display || !folder) return;
+
+            input.value = folder.name; // Reset to original
+            input.classList.add('hidden');
+            display.classList.remove('hidden');
+        }
+
+        async function saveFolderName(folderId) {
+            const input = document.getElementById(`folder-name-input-${folderId}`);
+            const display = input?.previousElementSibling;
+            const folder = appData.folders.find(f => f.id === folderId);
+            if (!input || !display || !folder) return;
+
+            const newName = input.value.trim();
+            if (!newName || newName === folder.name) {
+                cancelEditFolderName(folderId);
+                return;
+            }
+
+            folder.name = newName;
+            await db.from('folders').update({ name: newName }).eq('id', folderId);
+
+            input.classList.add('hidden');
+            display.textContent = newName;
+            display.classList.remove('hidden');
         }
 
         // --- FILE & OCR ---
@@ -1549,7 +1577,6 @@
             input.value = window.location.href;
             modal.classList.remove('hidden');
             modal.classList.add('flex');
-            closeAddMenus();
         }
 
         function closeShareModal() {
@@ -1567,32 +1594,6 @@
                 document.getElementById('copyConfirm').classList.add('opacity-0');
             }, 2000);
         }
-
-        // --- ADD MENU DROPDOWN ---
-        function toggleAddMenu(type) {
-            const mobileMenu = document.getElementById('addMenuMobile');
-            const desktopMenu = document.getElementById('addMenuDesktop');
-            
-            if (type === 'mobile') {
-                desktopMenu.classList.add('hidden');
-                mobileMenu.classList.toggle('hidden');
-            } else {
-                mobileMenu.classList.add('hidden');
-                desktopMenu.classList.toggle('hidden');
-            }
-        }
-
-        function closeAddMenus() {
-            document.getElementById('addMenuMobile')?.classList.add('hidden');
-            document.getElementById('addMenuDesktop')?.classList.add('hidden');
-        }
-
-        // Close menus when clicking outside
-        document.addEventListener('click', (e) => {
-            if (!e.target.closest('#addMenuMobile') && !e.target.closest('#addMenuDesktop') && !e.target.closest('[onclick*="toggleAddMenu"]')) {
-                closeAddMenus();
-            }
-        });
 
         // Close modal on backdrop click
         document.getElementById('shareModal')?.addEventListener('click', (e) => {
