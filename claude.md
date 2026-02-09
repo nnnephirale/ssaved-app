@@ -65,7 +65,54 @@ SSaved is an Instagram profile screenshot organizer with OCR, tags/folders, and 
 
 ## Recent Features Added
 
-### 1. Mobile Drag-and-Drop Rounded Corners Fix
+### 1. Split Add Buttons + Edit Folder Names (Feb 9, 2026)
+**Features:** Replaced dropdown menu with two icon buttons, added inline folder name editing
+
+**Implementation (Commit 2d18dcd):**
+- Replaced "Add New" dropdown with two separate buttons:
+  - Plus + Image icon = Add Screenshot
+  - Plus + Folder icon = New Folder
+- Button styling matches folder tab aesthetic (grey, muted)
+- Double-click folder names to edit inline
+- Enter to save, Escape to cancel
+- Updates Supabase folders table immediately
+
+**Code Cleanup:**
+- Removed dropdown menu styles (`#addMenuMobile`, `#addMenuDesktop`)
+- Removed `toggleAddMenu()` and `closeAddMenus()` JavaScript functions
+- Removed dropdown click-outside event listener
+
+**Code Locations:**
+- Button HTML: lines 379-387 (mobile), 418-426 (desktop)
+- Edit functions: `editFolderName()`, `cancelEditFolderName()`, `saveFolderName()` (lines ~1158-1200)
+
+### 2. One-Time Auto-Sort by Upload Date (Feb 9, 2026)
+**Feature:** Cards automatically sort by upload date (newest first), then allow manual reordering
+
+**Implementation:**
+- New cards assigned `order: -id` (negative ID, so newer = first)
+- Added `created_at` timestamp field to track upload time
+- Removed `reindexCards()` call after upload to preserve timestamp-based order
+- Manual drag-and-drop still works - updates `order` field as before
+
+**Database Migration Required:**
+```sql
+ALTER TABLE cards
+ADD COLUMN created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW();
+```
+
+**Code Changes:**
+- `handleFiles()` - sets `order: -id` and `createdAt` on new cards (line ~1256)
+- `saveCardToDB()` - saves `created_at` to database (line ~706)
+- `loadCollection()` - loads `created_at` from database (line ~646)
+- Removed `reindexCards(INBOX_ID)` after upload
+
+**Behavior:**
+- Upload 3 images → they appear in upload order (newest first)
+- Drag to reorder → manual order persists
+- Upload another image → appears at top, but manually ordered cards stay in place
+
+### 3. Mobile Drag-and-Drop Rounded Corners Fix
 **Issue:** Long-pressing cards on mobile to drag them caused black borders to appear instead of maintaining rounded crop.
 
 **Solution (Commit 1d00f08):**
@@ -335,6 +382,28 @@ ADD COLUMN deleted_at TIMESTAMP WITH TIME ZONE DEFAULT NULL;
 - Cards with `deleted_at` timestamp are hidden from UI
 - Permanent deletion happens 15 minutes after soft-delete
 
+### Migration 3: One-Time Auto-Sort by Upload Date (Feb 9, 2026)
+**Purpose:** Cards automatically sort by upload date (newest first) on creation, then allow manual reordering
+
+**SQL:**
+```sql
+ALTER TABLE cards
+ADD COLUMN created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW();
+```
+
+**Impact:**
+- New field: `created_at` (timestamp with automatic NOW() default for existing rows)
+- New cards use negative ID as initial `order` value (-id) so newer cards (larger IDs) appear first
+- Manual drag-and-drop reordering still works via `order` field
+- Removed `reindexCards()` call after upload to preserve timestamp-based order
+- One-time auto-sort: cards get initial position from upload time, then manual drag takes over
+
+**Code Changes:**
+- `handleFiles()` - sets `order: -id` and `createdAt` on new cards
+- `saveCardToDB()` - saves `created_at` to database
+- `loadCollection()` - loads `created_at` from database
+- Removed `reindexCards(INBOX_ID)` call after upload (line ~1286)
+
 ---
 
 ## Complete Database Schema (Current)
@@ -368,10 +437,11 @@ CREATE TABLE cards (
   link TEXT,
   image_path TEXT,
   folder_id TEXT,              -- DEPRECATED: kept for backwards compatibility
-  tags JSONB DEFAULT '["inbox"]'::jsonb,  -- CURRENT: array of folder IDs
-  "order" INTEGER DEFAULT 0,
+  tags JSONB DEFAULT '["inbox"]'::jsonb,  -- DEPRECATED: reverted to single-folder model
+  "order" INTEGER DEFAULT 0,   -- Manual drag-and-drop order (negative IDs for auto-sort)
   suggestions JSONB,
-  deleted_at TIMESTAMP WITH TIME ZONE DEFAULT NULL
+  deleted_at TIMESTAMP WITH TIME ZONE DEFAULT NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 ```
 

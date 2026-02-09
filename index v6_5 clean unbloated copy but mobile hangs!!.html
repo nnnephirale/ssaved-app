@@ -1,0 +1,567 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>SSaved - Folders</title>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src='https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js'></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+
+    <style>
+        /* --- UTILITIES --- */
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        ::view-transition-group(root) { animation-duration: 0.35s; animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1); }
+        
+        /* --- ANIMATIONS --- */
+        @keyframes slideUp { from { opacity: 0; transform: translateY(20px) scale(0.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
+        .animate-restore { animation: slideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards; opacity: 0; }
+        .folder-enter { animation: slideUp 0.5s ease-out forwards; }
+
+        /* --- FOLDER TABS --- */
+        /* Creates the "File Folder" tab shape from your image */
+        .folder-tab {
+            clip-path: polygon(0 0, 85% 0, 100% 100%, 0% 100%);
+            padding-right: 2rem;
+        }
+        .folder-drop-active .folder-tab { background-color: #3b82f6 !important; color: white !important; }
+
+        /* --- UI COMPONENTS --- */
+        .tooltip-arrow::after {
+            content: " "; position: absolute; top: 100%; left: 50%; margin-left: -6px;
+            border: 6px solid transparent; border-top-color: #f8fafc; filter: drop-shadow(0 1px 1px rgb(0 0 0 / 0.05));
+        }
+        .tooltip-container { transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1); opacity: 0; pointer-events: none; transform: translateY(8px) scale(0.95); }
+        .tooltip-container.active { opacity: 1; pointer-events: auto; transform: translateY(0) scale(1); }
+
+        #undoBtn.hidden-btn { opacity: 0; transform: translateX(-10px); pointer-events: none; width: 0; padding: 0; margin: 0; border: 0; }
+        #undoBtn { transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1); }
+
+        /* --- DRAG & DROP --- */
+        body.global-dragging, body.global-dragging * { cursor: grabbing !important; }
+        .is-dragging { opacity: 0.3; filter: grayscale(100%); }
+        .card-shift-forward { transform: translateX(-30px); transition: transform 0.3s ease; }
+        .card-shift-backward { transform: translateX(30px); transition: transform 0.3s ease; }
+        
+        /* Slider Styling */
+        input[type=range] { -webkit-appearance: none; width: 100%; background: transparent; }
+        input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; height: 14px; width: 14px; border-radius: 50%; background: white; border: 1px solid #cbd5e1; cursor: pointer; margin-top: -5px; box-shadow: 0 1px 2px rgba(0,0,0,0.1); }
+        input[type=range]::-webkit-slider-runnable-track { width: 100%; height: 4px; cursor: pointer; background: #e2e8f0; border-radius: 2px; }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-900 font-sans antialiased selection:bg-slate-200 selection:text-slate-900 min-h-screen">
+
+    <header class="bg-white/80 backdrop-blur-md border-b border-slate-200 px-4 md:px-6 py-3 sticky top-0 z-40">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3 max-w-[1390px] mx-auto">
+            <div class="flex items-center justify-between w-full md:w-auto">
+                <div class="flex items-center gap-3">
+                    <h1 class="text-xl font-bold tracking-tight text-slate-900">SSaved</h1>
+                    <span id="saveIndicator" class="text-[10px] font-bold uppercase tracking-wider text-slate-300 opacity-0 transition-opacity">Saved</span>
+                </div>
+                <button onclick="triggerUpload()" class="md:hidden btn-primary"><i class="ph-bold ph-plus"></i></button>
+            </div>
+            
+            <div class="flex items-center gap-2 md:gap-3 overflow-x-auto no-scrollbar w-full md:w-auto pb-1 md:pb-0">
+                <button id="undoBtn" onclick="triggerUndo()" class="hidden-btn flex items-center gap-2 px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-100 rounded-md text-sm font-medium shadow-sm whitespace-nowrap shrink-0">
+                    <i class="ph-bold ph-arrow-u-up-left"></i> <span id="undoText">Undo</span>
+                </button>
+
+                <button onclick="createNewFolder()" class="flex items-center gap-2 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-md text-xs font-bold uppercase tracking-wide transition-colors shrink-0">
+                    <i class="ph-bold ph-folder-plus"></i> New Folder
+                </button>
+
+                <div class="md:hidden flex bg-slate-100/80 p-1 rounded-lg border border-slate-200/50 shrink-0">
+                    <button onclick="setMobileCols(1)" id="col-btn-1" class="w-8 h-8 flex center rounded-md text-slate-500"><i class="ph-bold ph-rectangle"></i></button>
+                    <button onclick="setMobileCols(2)" id="col-btn-2" class="w-8 h-8 flex center rounded-md text-slate-500"><i class="ph-bold ph-columns"></i></button>
+                </div>
+
+                <div class="hidden md:flex items-center gap-2 bg-slate-100/50 px-3 py-1.5 rounded-lg border border-slate-200/50 shrink-0">
+                    <i class="ph ph-corners-in text-slate-400 text-sm"></i>
+                    <input type="range" min="600" max="2400" value="1390" class="w-20 md:w-24 accent-slate-900" id="widthSlider" oninput="updateWidth(this.value)">
+                </div>
+
+                <div class="flex items-center gap-1 bg-slate-100/50 p-1 rounded-lg border border-slate-200/50 shrink-0">
+                    <button onclick="triggerImport()" class="icon-btn" title="Import"><i class="ph ph-upload-simple text-lg"></i></button>
+                    <input type="file" id="importInput" accept=".zip" class="hidden" onchange="handleImport(this.files)">
+                    <button onclick="exportData()" class="icon-btn" title="Export"><i class="ph ph-download-simple text-lg"></i></button>
+                    <div class="hidden md:block w-px h-4 bg-slate-300 mx-1"></div>
+                    <button onclick="triggerUpload()" class="hidden md:flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-white bg-slate-900 hover:bg-black rounded-md shadow-sm transition-all hover:scale-[1.02] active:scale-[0.98]"><i class="ph-bold ph-plus"></i> <span>Add New</span></button>
+                    <input type="file" id="fileInput" multiple accept="image/*" class="hidden" onchange="handleFiles(this.files)">
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <main id="mainContainer" class="p-4 md:p-6 relative mx-auto min-h-screen transition-[max-width] duration-200 ease-out" style="max-width: 1390px;">
+        
+        <div id="emptyState" class="hidden min-h-[70vh] flex flex-col items-center justify-center text-slate-400">
+            <div class="w-16 h-16 bg-slate-100 rounded-2xl flex items-center justify-center mb-4 text-slate-300"><i class="ph-fill ph-images text-3xl"></i></div>
+            <p class="text-base font-medium text-slate-500">No screenshots yet</p>
+            <p class="text-sm text-slate-400 mt-1">Tap "Add New" to start</p>
+        </div>
+
+        <div id="folderWrapper" class="flex flex-col gap-10 pb-32"></div>
+
+    </main>
+
+    <div id="statusBar" class="fixed bottom-6 left-1/2 -translate-x-1/2 bg-slate-900/90 backdrop-blur text-white px-4 py-2 rounded-full shadow-xl flex items-center gap-3 hidden transition-all z-50">
+        <div class="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin"></div><span id="statusText" class="text-xs font-medium">Processing...</span>
+    </div>
+    
+    <div id="dragOverlay" class="fixed inset-0 bg-slate-900/10 backdrop-blur-sm z-50 pointer-events-none opacity-0 flex items-center justify-center transition-opacity duration-200">
+        <div class="bg-white px-8 py-6 rounded-2xl shadow-2xl flex flex-col items-center gap-3 transform scale-100">
+            <div class="p-4 bg-blue-50 text-blue-600 rounded-full"><i class="ph-fill ph-upload-simple text-3xl"></i></div>
+            <p class="text-lg font-semibold text-slate-700">Drop images to import</p>
+        </div>
+    </div>
+
+    <script>
+        // --- STATE ---
+        let appData = { cards: [], folders: [] };
+        let deletedCardsStack = [], undoTimeout = null, dragSrcId = null, dragSrcFolderId = null, db;
+        
+        const DB_NAME = "SSavedDB";
+        const DB_VERSION = 2; // Bump version for Folders
+        const INBOX_ID = 'inbox';
+
+        // --- INIT ---
+        window.addEventListener('DOMContentLoaded', async () => {
+            await initDB();
+            loadDataFromDB();
+            setupGlobalDrag();
+            
+            // Prefs
+            const w = localStorage.getItem('ssaved_width');
+            if (w) { document.getElementById('widthSlider').value = w; updateWidth(w); }
+            setMobileCols(localStorage.getItem('ssaved_cols') || 1);
+        });
+
+        // --- DATABASE V2 (MIGRATION) ---
+        function initDB() {
+            return new Promise((resolve, reject) => {
+                const req = indexedDB.open(DB_NAME, DB_VERSION);
+                
+                req.onupgradeneeded = (e) => { 
+                    const db = e.target.result; 
+                    // Store 1: Cards
+                    if (!db.objectStoreNames.contains("cards")) db.createObjectStore("cards", { keyPath: "id" });
+                    // Store 2: Folders (New)
+                    if (!db.objectStoreNames.contains("folders")) db.createObjectStore("folders", { keyPath: "id" });
+                };
+                req.onsuccess = (e) => { db = e.target.result; resolve(db); };
+                req.onerror = (e) => reject("DB Error");
+            });
+        }
+
+        function saveCardToDB(card) {
+            if (!db) return;
+            const c = { ...card }; delete c.imageUrl; 
+            const tx = db.transaction("cards", "readwrite");
+            tx.objectStore("cards").put(c);
+            showSaved();
+        }
+
+        function saveFolderToDB(folder) {
+            if (!db) return;
+            const tx = db.transaction("folders", "readwrite");
+            tx.objectStore("folders").put(folder);
+        }
+
+        function loadDataFromDB() {
+            if (!db) return;
+            const tx = db.transaction(["cards", "folders"], "readwrite");
+            
+            // 1. Load Folders
+            tx.objectStore("folders").getAll().onsuccess = (e) => {
+                let folders = e.target.result;
+                // Auto-Create Inbox if empty
+                if (!folders.length) {
+                    folders = [{ id: INBOX_ID, name: 'Inbox', order: 0 }];
+                    saveFolderToDB(folders[0]);
+                }
+                appData.folders = folders.sort((a,b) => a.order - b.order);
+            };
+
+            // 2. Load Cards
+            tx.objectStore("cards").getAll().onsuccess = (e) => {
+                const raw = e.target.result.map(c => ({
+                    ...c, 
+                    imageUrl: URL.createObjectURL(c.file),
+                    folderId: c.folderId || INBOX_ID // Migration: Assign orphans to Inbox
+                }));
+                
+                // Heal Order
+                let fix = false; raw.forEach((c, i) => { if(c.order === undefined) { c.order = i; fix = true; }});
+                appData.cards = raw.sort((a, b) => a.order - b.order);
+                if(fix) reindexCards(INBOX_ID);
+                render(); 
+            };
+        }
+
+        function reindexCards(folderId) {
+            const subset = appData.cards.filter(c => c.folderId === folderId).sort((a,b) => a.order - b.order);
+            subset.forEach((c, i) => { c.order = i; saveCardToDB(c); });
+        }
+
+        // --- RENDER (FOLDERS LOOP) ---
+        function render(restoreId = null) {
+            const wrapper = document.getElementById('folderWrapper');
+            const empty = document.getElementById('emptyState');
+            const rIds = Array.isArray(restoreId) ? restoreId : (restoreId ? [restoreId] : []);
+
+            if (!appData.cards.length) { empty.classList.remove('hidden'); wrapper.innerHTML = ''; return; }
+            empty.classList.add('hidden');
+            wrapper.innerHTML = '';
+
+            // Mobile Grid Class
+            const mCols = localStorage.getItem('ssaved_cols') || 1;
+            const gridClass = `grid-cols-${mCols} md:grid-cols-2 lg:grid-cols-3`;
+
+            appData.folders.forEach(folder => {
+                const fCards = appData.cards.filter(c => c.folderId === folder.id);
+                // Hide empty custom folders, show empty Inbox
+                if (fCards.length === 0 && folder.id !== INBOX_ID) return;
+
+                const cardsHtml = fCards.map(c => generateCardHTML(c, rIds)).join('');
+
+                const section = `
+                <section id="folder-${folder.id}" class="folder-enter group/folder">
+                    <div class="mb-4 flex items-end relative pl-1"
+                         ondragover="handleFolderDragOver(event, '${folder.id}')"
+                         ondragleave="handleFolderDragLeave(event, '${folder.id}')"
+                         ondrop="handleFolderDrop(event, '${folder.id}')">
+                         
+                        <div class="folder-tab bg-slate-200 text-slate-600 px-4 py-1.5 text-xs font-bold uppercase tracking-wider rounded-t-lg transition-colors duration-200 cursor-default select-none group-hover/folder:bg-slate-300">
+                            ${folder.name} <span class="opacity-50 ml-1">${fCards.length}</span>
+                        </div>
+                        <div class="h-px bg-slate-200 w-full mb-px"></div>
+                    </div>
+
+                    <div class="grid ${gridClass} gap-4 md:gap-6 min-h-[50px] transition-all duration-300">
+                        ${cardsHtml}
+                    </div>
+                </section>`;
+                wrapper.insertAdjacentHTML('beforeend', section);
+            });
+        }
+
+        function generateCardHTML(c, rIds) {
+            const isRestored = c.isRestored ? "border-rose-200 shadow-xl shadow-rose-400/40" : "border-slate-200 shadow-sm";
+            const restoreAttr = c.isRestored ? `onmouseenter="clearRestoreStatus(${c.id})"` : "";
+            const pulse = c.isScanning ? "animate-pulse" : "";
+            const enter = rIds.includes(c.id) ? 'animate-restore' : '';
+            
+            const hasSuggestions = !c.isScanning && c.suggestions.length !== 1;
+            let tooltip = "";
+            if (hasSuggestions) {
+                const content = c.suggestions.length === 0 
+                    ? `<div class="bg-slate-50/90 backdrop-blur-md rounded-xl p-3 shadow-xl border border-slate-200 text-xs text-slate-500 text-center">No valid text found.</div>`
+                    : `<div class="bg-slate-50/90 backdrop-blur-md rounded-xl p-3 shadow-xl border border-slate-200 ring-1 ring-black/5"><div class="flex flex-wrap gap-2">${c.suggestions.map(w => `<button onmousedown="event.preventDefault(); applySuggestion(${c.id}, '${cleanString(w)}')" class="px-2.5 py-1.5 bg-white hover:bg-slate-100 border border-slate-200 text-slate-600 text-xs font-medium rounded-lg shadow-sm transition-all">${w}</button>`).join('')}</div></div>`;
+                tooltip = `<div id="tooltip-${c.id}" class="tooltip-container absolute bottom-full left-0 w-full mb-3 z-50"><div class="tooltip-arrow relative">${content}</div></div>`;
+            }
+
+            return `
+            <div id="card-${c.id}" draggable="true" 
+                 ondragstart="handleDragStart(event, ${c.id})" 
+                 ondragover="handleCardDragOver(event, ${c.id})" 
+                 ondrop="handleCardDrop(event, ${c.id})" 
+                 ondragend="handleDragEnd(event)" 
+                 ${restoreAttr} 
+                 style="view-transition-name: card-${c.id}" 
+                 class="bg-white rounded-xl border overflow-hidden group hover:shadow-md transition-all duration-300 flex flex-col ${isRestored} ${pulse} ${enter}">
+                
+                <div class="aspect-[9/16] bg-slate-100 relative overflow-hidden group/image shrink-0 cursor-pointer active:cursor-move" onclick="handleImageClick(event, ${c.id})">
+                    <img src="${c.imageUrl}" class="w-full h-full object-cover object-top pointer-events-none" loading="lazy">
+                    <div class="absolute top-4 right-4 z-20 opacity-0 group-hover/image:opacity-100 transition-opacity">
+                        <button onclick="event.stopPropagation(); deleteCard(${c.id})" class="p-2 bg-white/60 hover:bg-red-50/90 backdrop-blur-md border border-white/40 text-slate-700 hover:text-red-600 rounded-md shadow-sm transition-all"><i class="ph-bold ph-x text-lg"></i></button>
+                    </div>
+                </div>
+
+                <div class="p-4 flex flex-col gap-3 flex-1">
+                    <div class="relative username-wrapper z-10">
+                        ${tooltip}
+                        <div class="relative group/input">
+                            <div class="absolute inset-y-0 left-0 pl-1 flex items-center pointer-events-none"><span class="text-slate-400 font-medium">@</span></div>
+                            <input type="text" value="${c.username}" ${hasSuggestions ? `onfocus="triggerTooltip(${c.id})"` : ''} oninput="updateCard(${c.id}, 'username', this.value)" class="w-full pl-6 pr-8 py-1 bg-transparent border-0 border-b border-slate-200 focus:border-slate-400 outline-none text-sm font-semibold text-slate-400 group-hover/input:text-slate-800 focus:text-slate-800 transition-colors" placeholder="Username">
+                            ${hasSuggestions ? `<div class="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none"><i class="ph-fill ph-magic-wand text-slate-300"></i></div>` : ''}
+                        </div>
+                    </div>
+                    <textarea onchange="updateCard(${c.id}, 'notes', this.value)" class="w-full text-xs text-slate-500 bg-transparent border-0 border-b border-slate-100 focus:border-slate-300 outline-none resize-none p-1" rows="1" placeholder="Add notes...">${c.notes}</textarea>
+                    <a href="${c.link}" target="_blank" class="mt-auto w-fit group/btn flex items-center justify-center gap-2 px-4 py-2 bg-slate-50 hover:bg-slate-100 text-slate-600 hover:text-slate-900 border border-slate-200 text-xs font-medium rounded-full transition-colors">Visit Profile <i class="ph-bold ph-arrow-up-right"></i></a>
+                </div>
+            </div>`;
+        }
+
+        // --- DRAG & DROP V2 (CROSS-FOLDER) ---
+        function handleDragStart(e, id) {
+            dragSrcId = id; 
+            const c = appData.cards.find(x => x.id === id);
+            dragSrcFolderId = c ? c.folderId : null;
+
+            e.dataTransfer.effectAllowed = 'move'; 
+            e.dataTransfer.setData('text/plain', id);
+            document.body.classList.add('global-dragging');
+            setTimeout(() => document.getElementById(`card-${id}`)?.classList.add('is-dragging'), 0);
+        }
+
+        // A. Folder Drag (Moving to Folder)
+        function handleFolderDragOver(e, folderId) {
+            if (!dragSrcId || dragSrcFolderId === folderId) return;
+            e.preventDefault(); e.dataTransfer.dropEffect = 'move';
+            document.getElementById(`folder-${folderId}`).classList.add('folder-drop-active');
+        }
+        function handleFolderDragLeave(e, folderId) {
+            document.getElementById(`folder-${folderId}`).classList.remove('folder-drop-active');
+        }
+        function handleFolderDrop(e, folderId) {
+            e.preventDefault();
+            document.getElementById(`folder-${folderId}`).classList.remove('folder-drop-active');
+            if (dragSrcId && dragSrcFolderId !== folderId) {
+                const c = appData.cards.find(x => x.id === dragSrcId);
+                if (c) {
+                    c.folderId = folderId; c.order = 0; // Top of new folder
+                    saveCardToDB(c);
+                    reindexCards(folderId); reindexCards(dragSrcFolderId);
+                    transitionRender();
+                }
+            }
+        }
+
+        // B. Card Drag (Sorting within Grid)
+        function handleCardDragOver(e, targetId) {
+            e.preventDefault(); e.dataTransfer.dropEffect = 'move';
+            if (!dragSrcId || dragSrcId === targetId) return;
+
+            const targetCard = appData.cards.find(c => c.id === targetId);
+            // Disable reorder if crossing folders
+            if (targetCard.folderId !== dragSrcFolderId) return;
+
+            // Neighbor Shift (Scoped to Folder)
+            const folderCards = appData.cards.filter(c => c.folderId === dragSrcFolderId).sort((a,b) => a.order - b.order);
+            const from = folderCards.findIndex(c => c.id === dragSrcId);
+            const to = folderCards.findIndex(c => c.id === targetId);
+
+            if (from === -1 || to === -1) return;
+
+            // Reset shifts
+            document.querySelectorAll('.card-shift-forward, .card-shift-backward').forEach(el => { el.classList.remove('card-shift-forward', 'card-shift-backward'); el.style.transform = ''; });
+            
+            const start = Math.min(from, to), end = Math.max(from, to);
+            for (let i = start; i <= end; i++) {
+                if (i === from) continue;
+                const el = document.getElementById(`card-${folderCards[i].id}`);
+                if (el) el.classList.add(from < to ? 'card-shift-forward' : 'card-shift-backward');
+            }
+        }
+
+        function handleCardDrop(e, targetId) {
+            e.stopPropagation(); e.preventDefault();
+            if (!dragSrcId || dragSrcId === targetId) return;
+
+            const targetCard = appData.cards.find(c => c.id === targetId);
+            
+            // Case 1: Drop in Same Folder (Reorder)
+            if (targetCard.folderId === dragSrcFolderId) {
+                const folderCards = appData.cards.filter(c => c.folderId === dragSrcFolderId).sort((a,b) => a.order - b.order);
+                const from = folderCards.findIndex(c => c.id === dragSrcId);
+                const to = folderCards.findIndex(c => c.id === targetId);
+
+                if (from > -1 && to > -1) {
+                    // Logic: Splice local array, then update "Order" on objects
+                    const [moved] = folderCards.splice(from, 1);
+                    folderCards.splice(to, 0, moved);
+                    
+                    folderCards.forEach((c, i) => { c.order = i; saveCardToDB(c); });
+                    // Sync Main Array Order
+                    appData.cards.sort((a,b) => a.order - b.order);
+                    transitionRender();
+                }
+            } else {
+                // Case 2: Drop on card in Diff Folder (Move)
+                handleFolderDrop(e, targetCard.folderId);
+            }
+        }
+
+        function handleDragEnd() {
+            document.body.classList.remove('global-dragging');
+            document.querySelectorAll('.is-dragging, .card-shift-forward, .card-shift-backward, .folder-drop-active').forEach(el => {
+                el.classList.remove('is-dragging', 'card-shift-forward', 'card-shift-backward', 'folder-drop-active'); el.style.transform = '';
+            });
+            dragSrcId = null; dragSrcFolderId = null;
+        }
+
+        // --- ACTIONS ---
+        function createNewFolder() {
+            const name = prompt("Folder Name:");
+            if (name) {
+                const id = 'folder-' + Date.now();
+                const newFolder = { id, name, order: appData.folders.length };
+                appData.folders.push(newFolder);
+                saveFolderToDB(newFolder);
+                render();
+            }
+        }
+
+        // --- FILE & OCR ---
+        function simpleCrop(url) {
+            return new Promise((resolve, reject) => {
+                const img = new Image();
+                img.onload = () => {
+                    const c = document.createElement('canvas'), h = img.height * 0.2;
+                    c.width = img.width; c.height = h;
+                    c.getContext('2d').drawImage(img, 0, 0, img.width, h, 0, 0, img.width, h);
+                    c.toBlob(resolve);
+                };
+                img.onerror = reject; img.src = url;
+            });
+        }
+        async function handleFiles(files) {
+            if (!files.length) return;
+            showStatus(true, `Processing ${files.length}...`);
+            // Add to Inbox by default
+            const newCards = Array.from(files).map((f, i) => ({ 
+                id: Date.now() + i, file: f, imageUrl: URL.createObjectURL(f), 
+                username: "", notes: "", link: "#", isScanning: true, suggestions: [], folderId: INBOX_ID 
+            }));
+            
+            // Save & Render
+            newCards.forEach(c => saveCardToDB(c));
+            appData.cards.unshift(...newCards);
+            reindexCards(INBOX_ID);
+            
+            transitionRender(newCards.map(c => c.id));
+            await new Promise(r => setTimeout(r, 100)); // Pause for UI
+
+            // OCR
+            for (const c of newCards) {
+                try {
+                    const blob = await simpleCrop(c.imageUrl);
+                    const { data: { words } } = await Tesseract.recognize(blob, 'eng');
+                    const banned = ['follow', 'followers', 'following', 'posts'];
+                    const valid = words.map(w => w.text.trim()).filter(w => w.length > 4 && !/[:;,]/.test(w) && !banned.includes(w.toLowerCase())).sort((a,b) => b.length - a.length);
+                    const best = valid[0] ? cleanString(valid[0]) : "";
+                    
+                    const actual = appData.cards.find(x => x.id === c.id);
+                    if (actual) {
+                        Object.assign(actual, { username: best, link: `https://instagram.com/${best}`, suggestions: valid, isScanning: false });
+                        saveCardToDB(actual);
+                        const el = document.getElementById(`card-${actual.id}`);
+                        if(el) {
+                           const inp = el.querySelector('input'); if(inp && document.activeElement!==inp) inp.value = best;
+                           el.querySelector('a').href = actual.link;
+                           el.classList.remove('animate-pulse');
+                        }
+                    }
+                } catch (e) { console.error(e); }
+            }
+            showStatus(false);
+        }
+
+        // --- UTILS ---
+        function transitionRender(ids) { document.startViewTransition ? document.startViewTransition(() => render(ids)) : render(ids); }
+        function showSaved() { const el=document.getElementById('saveIndicator'); el.classList.remove('opacity-0'); setTimeout(()=>el.classList.add('opacity-0'),2000); }
+        function showStatus(show, txt) { const el=document.getElementById('statusBar'); el.classList.toggle('hidden',!show); el.classList.toggle('flex',show); document.getElementById('statusText').innerText=txt; }
+        function cleanString(s) { return s.replace(/[^a-zA-Z0-9_.]/g, '').toLowerCase(); }
+        function triggerUpload() { document.getElementById('fileInput').click(); }
+        function triggerImport() { document.getElementById('importInput').click(); }
+        function handleImageClick(e, id) { if(!e.target.closest('button')) { const c = appData.cards.find(x => x.id === id); if(c.link !== '#') window.open(c.link, '_blank'); }}
+
+        // Tooltip & Editing
+        window.addEventListener('click', (e) => { if (!e.target.closest('.username-wrapper')) closeAllTooltips(); });
+        window.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeAllTooltips(); });
+        function triggerTooltip(id) { closeAllTooltips(); document.getElementById(`tooltip-${id}`)?.classList.add('active'); }
+        function closeAllTooltips() { document.querySelectorAll('.tooltip-container').forEach(e => e.classList.remove('active')); }
+        function applySuggestion(id, w) { 
+            const c = appData.cards.find(x => x.id === id); 
+            if(c) { c.username = w; c.link = `https://instagram.com/${w}`; saveCardToDB(c); 
+            document.getElementById(`card-${id}`).querySelector('input').value=w; closeAllTooltips(); } 
+        }
+        function updateCard(id, f, v) { const c = appData.cards.find(x => x.id === id); if(c) { c[f] = v; if(f==='username') c.link = `https://instagram.com/${v}`; saveCardToDB(c); } }
+
+        // Undo / Delete
+        function deleteCard(id) {
+            const idx = appData.cards.findIndex(c => c.id === id);
+            if(idx > -1) {
+                deletedCardsStack.push(appData.cards.splice(idx, 1)[0]);
+                const tx = db.transaction("cards", "readwrite"); tx.objectStore("cards").delete(id);
+                transitionRender(); updateUndoUI();
+            }
+        }
+        function triggerUndo() {
+            if (!deletedCardsStack.length) return;
+            const c = deletedCardsStack.pop(); c.isRestored = true;
+            // Find correct folder and insert
+            const folderCards = appData.cards.filter(x => x.folderId === c.folderId);
+            // Rough restore logic: append to folder for safety
+            appData.cards.push(c); 
+            reindexCards(c.folderId);
+            transitionRender(c.id); updateUndoUI();
+        }
+        function clearRestoreStatus(id) {
+            const c = appData.cards.find(x => x.id === id);
+            if (c?.isRestored) { c.isRestored = false; saveCardToDB(c); document.getElementById(`card-${id}`)?.classList.remove('border-rose-200', 'shadow-xl', 'shadow-rose-400/40'); document.getElementById(`card-${id}`)?.classList.add('border-slate-200', 'shadow-sm'); }
+        }
+        function updateUndoUI() {
+            const btn=document.getElementById('undoBtn'); 
+            if(undoTimeout) clearTimeout(undoTimeout);
+            if(deletedCardsStack.length) { btn.classList.remove('hidden-btn'); document.getElementById('undoText').innerText=`Undo (${deletedCardsStack.length})`; undoTimeout=setTimeout(()=>btn.classList.add('hidden-btn'),5000); }
+            else btn.classList.add('hidden-btn');
+        }
+
+        // Global Drag
+        function setupGlobalDrag() {
+            const ov = document.getElementById('dragOverlay'); let c = 0;
+            ['dragenter','dragleave','dragover','drop'].forEach(evt => window.addEventListener(evt, e => {
+                if (dragSrcId) return; 
+                e.preventDefault();
+                if (evt === 'dragenter' && e.dataTransfer.types.includes('Files')) { c++; ov.classList.remove('opacity-0'); }
+                if (evt === 'dragleave') { c--; if(c === 0) ov.classList.add('opacity-0'); }
+                if (evt === 'drop') { c = 0; ov.classList.add('opacity-0'); if(e.dataTransfer.files.length) handleFiles(e.dataTransfer.files); }
+            }));
+        }
+
+        // Layout
+        function updateWidth(val) { document.getElementById('mainContainer').style.maxWidth = val > 2350 ? '100%' : `${val}px`; localStorage.setItem('ssaved_width', val); }
+        function setMobileCols(n) {
+            localStorage.setItem('ssaved_cols', n);
+            [1,2].forEach(i => document.getElementById(`col-btn-${i}`).className = `w-8 h-8 flex center rounded-md transition-all ${i==n?'bg-white text-slate-900 shadow-sm font-bold':'text-slate-500'}`);
+            render();
+        }
+
+        // Import/Export
+        async function handleImport(files) {
+            if (!files.length) return;
+            showStatus(true, "Restoring...");
+            try {
+                const zip = await JSZip.loadAsync(files[0]);
+                const json = JSON.parse(await zip.file("data.json").async("string"));
+                const newCards = await Promise.all(json.map(async d => {
+                    const blob = await zip.file("images/" + d.fileName)?.async("blob");
+                    if (!blob) return null;
+                    // Support legacy imports by defaulting to Inbox
+                    return { ...d, folderId: d.folderId || INBOX_ID, file: new File([blob], d.fileName), imageUrl: URL.createObjectURL(blob), isScanning: false };
+                }));
+                const valid = newCards.filter(c => c && !appData.cards.find(x => x.id === c.id));
+                valid.forEach(c => saveCardToDB(c));
+                appData.cards.unshift(...valid); reindexCards(INBOX_ID);
+                transitionRender();
+            } catch(e) { console.error(e); alert("Import failed"); }
+            showStatus(false);
+        }
+        async function exportData() {
+            if (!appData.cards.length) return;
+            showStatus(true, "Zipping...");
+            const zip = new JSZip(), folder = zip.folder("images");
+            // Export now includes folderId
+            zip.file("data.json", JSON.stringify(appData.cards.map(c => ({...c, fileName:`img_${c.id}.png`, file:undefined, imageUrl:undefined})), null, 2));
+            appData.cards.forEach(c => folder.file(`img_${c.id}.png`, c.file));
+            saveAs(await zip.generateAsync({type:"blob"}), "ssaved-backup.zip");
+            showStatus(false);
+        }
+    </script>
+</body>
+</html>

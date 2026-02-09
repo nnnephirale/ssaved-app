@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SSaved - Click-to-Pick Edition</title>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <script src='https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js'></script>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+
+    <style>
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-900 h-screen flex flex-col font-sans">
+
+    <header class="bg-white border-b border-slate-200 px-6 py-4 flex justify-between items-center sticky top-0 z-10 shadow-sm">
+        <h1 class="text-xl font-bold tracking-tight text-slate-800">SSaved</h1>
+        
+        <div class="flex gap-3">
+            <button onclick="exportData()" class="flex items-center gap-2 px-4 py-2 text-sm font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-md transition">
+                <i class="ph ph-download-simple"></i> Export ZIP
+            </button>
+            <button onclick="triggerUpload()" class="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-md shadow-sm transition">
+                <i class="ph ph-plus"></i> Upload Screenshots
+            </button>
+            <input type="file" id="fileInput" multiple accept="image/*" class="hidden" onchange="handleFiles(this.files)">
+        </div>
+    </header>
+
+    <main class="flex-1 overflow-auto p-6 relative" ondrop="handleDrop(event)" ondragover="handleDragOver(event)">
+        
+        <div id="emptyState" class="hidden h-full flex flex-col items-center justify-center text-slate-400 border-2 border-dashed border-slate-300 rounded-xl bg-slate-50/50">
+            <i class="ph ph-images text-6xl mb-4"></i>
+            <p class="text-lg font-medium text-slate-600">Drag and drop screenshots here</p>
+        </div>
+
+        <div id="gridContainer" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 pb-20"></div>
+
+    </main>
+
+    <div id="statusBar" class="fixed bottom-6 right-6 bg-slate-900 text-white px-4 py-3 rounded-lg shadow-lg flex items-center gap-3 hidden transition-all z-50">
+        <div class="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+        <span id="statusText" class="text-sm font-medium">Processing...</span>
+    </div>
+
+    <script>
+        // --- APP STATE ---
+        let appData = { cards: [] };
+
+        // --- DOM ELEMENTS ---
+        const gridContainer = document.getElementById('gridContainer');
+        const emptyState = document.getElementById('emptyState');
+        const statusBar = document.getElementById('statusBar');
+        const statusText = document.getElementById('statusText');
+
+        // --- INIT ---
+        window.addEventListener('DOMContentLoaded', () => render());
+
+        // --- DRAG & DROP ---
+        function handleDragOver(e) { e.preventDefault(); }
+        function handleDrop(e) {
+            e.preventDefault();
+            if (e.dataTransfer.files?.length > 0) handleFiles(e.dataTransfer.files);
+        }
+
+        // --- CORE FUNCTIONS ---
+        function triggerUpload() { document.getElementById('fileInput').click(); }
+
+        async function handleFiles(files) {
+            if (!files.length) return;
+            
+            showStatus(true, `Queued ${files.length} images...`);
+
+            for (let i = 0; i < files.length; i++) {
+                const file = files[i];
+                const tempId = Date.now() + i;
+                const imageUrl = URL.createObjectURL(file);
+
+                const newCard = {
+                    id: tempId,
+                    file: file,
+                    imageUrl: imageUrl, 
+                    username: "Scanning...",
+                    notes: "",
+                    link: "#",
+                    isScanning: true,
+                    suggestions: [] // Store all words found
+                };
+
+                appData.cards.unshift(newCard);
+                render(); 
+
+                try {
+                    showStatus(true, `Reading image ${i + 1}/${files.length}...`);
+                    
+                    // 1. SIMPLE CROP (No weird color filters)
+                    const croppedImageBlob = await simpleCrop(imageUrl);
+                    
+                    // 2. OCR
+                    const result = await Tesseract.recognize(croppedImageBlob, 'eng');
+
+                    // 3. EXTRACT WORDS FOR "CLICK-TO-PICK"
+                    // We get every single word Tesseract found
+                    const words = result.data.words
+                        .map(w => w.text.trim())
+                        .filter(w => w.length > 2) // Ignore 1-2 letter noise
+                        .filter(w => !w.match(/^\d+:\d+$/)); // Ignore time (12:30)
+
+                    // 4. GUESS USERNAME (Largest word logic - rudimentary)
+                    // Since we can't perfectly rely on font size in the basic API, 
+                    // we pick the first "clean" word that looks like a username.
+                    const bestGuess = words[0] || "unknown"; 
+
+                    // 5. UPDATE UI
+                    const cardIndex = appData.cards.findIndex(c => c.id === tempId);
+                    if (cardIndex !== -1) {
+                        appData.cards[cardIndex].username = cleanString(bestGuess);
+                        appData.cards[cardIndex].link = `https://instagram.com/${cleanString(bestGuess)}`;
+                        appData.cards[cardIndex].isScanning = false;
+                        appData.cards[cardIndex].suggestions = words; // Save for the UI
+                        render();
+                    }
+
+                } catch (error) {
+                    console.error("OCR Error:", error);
+                    updateCardStatus(tempId, "error", false);
+                }
+            }
+            showStatus(false);
+        }
+
+        function cleanString(str) {
+            return str.replace(/[^a-zA-Z0-9_.]/g, '').toLowerCase();
+        }
+
+        function simpleCrop(url) {
+            return new Promise((resolve, reject) => {
+                const img = new Image();
+                img.crossOrigin = "Anonymous";
+                img.onload = () => {
+                    const canvas = document.createElement('canvas');
+                    const ctx = canvas.getContext('2d');
+                    
+                    // Crop Top 20% (Header) - No color inversion this time
+                    const cropH = img.height * 0.20; 
+                    canvas.width = img.width;
+                    canvas.height = cropH;
+                    
+                    ctx.drawImage(img, 0, 0, img.width, cropH, 0, 0, img.width, cropH);
+                    canvas.toBlob(blob => resolve(blob));
+                };
+                img.onerror = reject;
+                img.src = url;
+            });
+        }
+
+        // --- RENDER & UI ---
+        function render() {
+            if (appData.cards.length === 0) {
+                emptyState.classList.remove('hidden');
+                gridContainer.innerHTML = '';
+                return;
+            } else {
+                emptyState.classList.add('hidden');
+            }
+
+            gridContainer.innerHTML = '';
+
+            appData.cards.forEach(card => {
+                const pulseClass = card.isScanning ? "animate-pulse" : "";
+                
+                // GENERATE SUGGESTION CHIPS
+                let suggestionsHTML = "";
+                if(card.suggestions && card.suggestions.length > 0) {
+                    suggestionsHTML = `<div class="flex flex-wrap gap-1 mb-3">
+                        <span class="text-[10px] text-slate-400 w-full uppercase font-bold">Detected Words (Click to apply):</span>
+                        ${card.suggestions.map(word => `
+                            <button onclick="applySuggestion(${card.id}, '${cleanString(word)}')" 
+                                class="px-2 py-1 bg-slate-100 hover:bg-blue-100 text-slate-600 hover:text-blue-700 text-xs rounded border border-slate-200 transition">
+                                ${word}
+                            </button>
+                        `).join('')}
+                    </div>`;
+                }
+
+                const cardHTML = `
+                    <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden group hover:shadow-md transition-all ${pulseClass}">
+                        <div class="aspect-[4/5] bg-slate-100 relative overflow-hidden group/image">
+                            <img src="${card.imageUrl}" class="w-full h-full object-cover object-top" alt="Screenshot">
+                            <div class="absolute inset-0 bg-black/60 opacity-0 group-hover/image:opacity-100 transition-opacity flex items-center justify-center gap-4">
+                                <button onclick="deleteCard(${card.id})" class="p-3 bg-white rounded-full hover:bg-red-50 text-red-600 transition shadow-sm">
+                                    <i class="ph-fill ph-trash text-xl"></i>
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="p-4">
+                            <div class="flex items-center justify-between mb-2">
+                                <label class="text-xs font-bold text-slate-500 uppercase tracking-wider">
+                                    ${card.isScanning ? "Scanning..." : "Username"}
+                                </label>
+                                <a href="${card.link}" target="_blank" class="text-blue-600 hover:text-blue-800 text-xs flex items-center gap-1">
+                                    Open Link <i class="ph-bold ph-arrow-square-out"></i>
+                                </a>
+                            </div>
+                            
+                            <input type="text" 
+                                value="${card.username}" 
+                                onchange="updateCard(${card.id}, 'username', this.value)"
+                                ${card.isScanning ? "disabled" : ""}
+                                class="w-full text-lg font-semibold text-slate-800 bg-transparent border-b border-transparent hover:border-slate-300 focus:border-blue-500 focus:outline-none transition-colors mb-3 px-0 py-1"
+                                placeholder="@username">
+                            
+                            ${suggestionsHTML}
+
+                            <textarea 
+                                onchange="updateCard(${card.id}, 'notes', this.value)"
+                                class="w-full text-sm text-slate-600 bg-slate-50 rounded-md p-2 border-0 focus:ring-2 focus:ring-blue-500 resize-none" 
+                                rows="2" 
+                                placeholder="Add notes here...">${card.notes}</textarea>
+                        </div>
+                    </div>
+                `;
+                gridContainer.insertAdjacentHTML('beforeend', cardHTML);
+            });
+        }
+
+        // --- ACTIONS ---
+        function applySuggestion(cardId, word) {
+            updateCard(cardId, 'username', word);
+        }
+
+        function updateCard(id, field, value) {
+            const card = appData.cards.find(c => c.id === id);
+            if (card) {
+                card[field] = value;
+                if (field === 'username') card.link = `https://instagram.com/${value}`;
+                render(); 
+            }
+        }
+
+        function deleteCard(id) {
+            if(confirm("Delete this screenshot?")) {
+                appData.cards = appData.cards.filter(c => c.id !== id);
+                render();
+            }
+        }
+
+        function showStatus(show, text = "") {
+            statusBar.classList.toggle('hidden', !show);
+            statusBar.classList.toggle('flex', show);
+            statusText.innerText = text;
+        }
+
+        function exportData() { alert("Export feature coming next!"); }
+
+    </script>
+</body>
+</html>

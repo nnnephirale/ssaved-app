@@ -3,9 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <meta http-equiv="Content-Security-Policy" content="script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.tailwindcss.com https://cdn.jsdelivr.net https://unpkg.com blob:; worker-src blob:; child-src blob:;">
     <title>SSaved</title>
-
+    
     <script src="https://cdn.tailwindcss.com"></script>
     <script src='https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js'></script>
     <script src="https://unpkg.com/@phosphor-icons/web"></script>
@@ -178,18 +177,20 @@
 
         /* --- BUTTONS --- */
         .btn-primary {
-            background: rgba(229, 229, 229, 0.8);
-            color: #737373;
+            background: #1a1a1a;
+            color: white;
             border-radius: 0.625rem;
-            font-weight: 600;
-            transition: all 0.2s ease;
+            font-weight: 500;
+            transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+            box-shadow: 0 2px 8px -2px rgba(0,0,0,0.2);
         }
         .btn-primary:hover {
-            background: rgba(212, 212, 212, 0.9);
-            color: #525252;
+            background: #000;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px -2px rgba(0,0,0,0.25);
         }
         .btn-primary:active {
-            transform: scale(0.98);
+            transform: translateY(0) scale(0.98);
         }
 
         .btn-secondary {
@@ -348,6 +349,20 @@
             pointer-events: none;
         }
 
+        /* --- DROPDOWN MENU --- */
+        #addMenuMobile, #addMenuDesktop {
+            animation: dropdownFadeIn 0.15s ease-out;
+        }
+        @keyframes dropdownFadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(-8px) scale(0.96);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0) scale(1);
+            }
+        }
     </style>
 </head>
 <body class="text-neutral-900 font-sans antialiased selection:bg-rose-100 selection:text-rose-900 min-h-screen">
@@ -372,16 +387,19 @@
                     </button>
                     <span id="saveIndicator" class="text-[10px] font-medium uppercase tracking-wider text-neutral-300 opacity-0 transition-opacity">Saved</span>
                 </div>
-                <!-- Mobile: Add buttons -->
-                <div class="md:hidden flex items-center gap-2">
-                    <button onclick="triggerUpload()" class="btn-primary flex items-center gap-1.5 px-3 py-1.5 text-sm" title="Add Screenshot">
-                        <i class="ph-bold ph-plus text-sm"></i>
-                        <i class="ph-bold ph-image text-base"></i>
+                <!-- Mobile: Add button with dropdown -->
+                <div class="md:hidden relative">
+                    <button onclick="toggleAddMenu('mobile')" class="btn-primary flex items-center gap-2 px-3 py-1.5 text-sm">
+                        <i class="ph-bold ph-plus"></i> Add
                     </button>
-                    <button onclick="createNewFolder()" class="btn-primary flex items-center gap-1.5 px-3 py-1.5 text-sm" title="New Folder">
-                        <i class="ph-bold ph-plus text-sm"></i>
-                        <i class="ph-bold ph-folder-plus text-base"></i>
-                    </button>
+                    <div id="addMenuMobile" class="absolute right-0 top-full mt-2 w-48 bg-white rounded-xl shadow-xl border border-neutral-100 py-1 hidden z-50">
+                        <button onclick="triggerUpload(); closeAddMenus()" class="w-full px-4 py-2.5 text-left text-sm text-neutral-700 hover:bg-neutral-50 flex items-center gap-3">
+                            <i class="ph ph-image text-neutral-400"></i> Add Screenshot
+                        </button>
+                        <button onclick="createNewFolder(); closeAddMenus()" class="w-full px-4 py-2.5 text-left text-sm text-neutral-700 hover:bg-neutral-50 flex items-center gap-3">
+                            <i class="ph ph-folder-plus text-neutral-400"></i> New Folder
+                        </button>
+                    </div>
                 </div>
             </div>
             
@@ -411,16 +429,19 @@
                 <input type="file" id="fileInput" multiple accept="image/*" class="hidden" onchange="handleFiles(this.files)">
             </div>
             
-            <!-- Desktop: Add buttons -->
-            <div class="hidden md:flex items-center gap-2 shrink-0">
-                <button onclick="triggerUpload()" class="btn-primary flex items-center gap-1.5 px-3 py-1.5 text-sm" title="Add Screenshot">
-                    <i class="ph-bold ph-plus text-sm"></i>
-                    <i class="ph-bold ph-image text-base"></i>
+            <!-- Desktop: Add button (outside overflow container so dropdown isn't clipped) -->
+            <div class="hidden md:block relative shrink-0">
+                <button onclick="toggleAddMenu('desktop')" class="btn-primary flex items-center gap-2 px-3 py-1.5 text-sm">
+                    <i class="ph-bold ph-plus"></i> <span>Add New</span>
                 </button>
-                <button onclick="createNewFolder()" class="btn-primary flex items-center gap-1.5 px-3 py-1.5 text-sm" title="New Folder">
-                    <i class="ph-bold ph-plus text-sm"></i>
-                    <i class="ph-bold ph-folder-plus text-base"></i>
-                </button>
+                <div id="addMenuDesktop" class="absolute right-0 top-full mt-2 w-52 bg-white rounded-xl shadow-xl border border-neutral-100 py-1 hidden z-50">
+                    <button onclick="triggerUpload(); closeAddMenus()" class="w-full px-4 py-2.5 text-left text-sm text-neutral-700 hover:bg-neutral-50 flex items-center gap-3">
+                        <i class="ph ph-image text-neutral-400"></i> Add Screenshot
+                    </button>
+                    <button onclick="createNewFolder(); closeAddMenus()" class="w-full px-4 py-2.5 text-left text-sm text-neutral-700 hover:bg-neutral-50 flex items-center gap-3">
+                        <i class="ph ph-folder-plus text-neutral-400"></i> New Folder
+                    </button>
+                </div>
             </div>
         </div>
     </header>
@@ -430,7 +451,7 @@
         <div id="emptyState" class="hidden min-h-[70vh] flex flex-col items-center justify-center text-neutral-400">
             <div class="w-20 h-20 bg-neutral-100 rounded-2xl flex items-center justify-center mb-5 text-neutral-300"><i class="ph-fill ph-images text-4xl"></i></div>
             <p class="text-base font-medium text-neutral-500">No screenshots yet</p>
-            <p class="text-sm text-neutral-400 mt-1">Tap the add buttons to start</p>
+            <p class="text-sm text-neutral-400 mt-1">Tap "Add New" to start</p>
         </div>
 
         <div id="folderWrapper" class="flex flex-col gap-12 pb-32"></div>
@@ -479,17 +500,14 @@
         let deletedCardsStack = [], undoTimeout = null, dragSrcId = null, dragSrcFolderId = null;
         let collectionId = null;
         
-        const INBOX_ID = 'inbox'; // Will be set to {collectionId}_inbox on load
-        const DELETION_GRACE_PERIOD = 10 * 60 * 1000; // 10 minutes in milliseconds
-        const deletionTimers = new Map(); // Track scheduled deletions
+        const INBOX_ID = 'inbox';
 
         // --- INIT ---
         window.addEventListener('DOMContentLoaded', async () => {
             await initCollection();
-            await cleanupOldDeletedCards();
             setupGlobalDrag();
             initScrollBehavior();
-
+            
             // Prefs (local only)
             const w = localStorage.getItem('ssaved_width');
             if (w) { document.getElementById('widthSlider').value = w; updateWidth(w); }
@@ -536,37 +554,14 @@
             }
         }
 
-        // --- COLLECTION ID GENERATION ---
-        const ADJECTIVES = [
-            'autumn', 'hidden', 'bitter', 'misty', 'silent', 'empty', 'dry', 'dark',
-            'summer', 'icy', 'delicate', 'quiet', 'white', 'cool', 'spring', 'winter',
-            'patient', 'twilight', 'dawn', 'crimson', 'wispy', 'weathered', 'blue',
-            'billowing', 'broken', 'cold', 'damp', 'falling', 'frosty', 'green',
-            'long', 'late', 'lingering', 'bold', 'little', 'morning', 'muddy', 'old',
-            'red', 'rough', 'still', 'small', 'sparkling', 'throbbing', 'shy',
-            'wandering', 'withered', 'wild', 'black', 'young', 'holy', 'solitary',
-            'fragrant', 'aged', 'snowy', 'proud', 'floral', 'restless', 'divine',
-            'polished', 'ancient', 'purple', 'lively', 'nameless', 'lucky', 'odd',
-            'dazzling', 'upbeat', 'brave', 'calm', 'eager', 'jolly', 'kind'
-        ];
-
-        const NOUNS = [
-            'waterfall', 'river', 'breeze', 'moon', 'rain', 'wind', 'sea', 'morning',
-            'snow', 'lake', 'sunset', 'pine', 'shadow', 'leaf', 'dawn', 'glitter',
-            'forest', 'hill', 'cloud', 'meadow', 'sun', 'glade', 'bird', 'brook',
-            'butterfly', 'bush', 'dew', 'dust', 'field', 'fire', 'flower', 'firefly',
-            'feather', 'grass', 'haze', 'mountain', 'night', 'pond', 'darkness',
-            'snowflake', 'silence', 'sound', 'sky', 'shape', 'surf', 'thunder',
-            'violet', 'water', 'wildflower', 'wave', 'water', 'resonance', 'sun',
-            'wood', 'dream', 'cherry', 'tree', 'fog', 'frost', 'voice', 'paper',
-            'frog', 'smoke', 'star', 'mouse', 'ocean', 'galaxy', 'payne', 'liskov',
-            'lovelace', 'hopper', 'turing', 'shirley', 'hamilton', 'tesla'
-        ];
-
         function generateCollectionId() {
-            const adj = ADJECTIVES[Math.floor(Math.random() * ADJECTIVES.length)];
-            const noun = NOUNS[Math.floor(Math.random() * NOUNS.length)];
-            return `${adj}-${noun}`;
+            // Generate a random 12-character alphanumeric ID
+            const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+            let id = '';
+            for (let i = 0; i < 12; i++) {
+                id += chars.charAt(Math.floor(Math.random() * chars.length));
+            }
+            return id;
         }
 
         async function createNewCollection() {
@@ -578,13 +573,12 @@
         async function createCollection(id) {
             // Create collection record
             await db.from('collections').insert({ id });
-
-            // Create default Inbox folder with collection-specific ID
-            const inboxId = `${id}_inbox`;
-            const inboxFolder = { id: inboxId, collection_id: id, name: 'Inbox', order: 0, is_collapsed: false };
+            
+            // Create default Inbox folder
+            const inboxFolder = { id: INBOX_ID, collection_id: id, name: 'Inbox', order: 0, is_collapsed: false };
             await db.from('folders').insert(inboxFolder);
-
-            appData.folders = [{ id: inboxId, name: 'Inbox', order: 0, isCollapsed: false }];
+            
+            appData.folders = [{ id: INBOX_ID, name: 'Inbox', order: 0, isCollapsed: false }];
             appData.cards = [];
             render();
         }
@@ -614,16 +608,12 @@
                 order: f.order,
                 isCollapsed: f.is_collapsed
             }));
-
-            // Get the actual inbox folder ID (either old "inbox" or new "{collectionId}_inbox")
-            const inboxFolder = appData.folders.find(f => f.name === 'Inbox');
-            const actualInboxId = inboxFolder ? inboxFolder.id : `${id}_inbox`;
-
+            
             // Ensure Inbox exists
-            if (!inboxFolder) {
-                const newInbox = { id: actualInboxId, collection_id: id, name: 'Inbox', order: 0, is_collapsed: false };
-                await db.from('folders').insert(newInbox);
-                appData.folders.unshift({ id: actualInboxId, name: 'Inbox', order: 0, isCollapsed: false });
+            if (!appData.folders.find(f => f.id === INBOX_ID)) {
+                const inboxFolder = { id: INBOX_ID, collection_id: id, name: 'Inbox', order: 0, is_collapsed: false };
+                await db.from('folders').insert(inboxFolder);
+                appData.folders.unshift({ id: INBOX_ID, name: 'Inbox', order: 0, isCollapsed: false });
             }
             
             // Load cards
@@ -640,21 +630,12 @@
                 link: c.link || '#',
                 imageUrl: getPublicImageUrl(c.image_path),
                 imagePath: c.image_path,
-                folderId: c.folder_id || actualInboxId,
+                folderId: c.folder_id || INBOX_ID,
                 order: c.order,
-                createdAt: c.created_at,
                 suggestions: c.suggestions || [],
-                deletedAt: c.deleted_at, // Load deleted_at timestamp
                 isScanning: false
             }));
-
-            // Schedule deletion for cards with deleted_at timestamp
-            appData.cards.forEach(card => {
-                if (card.deletedAt) {
-                    schedulePermanentDeletion(card.id, card.deletedAt);
-                }
-            });
-
+            
             render();
             return true;
         }
@@ -703,7 +684,6 @@
                 image_path: card.imagePath,
                 folder_id: card.folderId,
                 order: card.order,
-                created_at: card.createdAt,
                 suggestions: card.suggestions
             };
             console.log('Saving card to DB:', dbCard);
@@ -765,9 +745,7 @@
             const gridClass = `grid-cols-${mCols} md:grid-cols-2 lg:grid-cols-3`;
 
             appData.folders.forEach(folder => {
-                const fCards = appData.cards
-                    .filter(c => c.folderId === folder.id && !c.deletedAt)
-                    .sort((a,b) => a.order - b.order);
+                const fCards = appData.cards.filter(c => c.folderId === folder.id).sort((a,b) => a.order - b.order);
                 const cardsHtml = fCards.map(c => generateCardHTML(c, rIds)).join('');
                 const chevron = folder.isCollapsed ? 'ph-caret-right' : 'ph-caret-down';
                 const gridState = folder.isCollapsed ? 'hidden' : '';
@@ -787,15 +765,10 @@
                          ondragover="handleFolderDragOver(event, '${folder.id}')"
                          ondragleave="handleFolderDragLeave(event, '${folder.id}')"
                          ondrop="handleFolderDrop(event, '${folder.id}')">
-
+                         
                         <div class="folder-tab bg-neutral-200/80 text-neutral-500 py-1.5 text-xs font-semibold uppercase tracking-wider rounded-t-lg transition-all duration-200 select-none group-hover/folder:bg-neutral-300/80 group-hover/folder:text-neutral-600 flex items-center gap-2 ${opacity}">
                             <i class="ph-bold ${chevron} text-xs"></i>
-                            <span class="folder-name-display" ondblclick="event.stopPropagation(); editFolderName('${folder.id}')">${folder.name}</span>
-                            <input type="text" id="folder-name-input-${folder.id}" class="folder-name-input hidden bg-white/90 px-2 py-0.5 rounded border border-neutral-300 text-neutral-700 text-xs font-semibold uppercase tracking-wider"
-                                   value="${folder.name}"
-                                   onblur="saveFolderName('${folder.id}')"
-                                   onkeydown="if(event.key==='Enter') this.blur(); if(event.key==='Escape') cancelEditFolderName('${folder.id}')"
-                                   onclick="event.stopPropagation()">
+                            ${folder.name} 
                             <span class="opacity-50 font-normal">${fCards.length}</span>
                         </div>
                         
@@ -1139,7 +1112,7 @@
         async function deleteFolder(id) {
             if(id === INBOX_ID) return;
             if(!confirm("Delete this folder? Cards inside will be moved to Inbox.")) return;
-
+            
             const cardsToMove = appData.cards.filter(c => c.folderId === id);
             for (const c of cardsToMove) {
                 c.folderId = INBOX_ID;
@@ -1153,49 +1126,6 @@
             }
             reindexCards(INBOX_ID);
             render();
-        }
-
-        // --- EDIT FOLDER NAME ---
-        function editFolderName(folderId) {
-            const input = document.getElementById(`folder-name-input-${folderId}`);
-            const display = input?.previousElementSibling;
-            if (!input || !display) return;
-
-            display.classList.add('hidden');
-            input.classList.remove('hidden');
-            input.focus();
-            input.select();
-        }
-
-        function cancelEditFolderName(folderId) {
-            const input = document.getElementById(`folder-name-input-${folderId}`);
-            const display = input?.previousElementSibling;
-            const folder = appData.folders.find(f => f.id === folderId);
-            if (!input || !display || !folder) return;
-
-            input.value = folder.name; // Reset to original
-            input.classList.add('hidden');
-            display.classList.remove('hidden');
-        }
-
-        async function saveFolderName(folderId) {
-            const input = document.getElementById(`folder-name-input-${folderId}`);
-            const display = input?.previousElementSibling;
-            const folder = appData.folders.find(f => f.id === folderId);
-            if (!input || !display || !folder) return;
-
-            const newName = input.value.trim();
-            if (!newName || newName === folder.name) {
-                cancelEditFolderName(folderId);
-                return;
-            }
-
-            folder.name = newName;
-            await db.from('folders').update({ name: newName }).eq('id', folderId);
-
-            input.classList.add('hidden');
-            display.textContent = newName;
-            display.classList.remove('hidden');
         }
 
         // --- FILE & OCR ---
@@ -1248,11 +1178,6 @@
                 const imageUrl = getPublicImageUrl(imagePath);
                 console.log('Image URL:', imageUrl);
                 
-                // Get the actual inbox folder ID
-                const inboxFolder = appData.folders.find(f => f.name === 'Inbox');
-                const actualInboxId = inboxFolder ? inboxFolder.id : `${collectionId}_inbox`;
-
-                const createdAt = new Date().toISOString();
                 const card = {
                     id,
                     username: '',
@@ -1260,9 +1185,8 @@
                     link: '#',
                     imageUrl,
                     imagePath,
-                    folderId: actualInboxId,
-                    order: -id, // Use negative ID so newer cards (larger IDs) come first
-                    createdAt,
+                    folderId: INBOX_ID,
+                    order: 0,
                     suggestions: [],
                     isScanning: true
                 };
@@ -1283,6 +1207,7 @@
             }
             
             appData.cards.unshift(...newCards);
+            reindexCards(INBOX_ID);
             transitionRender(newCards.map(c => c.id));
             
             showStatus(true, 'Processing OCR...');
@@ -1397,116 +1322,34 @@
         }
 
         async function deleteCard(id) {
-            const card = appData.cards.find(c => c.id === id);
-            if (!card) return;
-
-            // Soft-delete: set timestamp instead of removing
-            card.deletedAt = new Date().toISOString();
-
-            // Save to Supabase with deleted_at timestamp
-            await db.from('cards').update({ deleted_at: card.deletedAt }).eq('id', id);
-
-            // Schedule permanent deletion after grace period
-            schedulePermanentDeletion(id, card.deletedAt);
-
-            // Remove from UI
-            transitionRender();
-            updateUndoUI();
-        }
-
-        function schedulePermanentDeletion(cardId, deletedAt) {
-            const deletionTime = new Date(deletedAt).getTime() + DELETION_GRACE_PERIOD;
-            const now = Date.now();
-            const delay = deletionTime - now;
-
-            if (delay <= 0) {
-                // Already past grace period, delete immediately
-                permanentlyDeleteCard(cardId);
-            } else {
-                // Schedule deletion
-                const timerId = setTimeout(() => {
-                    permanentlyDeleteCard(cardId);
-                    deletionTimers.delete(cardId);
-                }, delay);
-                deletionTimers.set(cardId, timerId);
+            const idx = appData.cards.findIndex(c => c.id === id);
+            if(idx > -1) {
+                const card = appData.cards.splice(idx, 1)[0];
+                deletedCardsStack.push(card);
+                await deleteCardFromDB(id);
+                transitionRender(); 
+                updateUndoUI();
             }
         }
-
-        function cancelPermanentDeletion(cardId) {
-            if (deletionTimers.has(cardId)) {
-                clearTimeout(deletionTimers.get(cardId));
-                deletionTimers.delete(cardId);
-            }
-        }
-
-        async function permanentlyDeleteCard(cardId) {
-            console.log('Permanently deleting card:', cardId);
-
-            // Get the card to find its image path
-            const { data: card } = await db
-                .from('cards')
-                .select('image_path')
-                .eq('id', cardId)
-                .single();
-
-            if (card?.image_path) {
-                // Delete image from Supabase Storage
-                await db.storage.from('images').remove([card.image_path]);
-            }
-
-            // Delete card record from Supabase database
-            await db.from('cards').delete().eq('id', cardId);
-
-            // Remove from local appData if still present
-            const idx = appData.cards.findIndex(c => c.id === cardId);
-            if (idx > -1) {
-                appData.cards.splice(idx, 1);
-                transitionRender();
-            }
-        }
-
-        async function cleanupOldDeletedCards() {
-            if (!collectionId) return;
-
-            const cutoff = new Date(Date.now() - DELETION_GRACE_PERIOD).toISOString();
-
-            // Find cards past grace period
-            const { data: expiredCards } = await db
-                .from('cards')
-                .select('id, image_path')
-                .eq('collection_id', collectionId)
-                .not('deleted_at', 'is', null)
-                .lt('deleted_at', cutoff);
-
-            if (!expiredCards || expiredCards.length === 0) return;
-
-            // Permanently delete each expired card
-            for (const card of expiredCards) {
-                await permanentlyDeleteCard(card.id);
-            }
-
-            console.log(`Cleaned up ${expiredCards.length} expired cards`);
-        }
-
+        
         async function triggerUndo() {
-            // Find the most recently deleted card
-            const deletedCard = appData.cards
-                .filter(c => c.deletedAt)
-                .sort((a, b) => new Date(b.deletedAt) - new Date(a.deletedAt))[0];
-
-            if (!deletedCard) return;
-
-            // Cancel permanent deletion timer
-            cancelPermanentDeletion(deletedCard.id);
-
-            // Clear deleted_at timestamp
-            deletedCard.deletedAt = null;
-
-            // Update in Supabase
-            await db.from('cards').update({ deleted_at: null }).eq('id', deletedCard.id);
-
-            // Re-render to show card again
-            transitionRender();
+            if (!deletedCardsStack.length) return;
+            const c = deletedCardsStack.pop(); 
+            c.isRestored = true;
+            
+            // Re-upload image if it was deleted
+            // For simplicity, we'll just re-save the card (image path should still be valid briefly)
+            // In production, you might want to keep deleted images for a grace period
+            
+            const folderCards = appData.cards.filter(x => x.folderId === c.folderId).sort((a,b) => a.order - b.order);
+            const insertIdx = Math.min(c.order, folderCards.length);
+            folderCards.splice(insertIdx, 0, c);
+            
+            folderCards.forEach((card, i) => { card.order = i; saveCardToDB(card); });
+            
+            appData.cards = appData.cards.filter(x => x.folderId !== c.folderId).concat(folderCards);
+            
+            transitionRender(c.id); 
             updateUndoUI();
         }
 
@@ -1520,16 +1363,12 @@
         }
         
         function updateUndoUI() {
-            const btn = document.getElementById('undoBtn');
+            const btn = document.getElementById('undoBtn'); 
             if(undoTimeout) clearTimeout(undoTimeout);
-
-            // Count deleted cards (cards with deletedAt timestamp)
-            const deletedCount = appData.cards.filter(c => c.deletedAt).length;
-
-            if(deletedCount > 0) {
-                btn.classList.remove('hidden-btn');
-                document.getElementById('undoText').innerText = `Undo (${deletedCount})`;
-                undoTimeout = setTimeout(() => btn.classList.add('hidden-btn'), 15000); // 15 seconds
+            if(deletedCardsStack.length) { 
+                btn.classList.remove('hidden-btn'); 
+                document.getElementById('undoText').innerText = `Undo (${deletedCardsStack.length})`; 
+                undoTimeout = setTimeout(() => btn.classList.add('hidden-btn'), 5000); 
             } else {
                 btn.classList.add('hidden-btn');
             }
@@ -1578,6 +1417,7 @@
             input.value = window.location.href;
             modal.classList.remove('hidden');
             modal.classList.add('flex');
+            closeAddMenus();
         }
 
         function closeShareModal() {
@@ -1595,6 +1435,32 @@
                 document.getElementById('copyConfirm').classList.add('opacity-0');
             }, 2000);
         }
+
+        // --- ADD MENU DROPDOWN ---
+        function toggleAddMenu(type) {
+            const mobileMenu = document.getElementById('addMenuMobile');
+            const desktopMenu = document.getElementById('addMenuDesktop');
+            
+            if (type === 'mobile') {
+                desktopMenu.classList.add('hidden');
+                mobileMenu.classList.toggle('hidden');
+            } else {
+                mobileMenu.classList.add('hidden');
+                desktopMenu.classList.toggle('hidden');
+            }
+        }
+
+        function closeAddMenus() {
+            document.getElementById('addMenuMobile')?.classList.add('hidden');
+            document.getElementById('addMenuDesktop')?.classList.add('hidden');
+        }
+
+        // Close menus when clicking outside
+        document.addEventListener('click', (e) => {
+            if (!e.target.closest('#addMenuMobile') && !e.target.closest('#addMenuDesktop') && !e.target.closest('[onclick*="toggleAddMenu"]')) {
+                closeAddMenus();
+            }
+        });
 
         // Close modal on backdrop click
         document.getElementById('shareModal')?.addEventListener('click', (e) => {

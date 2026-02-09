@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SSaved - Screenshot Organizer</title>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <script src='https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js'></script>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+
+    <style>
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-900 h-screen flex flex-col font-sans">
+
+    <header class="bg-white border-b border-slate-200 px-6 py-4 flex justify-between items-center sticky top-0 z-10 shadow-sm">
+        <h1 class="text-xl font-bold tracking-tight text-slate-800">SSaved</h1>
+        
+        <div class="flex gap-3">
+            <button onclick="exportData()" class="flex items-center gap-2 px-4 py-2 text-sm font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-md transition">
+                <i class="ph ph-download-simple"></i> Export ZIP
+            </button>
+            <button onclick="triggerUpload()" class="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-md shadow-sm transition">
+                <i class="ph ph-plus"></i> Upload Screenshots
+            </button>
+            <input type="file" id="fileInput" multiple accept="image/*" class="hidden" onchange="handleFiles(this.files)">
+        </div>
+    </header>
+
+    <main class="flex-1 overflow-auto p-6 relative" ondrop="handleDrop(event)" ondragover="handleDragOver(event)">
+        
+        <div id="emptyState" class="hidden h-full flex flex-col items-center justify-center text-slate-400 border-2 border-dashed border-slate-300 rounded-xl bg-slate-50/50">
+            <i class="ph ph-images text-6xl mb-4"></i>
+            <p class="text-lg font-medium text-slate-600">Drag and drop screenshots here</p>
+        </div>
+
+        <div id="gridContainer" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 pb-20"></div>
+
+    </main>
+
+    <div id="statusBar" class="fixed bottom-6 right-6 bg-slate-900 text-white px-4 py-3 rounded-lg shadow-lg flex items-center gap-3 hidden transition-all z-50">
+        <div class="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+        <span id="statusText" class="text-sm font-medium">Processing...</span>
+    </div>
+
+    <canvas id="debugCanvas" class="hidden fixed bottom-0 left-0 border border-red-500 z-50 bg-white" style="max-width: 300px;"></canvas>
+
+    <script>
+        // --- APP STATE ---
+        let appData = { cards: [] };
+
+        // --- DOM ELEMENTS ---
+        const gridContainer = document.getElementById('gridContainer');
+        const emptyState = document.getElementById('emptyState');
+        const statusBar = document.getElementById('statusBar');
+        const statusText = document.getElementById('statusText');
+
+        // --- INIT ---
+        window.addEventListener('DOMContentLoaded', () => render());
+
+        // --- DRAG & DROP ---
+        function handleDragOver(e) { e.preventDefault(); }
+        function handleDrop(e) {
+            e.preventDefault();
+            if (e.dataTransfer.files?.length > 0) handleFiles(e.dataTransfer.files);
+        }
+
+        // --- CORE FUNCTIONS ---
+        function triggerUpload() { document.getElementById('fileInput').click(); }
+
+        async function handleFiles(files) {
+            if (!files.length) return;
+            
+            showStatus(true, `Queued ${files.length} images...`);
+
+            for (let i = 0; i < files.length; i++) {
+                const file = files[i];
+                const tempId = Date.now() + i;
+                const imageUrl = URL.createObjectURL(file);
+
+                const newCard = {
+                    id: tempId,
+                    file: file,
+                    imageUrl: imageUrl, 
+                    username: "Scanning...",
+                    notes: "",
+                    link: "#",
+                    isScanning: true
+                };
+
+                appData.cards.unshift(newCard);
+                render(); 
+
+                try {
+                    showStatus(true, `Reading image ${i + 1}/${files.length}...`);
+                    
+                    // 1. ADVANCED PRE-PROCESSING
+                    const processedImageBlob = await preprocessImage(imageUrl);
+                    
+                    // 2. OCR
+                    const result = await Tesseract.recognize(processedImageBlob, 'eng');
+
+                    // 3. PARSING
+                    const cleanUsername = parseUsername(result.data.text);
+
+                    // 4. UPDATE UI
+                    const cardIndex = appData.cards.findIndex(c => c.id === tempId);
+                    if (cardIndex !== -1) {
+                        appData.cards[cardIndex].username = cleanUsername;
+                        appData.cards[cardIndex].link = `https://instagram.com/${cleanUsername}`;
+                        appData.cards[cardIndex].isScanning = false;
+                        render();
+                    }
+
+                } catch (error) {
+                    console.error("OCR Error:", error);
+                    updateCardStatus(tempId, "unknown", false);
+                }
+            }
+            showStatus(false);
+        }
+
+        function updateCardStatus(id, username, scanning) {
+            const index = appData.cards.findIndex(c => c.id === id);
+            if (index !== -1) {
+                appData.cards[index].username = username;
+                appData.cards[index].isScanning = scanning;
+                render();
+            }
+        }
+
+        // --- IMAGE PROCESSING PIPELINE ---
+        function preprocessImage(url) {
+            return new Promise((resolve, reject) => {
+                const img = new Image();
+                img.crossOrigin = "Anonymous";
+                img.onload = () => {
+                    const canvas = document.createElement('canvas');
+                    const ctx = canvas.getContext('2d');
+                    
+                    // 1. TIGHTER CROP: Only top 13% to avoid "Follow" buttons/Bio
+                    // We also crop 20% from Left and Right to remove Time and Battery icons
+                    const cropY = img.height * 0.03; // Skip very top status bar (3%)
+                    const cropH = img.height * 0.10; // Take next 10%
+                    const cropX = img.width * 0.20;  // Skip left 20% (Time)
+                    const cropW = img.width * 0.60;  // Take middle 60%
+
+                    canvas.width = cropW;
+                    canvas.height = cropH;
+                    
+                    // Draw the cropped area
+                    ctx.drawImage(img, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+                    
+                    // 2. IMAGE FILTERS (Invert & High Contrast)
+                    // Get raw pixel data
+                    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                    const data = imageData.data;
+
+                    for (let i = 0; i < data.length; i += 4) {
+                        // Invert colors: 255 - value
+                        // This turns Dark Mode (White Text) into Light Mode (Black Text)
+                        // which Tesseract prefers.
+                        const r = 255 - data[i];
+                        const g = 255 - data[i + 1];
+                        const b = 255 - data[i + 2];
+
+                        // High Contrast Thresholding (Binarization)
+                        // If pixel is light gray, make it white. If dark gray, make it black.
+                        const avg = (r + g + b) / 3;
+                        const value = avg < 128 ? 0 : 255;
+
+                        data[i] = value;     // R
+                        data[i + 1] = value; // G
+                        data[i + 2] = value; // B
+                    }
+                    
+                    ctx.putImageData(imageData, 0, 0);
+
+                    // OPTIONAL: Uncomment to see what the robot sees (bottom left of screen)
+                    // document.getElementById('debugCanvas').width = canvas.width;
+                    // document.getElementById('debugCanvas').height = canvas.height;
+                    // document.getElementById('debugCanvas').classList.remove('hidden');
+                    // document.getElementById('debugCanvas').getContext('2d').putImageData(imageData, 0, 0);
+                    
+                    canvas.toBlob(blob => resolve(blob));
+                };
+                img.onerror = reject;
+                img.src = url;
+            });
+        }
+
+        // --- PARSING LOGIC ---
+        function parseUsername(text) {
+            if (!text) return "unknown";
+            
+            // Clean up the text
+            const lines = text.split('\n');
+            
+            // We expect the username to be the only text in our "Super Cropped" image
+            // But we filter just in case
+            const validLines = lines.filter(line => {
+                const l = line.trim();
+                if (l.length < 3) return false;
+                if (l.includes(':')) return false; // Time (e.g. 12:00)
+                return true;
+            });
+
+            let bestGuess = validLines[0] || "unknown";
+
+            // Aggressive cleaning
+            bestGuess = bestGuess.replace(/\s/g, '') // No spaces
+                                 .replace(/[^a-zA-Z0-9_.]/g, '') // Only allow letters, numbers, dot, underscore
+                                 .toLowerCase();
+            
+            return bestGuess;
+        }
+
+        // --- RENDER & UI ---
+        function render() {
+            if (appData.cards.length === 0) {
+                emptyState.classList.remove('hidden');
+                gridContainer.innerHTML = '';
+                return;
+            } else {
+                emptyState.classList.add('hidden');
+            }
+
+            gridContainer.innerHTML = '';
+
+            appData.cards.forEach(card => {
+                const pulseClass = card.isScanning ? "animate-pulse" : "";
+                
+                const cardHTML = `
+                    <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden group hover:shadow-md transition-all ${pulseClass}">
+                        <div class="aspect-[4/5] bg-slate-100 relative overflow-hidden group/image">
+                            <img src="${card.imageUrl}" class="w-full h-full object-cover object-top" alt="Screenshot">
+                            <div class="absolute inset-0 bg-black/60 opacity-0 group-hover/image:opacity-100 transition-opacity flex items-center justify-center gap-4">
+                                <button onclick="deleteCard(${card.id})" class="p-3 bg-white rounded-full hover:bg-red-50 text-red-600 transition shadow-sm">
+                                    <i class="ph-fill ph-trash text-xl"></i>
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="p-4">
+                            <div class="flex items-center justify-between mb-2">
+                                <label class="text-xs font-bold text-slate-500 uppercase tracking-wider">
+                                    ${card.isScanning ? "Scanning..." : "Username"}
+                                </label>
+                                <a href="${card.link}" target="_blank" class="text-blue-600 hover:text-blue-800 text-xs flex items-center gap-1">
+                                    Open Link <i class="ph-bold ph-arrow-square-out"></i>
+                                </a>
+                            </div>
+                            
+                            <input type="text" 
+                                value="${card.username}" 
+                                onchange="updateCard(${card.id}, 'username', this.value)"
+                                ${card.isScanning ? "disabled" : ""}
+                                class="w-full text-lg font-semibold text-slate-800 bg-transparent border-b border-transparent hover:border-slate-300 focus:border-blue-500 focus:outline-none transition-colors mb-3 px-0 py-1"
+                                placeholder="@username">
+                            
+                            <textarea 
+                                onchange="updateCard(${card.id}, 'notes', this.value)"
+                                class="w-full text-sm text-slate-600 bg-slate-50 rounded-md p-2 border-0 focus:ring-2 focus:ring-blue-500 resize-none" 
+                                rows="2" 
+                                placeholder="Add notes here...">${card.notes}</textarea>
+                        </div>
+                    </div>
+                `;
+                gridContainer.insertAdjacentHTML('beforeend', cardHTML);
+            });
+        }
+
+        function updateCard(id, field, value) {
+            const card = appData.cards.find(c => c.id === id);
+            if (card) {
+                card[field] = value;
+                if (field === 'username') card.link = `https://instagram.com/${value}`;
+                render(); 
+            }
+        }
+
+        function deleteCard(id) {
+            if(confirm("Delete this screenshot?")) {
+                appData.cards = appData.cards.filter(c => c.id !== id);
+                render();
+            }
+        }
+
+        function showStatus(show, text = "") {
+            statusBar.classList.toggle('hidden', !show);
+            statusBar.classList.toggle('flex', show);
+            statusText.innerText = text;
+        }
+
+        function exportData() { alert("Export feature coming next!"); }
+
+    </script>
+</body>
+</html>

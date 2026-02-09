@@ -1,40 +1,96 @@
+# SSaved App – Technical Handover Document (v7.6)
+
+**Project Type:** Local-first, Single-file HTML/JS Web Application.
+**Core Stack:** Tailwind CSS (CDN), Tesseract.js (OCR), JSZip (Persistence), Phosphor Icons, IndexedDB.
+**Design Philosophy:** "Linear-adjacent." Minimalist, fluid, optimistic UI (no blocking popups usually), invisible interface until interaction.
+
+---
+
+## 1. Core Architecture & Data Model
+
+### Data Structure (`appData`)
+We moved from a flat array to a Relational Model to support Folders.
+* **`appData.cards`**: Array of objects. Key property: `folderId`.
+* **`appData.folders`**: Array of objects `{ id, name, order, isCollapsed }`.
+* **`INBOX_ID`**: Constant `'inbox'`. This is the default immutable folder.
+
+### Database (IndexedDB)
+* **Version:** 2
+* **Stores:** `cards` (stores images as Blobs), `folders` (metadata).
+* **Migration Logic:** On load, if no folders exist, the app auto-creates the "Inbox" and assigns all orphan cards to it.
+
+### Rendering Engine
+* **Logic:** The `render()` function loops through `appData.folders`.
+* **View Transitions:** We use `document.startViewTransition` for all state changes (sorting, deleting, restoring) to create fluid animations.
+
+---
+
+## 2. Implemented Features & Technical Decisions
+
+### A. The Folder System
+**Feature:** Users can create custom folders (sections).
+* **Visuals:** Uses CSS `clip-path` to create a "File Tab" silhouette (Left: 1.5rem, Right: 2.5rem padding).
+* **Behavior:** Folders are collapsible.
+* **Drag & Drop v2:**
+    * **Reorder:** Dragging a card *within* a folder reorders it (Neighbor Shift logic).
+    * **Move:** Dragging a card *onto* a Folder Tab OR into a Folder's Grid moves the card to that folder.
+    * **Auto-Expand:** Dragging a card over a collapsed folder header expands it automatically.
+
+### B. Mobile Optimization (Performance & UX)
+**Problem:** The app was crashing/hanging on mobile when uploading images.
+* **Diagnosis:** Tesseract.js was running on full-resolution (12MP+) images, blocking the main thread and freezing animations.
+* **Solution:** Implemented **Aggressive Downsampling**. The `simpleCrop` function creates a canvas maxing out at **600px width**. This improved processing speed by ~20x.
+
+**Problem:** Header took up too much space.
+* **Solution:** **Scroll-Aware Fixed Header**. Scrolling down > 60px hides the header (`-translate-y-full`). Scrolling up reveals it. Added `pt-36` to `<main>` to prevent content occlusion.
+
+**Problem:** Input fields cut off long text on mobile.
+* **Solution:** Replaced `<input>` with **Auto-Growing `<textarea>`**.
+    * Uses CSS `field-sizing: content` (modern) + JS fallback `el.style.height = el.scrollHeight`.
+    * *Note:* This required fixing a bug where `onfocus` events were conflicting between the resize logic and the Tooltip logic.
+
+### C. Folder Deletion Strategy
+**Discussion Log:**
+1.  *Initial thought:* Trash icon on hover. **Rejected:** Doesn't work on mobile.
+2.  *Idea:* Kebab Menu (`•••`) with dropdown. **Rejected:** Too much visual noise/complexity for a simple list.
+3.  *Final Decision:* **Subtle "X" Icon.**
+    * Matches the stroke width of the collapse chevron.
+    * Placed on the far right of the tab.
+    * **Safety:** Deleting a folder **moves all contents to the Inbox** instead of destroying them (Optimistic/Safe UI).
+
+### D. Undo Logic (The Stack)
+**Problem:** Restoring a card (`triggerUndo`) appended it to the end of the list, losing its original context.
+**Fix:** The logic now calculates the correct insertion index and uses `.splice()` to force-insert the card back exactly where it was relative to the current list, then re-indexes the `order` property for the whole folder.
+
+---
+
+## 3. Known Quirks / Watchlist for Next Dev
+
+1.  **OCR Delays:** We added a `setTimeout(100ms)` before OCR starts to allow the View Transition animation to finish smoothly. Do not remove this pause.
+2.  **Tooltip Logic:** The "Username Suggestion" tooltip relies on the `onfocus` event of the textarea. If you modify the textarea, ensure you don't overwrite the `triggerTooltip()` call inside the `onfocus` attribute.
+3.  **Padding:** The Folder Tab relies on internal padding (`pl-6 pr-10`) handled via CSS class `.folder-tab`. Do not add `px-4` utility classes to the container, or it will break the alignment.
+
+---
+
+## 4. Current Codebase (v7.6)
+
+*Note: This is the complete, single-file source code.*
+
+```html
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>SSaved</title>
+    <title>SSaved - Folders</title>
     
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src='https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js'></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
-    <script src="https://unpkg.com/@phosphor-icons/web"></script>
-
-    <script>
-        tailwind.config = {
-            theme: {
-                extend: {
-                    colors: {
-                        // Warm off-whites
-                        warm: {
-                            50: '#FAFAF8',
-                            100: '#F5F5F3',
-                            200: '#EEEDE9',
-                        }
-                    }
-                }
-            }
-        }
-    </script>
+    <script src="[https://cdn.tailwindcss.com](https://cdn.tailwindcss.com)"></script>
+    <script src='[https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js](https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js)'></script>
+    <script src="[https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js](https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js)"></script>
+    <script src="[https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js](https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js)"></script>
+    <script src="[https://unpkg.com/@phosphor-icons/web](https://unpkg.com/@phosphor-icons/web)"></script>
 
     <style>
-        /* --- BASE & WARM BACKGROUND --- */
-        body {
-            background: linear-gradient(180deg, #FAFAF8 0%, #F7F6F3 100%);
-            min-height: 100vh;
-        }
-
         /* --- FOLDER TABS --- */
         .folder-tab {
             clip-path: polygon(0 0, 85% 0, 100% 100%, 0% 100%);
@@ -48,37 +104,8 @@
         }
         .folder-drop-active .folder-grid-area {
             background-color: rgba(59, 130, 246, 0.05);
-            border-radius: 1rem;
+            border-radius: 0.75rem;
             box-shadow: inset 0 0 0 2px rgba(59, 130, 246, 0.2);
-        }
-
-        /* --- CARD STYLING --- */
-        .card {
-            background: white;
-            border-radius: 1.25rem;
-            border: 1px solid rgba(0, 0, 0, 0.04);
-            box-shadow: 
-                0 2px 4px -1px rgba(0, 0, 0, 0.02),
-                0 8px 24px -4px rgba(0, 0, 0, 0.06);
-            transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), 
-                        box-shadow 0.25s cubic-bezier(0.16, 1, 0.3, 1);
-        }
-        .card:hover {
-            transform: translateY(-3px);
-            box-shadow: 
-                0 4px 8px -2px rgba(0, 0, 0, 0.03),
-                0 16px 40px -8px rgba(0, 0, 0, 0.1);
-        }
-        .card.is-restored {
-            border-color: rgba(244, 63, 94, 0.25);
-            box-shadow: 
-                0 4px 8px -2px rgba(244, 63, 94, 0.08),
-                0 16px 48px -8px rgba(244, 63, 94, 0.2);
-        }
-        .card.is-dragging {
-            opacity: 0.4;
-            filter: grayscale(80%);
-            transform: scale(0.98);
         }
 
         /* --- AUTO-GROW INPUTS --- */
@@ -95,191 +122,70 @@
         ::view-transition-group(root) { animation-duration: 0.35s; animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1); }
         
         /* --- ANIMATIONS --- */
-        @keyframes slideUp { 
-            from { opacity: 0; transform: translateY(20px) scale(0.96); } 
-            to { opacity: 1; transform: translateY(0) scale(1); } 
-        }
-        @keyframes subtlePulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.7; }
-        }
-        .animate-restore { animation: slideUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards; opacity: 0; }
+        @keyframes slideUp { from { opacity: 0; transform: translateY(20px) scale(0.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
+        .animate-restore { animation: slideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards; opacity: 0; }
         .folder-enter { animation: slideUp 0.5s ease-out forwards; }
-        .animate-pulse-subtle { animation: subtlePulse 2s ease-in-out infinite; }
 
         /* --- UI COMPONENTS --- */
         .tooltip-arrow::after {
             content: " "; position: absolute; top: 100%; left: 50%; margin-left: -6px;
-            border: 6px solid transparent; border-top-color: rgba(255,255,255,0.95); filter: drop-shadow(0 1px 2px rgb(0 0 0 / 0.08));
+            border: 6px solid transparent; border-top-color: #f8fafc; filter: drop-shadow(0 1px 1px rgb(0 0 0 / 0.05));
         }
-        .tooltip-container { 
-            transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1); 
-            opacity: 0; 
-            pointer-events: none; 
-            transform: translateY(8px) scale(0.95); 
-        }
+        .tooltip-container { transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1); opacity: 0; pointer-events: none; transform: translateY(8px) scale(0.95); }
         .tooltip-container.active { opacity: 1; pointer-events: auto; transform: translateY(0) scale(1); }
 
-        /* --- UNDO BUTTON --- */
         #undoBtn.hidden-btn { opacity: 0; transform: translateX(-10px); pointer-events: none; width: 0; padding: 0; margin: 0; border: 0; }
-        #undoBtn { 
-            transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1); 
-            box-shadow: 0 2px 8px -2px rgba(244, 63, 94, 0.3);
-        }
+        #undoBtn { transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1); }
 
         /* --- DRAG & DROP --- */
         body.global-dragging, body.global-dragging * { cursor: grabbing !important; }
-        .card-shift-forward { transform: translateX(-24px); transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
-        .card-shift-backward { transform: translateX(24px); transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
+        .is-dragging { opacity: 0.3; filter: grayscale(100%); }
+        .card-shift-forward { transform: translateX(-30px); transition: transform 0.3s ease; }
+        .card-shift-backward { transform: translateX(30px); transition: transform 0.3s ease; }
         
-        /* --- SLIDER STYLING --- */
+        /* Slider Styling */
         input[type=range] { -webkit-appearance: none; width: 100%; background: transparent; }
-        input[type=range]::-webkit-slider-thumb { 
-            -webkit-appearance: none; 
-            height: 16px; 
-            width: 16px; 
-            border-radius: 50%; 
-            background: white; 
-            border: 1px solid rgba(0,0,0,0.1); 
-            cursor: pointer; 
-            margin-top: -6px; 
-            box-shadow: 0 2px 6px rgba(0,0,0,0.1); 
-            transition: transform 0.15s ease, box-shadow 0.15s ease;
-        }
-        input[type=range]::-webkit-slider-thumb:hover {
-            transform: scale(1.1);
-            box-shadow: 0 3px 10px rgba(0,0,0,0.15);
-        }
-        input[type=range]::-webkit-slider-runnable-track { 
-            width: 100%; 
-            height: 4px; 
-            cursor: pointer; 
-            background: rgba(0,0,0,0.08); 
-            border-radius: 2px; 
-        }
-
-        /* --- HEADER --- */
-        .header-glass {
-            background: rgba(255, 255, 255, 0.7);
-            backdrop-filter: blur(20px);
-            -webkit-backdrop-filter: blur(20px);
-            border-bottom: 1px solid rgba(0, 0, 0, 0.06);
-        }
-
-        /* --- BUTTONS --- */
-        .btn-primary {
-            background: #1a1a1a;
-            color: white;
-            border-radius: 0.625rem;
-            font-weight: 500;
-            transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-            box-shadow: 0 2px 8px -2px rgba(0,0,0,0.2);
-        }
-        .btn-primary:hover {
-            background: #000;
-            transform: translateY(-1px);
-            box-shadow: 0 4px 12px -2px rgba(0,0,0,0.25);
-        }
-        .btn-primary:active {
-            transform: translateY(0) scale(0.98);
-        }
-
-        .btn-secondary {
-            background: rgba(0,0,0,0.04);
-            color: #525252;
-            border-radius: 0.625rem;
-            font-weight: 600;
-            transition: all 0.2s ease;
-        }
-        .btn-secondary:hover {
-            background: rgba(0,0,0,0.08);
-            color: #1a1a1a;
-        }
-
-        /* --- EXTERNAL LINK BUTTON (NEW) --- */
-        .external-link-btn {
-            position: absolute;
-            top: 0.75rem;
-            left: 0.75rem;
-            opacity: 0;
-            transform: scale(0.9);
-            transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-        }
-        .group\/image:hover .external-link-btn {
-            opacity: 1;
-            transform: scale(1);
-        }
-
-        /* --- DELETE BUTTON --- */
-        .delete-btn {
-            position: absolute;
-            top: 0.75rem;
-            right: 0.75rem;
-            opacity: 0;
-            transform: scale(0.9);
-            transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-        }
-        .group\/image:hover .delete-btn {
-            opacity: 1;
-            transform: scale(1);
-        }
-
-        /* --- FOCUS STATES --- */
-        textarea:focus {
-            outline: none;
-            border-color: rgba(0,0,0,0.2) !important;
-        }
-        .focus-ring:focus {
-            box-shadow: 0 0 0 3px rgba(244, 63, 94, 0.12);
-        }
-
-        /* --- DROP OVERLAY --- */
-        .drop-overlay-card {
-            background: rgba(255,255,255,0.9);
-            backdrop-filter: blur(16px);
-            -webkit-backdrop-filter: blur(16px);
-            border-radius: 1.5rem;
-            box-shadow: 0 24px 80px -12px rgba(0,0,0,0.15);
-        }
+        input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; height: 14px; width: 14px; border-radius: 50%; background: white; border: 1px solid #cbd5e1; cursor: pointer; margin-top: -5px; box-shadow: 0 1px 2px rgba(0,0,0,0.1); }
+        input[type=range]::-webkit-slider-runnable-track { width: 100%; height: 4px; cursor: pointer; background: #e2e8f0; border-radius: 2px; }
     </style>
 </head>
-<body class="text-neutral-900 font-sans antialiased selection:bg-rose-100 selection:text-rose-900 min-h-screen">
+<body class="bg-slate-50 text-slate-900 font-sans antialiased selection:bg-slate-200 selection:text-slate-900 min-h-screen">
 
-    <header id="mainHeader" class="header-glass px-4 md:px-6 py-3 fixed top-0 w-full z-40 transition-transform duration-300 ease-in-out">
+    <header id="mainHeader" class="bg-white/80 backdrop-blur-md border-b border-slate-200 px-4 md:px-6 py-3 fixed top-0 w-full z-40 transition-transform duration-300 ease-in-out">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3 max-w-[1390px] mx-auto">
             <div class="flex items-center justify-between w-full md:w-auto">
                 <div class="flex items-center gap-3">
-                    <h1 class="text-lg font-semibold tracking-tight text-neutral-800">SSaved</h1>
-                    <span id="saveIndicator" class="text-[10px] font-medium uppercase tracking-wider text-neutral-300 opacity-0 transition-opacity">Saved</span>
+                    <h1 class="text-xl font-bold tracking-tight text-slate-900">SSaved</h1>
+                    <span id="saveIndicator" class="text-[10px] font-bold uppercase tracking-wider text-slate-300 opacity-0 transition-opacity">Saved</span>
                 </div>
-                <button onclick="triggerUpload()" class="md:hidden btn-primary flex items-center gap-2 px-3 py-1.5 text-sm"><i class="ph-bold ph-plus"></i> Add</button>
+                <button onclick="triggerUpload()" class="md:hidden flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-white bg-slate-900 active:bg-black rounded-md shadow-sm transition-all"><i class="ph-bold ph-plus"></i> Add</button>
             </div>
             
             <div class="flex items-center gap-2 md:gap-3 overflow-x-auto no-scrollbar w-full md:w-auto pb-1 md:pb-0">
-                <button id="undoBtn" onclick="triggerUndo()" class="hidden-btn flex items-center gap-2 px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-100 rounded-lg text-sm font-medium whitespace-nowrap shrink-0">
+                <button id="undoBtn" onclick="triggerUndo()" class="hidden-btn flex items-center gap-2 px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-100 rounded-md text-sm font-medium shadow-sm whitespace-nowrap shrink-0">
                     <i class="ph-bold ph-arrow-u-up-left"></i> <span id="undoText">Undo</span>
                 </button>
 
-                <button onclick="createNewFolder()" class="btn-secondary flex items-center gap-2 px-3 py-1.5 text-xs uppercase tracking-wide shrink-0">
+                <button onclick="createNewFolder()" class="flex items-center gap-2 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-md text-xs font-bold uppercase tracking-wide transition-colors shrink-0">
                     <i class="ph-bold ph-folder-plus"></i> New Folder
                 </button>
 
-                <div class="md:hidden flex bg-neutral-100/80 p-1 rounded-lg border border-neutral-200/50 shrink-0">
-                    <button onclick="setMobileCols(1)" id="col-btn-1" class="w-8 h-8 flex items-center justify-center rounded-md text-neutral-400 hover:text-neutral-900 transition-all"><i class="ph-bold ph-rectangle"></i></button>
-                    <button onclick="setMobileCols(2)" id="col-btn-2" class="w-8 h-8 flex items-center justify-center rounded-md text-neutral-400 hover:text-neutral-900 transition-all"><i class="ph-bold ph-columns"></i></button>
+                <div class="md:hidden flex bg-slate-100/80 p-1 rounded-lg border border-slate-200/50 shrink-0">
+                    <button onclick="setMobileCols(1)" id="col-btn-1" class="w-8 h-8 flex items-center justify-center rounded-md text-slate-500 hover:text-slate-900 transition-all"><i class="ph-bold ph-rectangle"></i></button>
+                    <button onclick="setMobileCols(2)" id="col-btn-2" class="w-8 h-8 flex items-center justify-center rounded-md text-slate-500 hover:text-slate-900 transition-all"><i class="ph-bold ph-columns"></i></button>
                 </div>
 
-                <div class="hidden md:flex items-center gap-2 bg-neutral-100/50 px-3 py-1.5 rounded-lg border border-neutral-200/50 shrink-0">
-                    <i class="ph ph-corners-in text-neutral-400 text-sm"></i>
-                    <input type="range" min="600" max="2400" value="1390" class="w-20 md:w-24" id="widthSlider" oninput="updateWidth(this.value)">
+                <div class="hidden md:flex items-center gap-2 bg-slate-100/50 px-3 py-1.5 rounded-lg border border-slate-200/50 shrink-0">
+                    <i class="ph ph-corners-in text-slate-400 text-sm"></i>
+                    <input type="range" min="600" max="2400" value="1390" class="w-20 md:w-24 accent-slate-900" id="widthSlider" oninput="updateWidth(this.value)">
                 </div>
 
-                <div class="flex items-center gap-1 bg-neutral-100/50 p-1 rounded-lg border border-neutral-200/50 shrink-0">
-                    <button onclick="triggerImport()" class="w-8 h-8 flex items-center justify-center text-neutral-400 hover:text-neutral-900 hover:bg-white rounded-md transition-all" title="Import"><i class="ph ph-upload-simple text-lg"></i></button>
+                <div class="flex items-center gap-1 bg-slate-100/50 p-1 rounded-lg border border-slate-200/50 shrink-0">
+                    <button onclick="triggerImport()" class="w-8 h-8 flex items-center justify-center text-slate-500 hover:text-slate-900 hover:bg-white rounded-md transition-all" title="Import"><i class="ph ph-upload-simple text-lg"></i></button>
                     <input type="file" id="importInput" accept=".zip" class="hidden" onchange="handleImport(this.files)">
-                    <button onclick="exportData()" class="w-8 h-8 flex items-center justify-center text-neutral-400 hover:text-neutral-900 hover:bg-white rounded-md transition-all" title="Export"><i class="ph ph-download-simple text-lg"></i></button>
-                    <div class="hidden md:block w-px h-4 bg-neutral-200 mx-1"></div>
-                    <button onclick="triggerUpload()" class="hidden md:flex btn-primary items-center gap-2 px-3 py-1.5 text-sm"><i class="ph-bold ph-plus"></i> <span>Add New</span></button>
+                    <button onclick="exportData()" class="w-8 h-8 flex items-center justify-center text-slate-500 hover:text-slate-900 hover:bg-white rounded-md transition-all" title="Export"><i class="ph ph-download-simple text-lg"></i></button>
+                    <div class="hidden md:block w-px h-4 bg-slate-300 mx-1"></div>
+                    <button onclick="triggerUpload()" class="hidden md:flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-white bg-slate-900 hover:bg-black rounded-md shadow-sm transition-all hover:scale-[1.02] active:scale-[0.98]"><i class="ph-bold ph-plus"></i> <span>Add New</span></button>
                     <input type="file" id="fileInput" multiple accept="image/*" class="hidden" onchange="handleFiles(this.files)">
                 </div>
             </div>
@@ -288,24 +194,24 @@
 
     <main id="mainContainer" class="p-4 md:p-6 pt-36 md:pt-28 relative mx-auto min-h-screen transition-[max-width] duration-200 ease-out" style="max-width: 1390px;">
         
-        <div id="emptyState" class="hidden min-h-[70vh] flex flex-col items-center justify-center text-neutral-400">
-            <div class="w-20 h-20 bg-neutral-100 rounded-2xl flex items-center justify-center mb-5 text-neutral-300"><i class="ph-fill ph-images text-4xl"></i></div>
-            <p class="text-base font-medium text-neutral-500">No screenshots yet</p>
-            <p class="text-sm text-neutral-400 mt-1">Tap "Add New" to start</p>
+        <div id="emptyState" class="hidden min-h-[70vh] flex flex-col items-center justify-center text-slate-400">
+            <div class="w-16 h-16 bg-slate-100 rounded-2xl flex items-center justify-center mb-4 text-slate-300"><i class="ph-fill ph-images text-3xl"></i></div>
+            <p class="text-base font-medium text-slate-500">No screenshots yet</p>
+            <p class="text-sm text-slate-400 mt-1">Tap "Add New" to start</p>
         </div>
 
-        <div id="folderWrapper" class="flex flex-col gap-12 pb-32"></div>
+        <div id="folderWrapper" class="flex flex-col gap-10 pb-32"></div>
 
     </main>
 
-    <div id="statusBar" class="fixed bottom-6 left-1/2 -translate-x-1/2 bg-neutral-900/90 backdrop-blur-md text-white px-5 py-2.5 rounded-full shadow-2xl flex items-center gap-3 hidden transition-all z-50">
+    <div id="statusBar" class="fixed bottom-6 left-1/2 -translate-x-1/2 bg-slate-900/90 backdrop-blur text-white px-4 py-2 rounded-full shadow-xl flex items-center gap-3 hidden transition-all z-50">
         <div class="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin"></div><span id="statusText" class="text-xs font-medium">Processing...</span>
     </div>
     
-    <div id="dragOverlay" class="fixed inset-0 bg-neutral-900/5 backdrop-blur-sm z-50 pointer-events-none opacity-0 flex items-center justify-center transition-opacity duration-200">
-        <div class="drop-overlay-card px-10 py-8 flex flex-col items-center gap-4">
-            <div class="p-4 bg-blue-50 text-blue-500 rounded-2xl"><i class="ph-fill ph-upload-simple text-3xl"></i></div>
-            <p class="text-lg font-semibold text-neutral-700">Drop images to import</p>
+    <div id="dragOverlay" class="fixed inset-0 bg-slate-900/10 backdrop-blur-sm z-50 pointer-events-none opacity-0 flex items-center justify-center transition-opacity duration-200">
+        <div class="bg-white px-8 py-6 rounded-2xl shadow-2xl flex flex-col items-center gap-3 transform scale-100">
+            <div class="p-4 bg-blue-50 text-blue-600 rounded-full"><i class="ph-fill ph-upload-simple text-3xl"></i></div>
+            <p class="text-lg font-semibold text-slate-700">Drop images to import</p>
         </div>
     </div>
 
@@ -406,35 +312,35 @@
                 const cardsHtml = fCards.map(c => generateCardHTML(c, rIds)).join('');
                 const chevron = folder.isCollapsed ? 'ph-caret-right' : 'ph-caret-down';
                 const gridState = folder.isCollapsed ? 'hidden' : '';
-                const opacity = folder.isCollapsed ? 'opacity-50' : 'opacity-100';
+                const opacity = folder.isCollapsed ? 'opacity-60' : 'opacity-100';
 
-                // Delete button for folders
+                // Subtle X Button
                 const deleteBtn = folder.id === INBOX_ID ? '' : `
                 <button onclick="event.stopPropagation(); deleteFolder('${folder.id}')" 
-                        class="ml-auto mr-4 p-1.5 text-neutral-300 hover:text-red-500 transition-colors rounded-md opacity-0 group-hover/folder:opacity-100"
+                        class="ml-auto mr-4 p-1.5 text-slate-400 hover:text-red-500 transition-colors rounded-md"
                         title="Delete Folder">
                     <i class="ph-bold ph-x text-sm"></i>
                 </button>`;
 
                 const section = `
                 <section id="folder-${folder.id}" class="folder-enter group/folder">
-                    <div class="mb-5 flex items-end relative pl-1 cursor-pointer"
+                    <div class="mb-4 flex items-end relative pl-1 cursor-pointer"
                          onclick="toggleFolder('${folder.id}')"
                          ondragover="handleFolderDragOver(event, '${folder.id}')"
                          ondragleave="handleFolderDragLeave(event, '${folder.id}')"
                          ondrop="handleFolderDrop(event, '${folder.id}')">
                          
-                        <div class="folder-tab bg-neutral-200/80 text-neutral-500 py-1.5 text-xs font-semibold uppercase tracking-wider rounded-t-lg transition-all duration-200 select-none group-hover/folder:bg-neutral-300/80 group-hover/folder:text-neutral-600 flex items-center gap-2 ${opacity}">
-                            <i class="ph-bold ${chevron} text-xs"></i>
+                        <div class="folder-tab bg-slate-200 text-slate-600 px-4 py-1.5 text-xs font-bold uppercase tracking-wider rounded-t-lg transition-all duration-200 select-none group-hover/folder:bg-slate-300 flex items-center gap-2 ${opacity}">
+                            <i class="ph-bold ${chevron} text-sm"></i>
                             ${folder.name} 
-                            <span class="opacity-50 font-normal">${fCards.length}</span>
+                            <span class="opacity-50 ml-1">(${fCards.length})</span>
                         </div>
                         
                         ${deleteBtn}
-                        <div class="h-px bg-neutral-200/60 w-full mb-px absolute bottom-0 left-0 right-0 -z-10"></div>
+                        <div class="h-px bg-slate-200 w-full mb-px absolute bottom-0 left-0 right-0 -z-10"></div>
                     </div>
 
-                    <div class="folder-grid-area grid ${gridClass} gap-5 md:gap-6 min-h-[50px] transition-all duration-300 ${gridState}"
+                    <div class="folder-grid-area grid ${gridClass} gap-4 md:gap-6 min-h-[50px] transition-all duration-300 ${gridState}"
                          ondragover="handleFolderDragOver(event, '${folder.id}')"
                          ondragleave="handleFolderDragLeave(event, '${folder.id}')"
                          ondrop="handleFolderDrop(event, '${folder.id}')">
@@ -446,20 +352,21 @@
         }
 
         function generateCardHTML(c, rIds) {
-            const isRestored = c.isRestored ? "is-restored" : "";
+            const isRestored = c.isRestored ? "border-rose-200 shadow-xl shadow-rose-400/40" : "border-slate-200 shadow-sm";
             const restoreAttr = c.isRestored ? `onmouseenter="clearRestoreStatus(${c.id})"` : "";
-            const pulse = c.isScanning ? "animate-pulse-subtle" : "";
+            const pulse = c.isScanning ? "animate-pulse" : "";
             const enter = rIds.includes(c.id) ? 'animate-restore' : '';
             
             const hasSuggestions = !c.isScanning && c.suggestions.length !== 1;
             let tooltip = "";
             if (hasSuggestions) {
                 const content = c.suggestions.length === 0 
-                    ? `<div class="bg-white/95 backdrop-blur-md rounded-xl p-3 shadow-xl border border-neutral-100 text-xs text-neutral-500 text-center">No valid text found.</div>`
-                    : `<div class="bg-white/95 backdrop-blur-md rounded-xl p-3 shadow-xl border border-neutral-100"><div class="flex flex-wrap gap-2">${c.suggestions.map(w => `<button onmousedown="event.preventDefault(); applySuggestion(${c.id}, '${cleanString(w)}')" class="px-2.5 py-1.5 bg-neutral-50 hover:bg-neutral-100 border border-neutral-200 text-neutral-600 text-xs font-medium rounded-lg transition-all">${w}</button>`).join('')}</div></div>`;
+                    ? `<div class="bg-slate-50/90 backdrop-blur-md rounded-xl p-3 shadow-xl border border-slate-200 text-xs text-slate-500 text-center">No valid text found.</div>`
+                    : `<div class="bg-slate-50/90 backdrop-blur-md rounded-xl p-3 shadow-xl border border-slate-200 ring-1 ring-black/5"><div class="flex flex-wrap gap-2">${c.suggestions.map(w => `<button onmousedown="event.preventDefault(); applySuggestion(${c.id}, '${cleanString(w)}')" class="px-2.5 py-1.5 bg-white hover:bg-slate-100 border border-slate-200 text-slate-600 text-xs font-medium rounded-lg shadow-sm transition-all">${w}</button>`).join('')}</div></div>`;
                 tooltip = `<div id="tooltip-${c.id}" class="tooltip-container absolute bottom-full left-0 w-full mb-3 z-50"><div class="tooltip-arrow relative">${content}</div></div>`;
             }
 
+            // AUTO-GROW + TOOLTIP FIX
             return `
             <div id="card-${c.id}" draggable="true" 
                  ondragstart="handleDragStart(event, ${c.id})" 
@@ -468,40 +375,35 @@
                  ondragend="handleDragEnd(event)" 
                  ${restoreAttr} 
                  style="view-transition-name: card-${c.id}" 
-                 class="card group flex flex-col ${isRestored} ${pulse} ${enter}">
+                 class="bg-white rounded-xl border overflow-hidden group hover:shadow-md transition-all duration-300 flex flex-col ${isRestored} ${pulse} ${enter}">
                 
-                <div class="aspect-[9/16] bg-neutral-100 relative overflow-hidden group/image shrink-0 cursor-pointer rounded-t-[1.25rem]" onclick="handleImageClick(event, ${c.id})">
-                    <img src="${c.imageUrl}" class="w-full h-full object-cover object-top pointer-events-none transition-transform duration-500 group-hover/image:scale-[1.02]" loading="lazy">
-                    
-                    <!-- External Link Button -->
-                    <button onclick="event.stopPropagation(); openProfile(${c.id})" class="external-link-btn p-2 bg-white/80 hover:bg-white backdrop-blur-md border border-white/50 text-neutral-600 hover:text-neutral-900 rounded-lg shadow-lg transition-all">
-                        <i class="ph-bold ph-arrow-up-right text-base"></i>
-                    </button>
-                    
-                    <!-- Delete Button -->
-                    <button onclick="event.stopPropagation(); deleteCard(${c.id})" class="delete-btn p-2 bg-white/80 hover:bg-red-50 backdrop-blur-md border border-white/50 text-neutral-600 hover:text-red-500 rounded-lg shadow-lg transition-all">
-                        <i class="ph-bold ph-x text-base"></i>
-                    </button>
+                <div class="aspect-[9/16] bg-slate-100 relative overflow-hidden group/image shrink-0 cursor-pointer active:cursor-move" onclick="handleImageClick(event, ${c.id})">
+                    <img src="${c.imageUrl}" class="w-full h-full object-cover object-top pointer-events-none" loading="lazy">
+                    <div class="absolute top-4 right-4 z-20 opacity-0 group-hover/image:opacity-100 transition-opacity">
+                        <button onclick="event.stopPropagation(); deleteCard(${c.id})" class="p-2 bg-white/60 hover:bg-red-50/90 backdrop-blur-md border border-white/40 text-slate-700 hover:text-red-600 rounded-md shadow-sm transition-all"><i class="ph-bold ph-x text-lg"></i></button>
+                    </div>
                 </div>
 
                 <div class="p-4 flex flex-col gap-3 flex-1">
                     <div class="relative username-wrapper z-10">
                         ${tooltip}
                         <div class="relative group/input">
-                            <div class="absolute inset-y-0 left-0 pl-1 flex items-center pointer-events-none"><span class="text-neutral-300 font-medium">@</span></div>
+                            <div class="absolute inset-y-0 left-0 pl-1 flex items-center pointer-events-none"><span class="text-slate-400 font-medium">@</span></div>
                             <textarea 
                                 oninput="autoResize(this); updateCard(${c.id}, 'username', this.value)" 
                                 onfocus="autoResize(this); ${hasSuggestions ? `triggerTooltip(${c.id})` : ''}"
-                                class="auto-grow w-full pl-6 pr-8 py-1 bg-transparent border-0 border-b border-neutral-100 focus:border-neutral-300 outline-none text-sm font-semibold text-neutral-400 group-hover/input:text-neutral-700 focus:text-neutral-900 transition-colors placeholder:text-neutral-300" 
+                                class="auto-grow w-full pl-6 pr-8 py-1 bg-transparent border-0 border-b border-slate-200 focus:border-slate-400 outline-none text-sm font-semibold text-slate-400 group-hover/input:text-slate-800 focus:text-slate-800 transition-colors placeholder:text-slate-300" 
                                 placeholder="Username" rows="1">${c.username}</textarea>
-                            ${hasSuggestions ? `<div class="absolute inset-y-0 right-0 pr-2 flex items-center pointer-events-none"><i class="ph-fill ph-magic-wand text-neutral-300 text-sm"></i></div>` : ''}
+                            ${hasSuggestions ? `<div class="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none"><i class="ph-fill ph-magic-wand text-slate-300"></i></div>` : ''}
                         </div>
                     </div>
                     <textarea 
                         oninput="autoResize(this); updateCard(${c.id}, 'notes', this.value)" 
                         onfocus="autoResize(this)"
-                        class="auto-grow w-full text-xs text-neutral-500 bg-transparent border-0 border-b border-neutral-50 focus:border-neutral-200 outline-none resize-none p-1 placeholder:text-neutral-300" 
+                        class="auto-grow w-full text-xs text-slate-500 bg-transparent border-0 border-b border-slate-100 focus:border-slate-300 outline-none resize-none p-1" 
                         rows="1" placeholder="Add notes...">${c.notes}</textarea>
+                    
+                    <a href="${c.link}" target="_blank" class="mt-auto w-fit group/btn flex items-center justify-center gap-2 px-4 py-2 bg-slate-50 hover:bg-slate-100 text-slate-600 hover:text-slate-900 border border-slate-200 text-xs font-medium rounded-full transition-colors">Visit Profile <i class="ph-bold ph-arrow-up-right"></i></a>
                 </div>
             </div>`;
         }
@@ -684,8 +586,8 @@
                         if(el) {
                            const txt = el.querySelector('textarea[placeholder="Username"]');
                            if(txt && document.activeElement!==txt) { txt.value = best; autoResize(txt); }
-                           el.querySelector('.external-link-btn')?.setAttribute('onclick', `event.stopPropagation(); openProfile(${actual.id})`);
-                           el.classList.remove('animate-pulse-subtle');
+                           el.querySelector('a').href = actual.link;
+                           el.classList.remove('animate-pulse');
                         }
                     }
                 } catch (e) { console.error(e); }
@@ -700,17 +602,7 @@
         function cleanString(s) { return s.replace(/[^a-zA-Z0-9_.]/g, '').toLowerCase(); }
         function triggerUpload() { document.getElementById('fileInput').click(); }
         function triggerImport() { document.getElementById('importInput').click(); }
-        
-        function handleImageClick(e, id) { 
-            if(!e.target.closest('button')) { 
-                // Image click no longer opens link - use the explicit button instead
-            }
-        }
-        
-        function openProfile(id) {
-            const c = appData.cards.find(x => x.id === id);
-            if(c && c.link !== '#') window.open(c.link, '_blank');
-        }
+        function handleImageClick(e, id) { if(!e.target.closest('button')) { const c = appData.cards.find(x => x.id === id); if(c.link !== '#') window.open(c.link, '_blank'); }}
 
         window.addEventListener('click', (e) => { 
             if (!e.target.closest('.username-wrapper')) closeAllTooltips(); 
@@ -735,38 +627,20 @@
                 transitionRender(); updateUndoUI();
             }
         }
-        
-        // --- RESTORE FIX (INSERT INSTEAD OF APPEND) ---
         function triggerUndo() {
             if (!deletedCardsStack.length) return;
-            const c = deletedCardsStack.pop(); 
-            c.isRestored = true;
-            
-            // 1. Get current list of cards in that folder
+            const c = deletedCardsStack.pop(); c.isRestored = true;
+            // FIXED RESTORE LOGIC
             const folderCards = appData.cards.filter(x => x.folderId === c.folderId).sort((a,b) => a.order - b.order);
-            
-            // 2. Insert restored card into correct position
             const insertIdx = Math.min(c.order, folderCards.length);
             folderCards.splice(insertIdx, 0, c);
-            
-            // 3. Re-assign order for everyone in that folder
             folderCards.forEach((card, i) => { card.order = i; saveCardToDB(card); });
-            
-            // 4. Update Main AppData
             appData.cards = appData.cards.filter(x => x.folderId !== c.folderId).concat(folderCards);
-            
-            // 5. Render
-            transitionRender(c.id); 
-            updateUndoUI();
+            transitionRender(c.id); updateUndoUI();
         }
-
         function clearRestoreStatus(id) {
             const c = appData.cards.find(x => x.id === id);
-            if (c?.isRestored) { 
-                c.isRestored = false; 
-                saveCardToDB(c); 
-                document.getElementById(`card-${id}`)?.classList.remove('is-restored'); 
-            }
+            if (c?.isRestored) { c.isRestored = false; saveCardToDB(c); document.getElementById(`card-${id}`)?.classList.remove('border-rose-200', 'shadow-xl', 'shadow-rose-400/40'); document.getElementById(`card-${id}`)?.classList.add('border-slate-200', 'shadow-sm'); }
         }
         function updateUndoUI() {
             const btn=document.getElementById('undoBtn'); 
@@ -791,7 +665,7 @@
             localStorage.setItem('ssaved_cols', n);
             [1,2].forEach(i => {
                 const btn = document.getElementById(`col-btn-${i}`);
-                if(btn) btn.className = `w-8 h-8 flex items-center justify-center rounded-md transition-all ${i==n?'bg-white text-neutral-900 shadow-sm font-bold':'text-neutral-400'}`;
+                if(btn) btn.className = `w-8 h-8 flex items-center justify-center rounded-md transition-all ${i==n?'bg-white text-slate-900 shadow-sm font-bold':'text-slate-500'}`;
             });
             render();
         }

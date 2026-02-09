@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SSaved - Fluid Motion</title>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <script src='https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js'></script>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+
+    <style>
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        
+        /* Tooltip Arrow */
+        .tooltip-arrow::after {
+            content: " ";
+            position: absolute;
+            top: 100%;
+            left: 50%;
+            margin-left: -6px;
+            border-width: 6px;
+            border-style: solid;
+            border-color: #f8fafc transparent transparent transparent; 
+            filter: drop-shadow(0 1px 1px rgb(0 0 0 / 0.05));
+        }
+
+        /* Tooltip Animation */
+        .tooltip-container {
+            transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+            opacity: 0;
+            pointer-events: none;
+            transform: translateY(8px) scale(0.95);
+        }
+        .tooltip-container.active {
+            opacity: 1;
+            pointer-events: auto;
+            transform: translateY(0) scale(1);
+        }
+
+        /* Undo Button Transition */
+        #undoBtn {
+            transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        #undoBtn.hidden-btn {
+            opacity: 0;
+            transform: translateX(10px);
+            pointer-events: none;
+            width: 0;
+            padding: 0;
+            margin: 0;
+            border: 0;
+        }
+
+        /* --- FLUID ANIMATIONS (New) --- */
+        
+        /* 1. Define the Enter Animation Keyframes */
+        @keyframes slideUpEnter {
+            from { 
+                opacity: 0; 
+                transform: translateY(30px) scale(0.96); 
+            }
+            to { 
+                opacity: 1; 
+                transform: translateY(0) scale(1); 
+            }
+        }
+
+        /* 2. Apply this animation to any card marked as 'entering' */
+        .animate-restore {
+            animation: slideUpEnter 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+            /* Ensure it starts invisible so it can fade in */
+            opacity: 0; 
+        }
+
+        /* 3. Global Drag Overlay */
+        #dragOverlay { transition: opacity 0.2s ease; }
+
+        /* 4. View Transitions (Browser Native Fluidity) */
+        ::view-transition-group(root) {
+            animation-duration: 0.4s;
+            animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+        }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-900 h-screen flex flex-col font-sans antialiased selection:bg-slate-200 selection:text-slate-900">
+
+    <div id="dragOverlay" class="fixed inset-0 bg-slate-900/10 backdrop-blur-sm z-50 pointer-events-none opacity-0 flex items-center justify-center">
+        <div class="bg-white px-8 py-6 rounded-2xl shadow-2xl flex flex-col items-center gap-3 transform scale-100 transition-transform">
+            <div class="p-4 bg-blue-50 text-blue-600 rounded-full">
+                <i class="ph-fill ph-upload-simple text-3xl"></i>
+            </div>
+            <p class="text-lg font-semibold text-slate-700">Drop images to import</p>
+        </div>
+    </div>
+
+    <header class="bg-white/80 backdrop-blur-md border-b border-slate-200 px-6 py-4 flex justify-between items-center sticky top-0 z-40">
+        <div class="flex items-center gap-3">
+            <h1 class="text-xl font-bold tracking-tight text-slate-900">SSaved</h1>
+            <span id="saveIndicator" class="text-[10px] font-bold uppercase tracking-wider text-slate-300 opacity-0 transition-opacity flex items-center gap-1">
+                Saved
+            </span>
+        </div>
+        
+        <div class="flex items-center gap-3">
+            <button id="undoBtn" onclick="triggerUndo()" class="hidden-btn flex items-center gap-2 px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-100 rounded-md text-sm font-medium transition-colors shadow-sm overflow-hidden whitespace-nowrap">
+                <i class="ph-bold ph-arrow-u-up-left"></i>
+                <span id="undoText">Undo Delete</span>
+            </button>
+
+            <div class="flex items-center gap-1 bg-slate-100/50 p-1 rounded-lg border border-slate-200/50">
+                <button onclick="triggerImport()" class="w-8 h-8 flex items-center justify-center text-slate-500 hover:text-slate-900 hover:bg-white rounded-md transition-all" title="Import Backup">
+                    <i class="ph ph-upload-simple text-lg"></i>
+                </button>
+                <input type="file" id="importInput" accept=".zip" class="hidden" onchange="handleImport(this.files)">
+
+                <button onclick="exportData()" class="w-8 h-8 flex items-center justify-center text-slate-500 hover:text-slate-900 hover:bg-white rounded-md transition-all" title="Export Backup">
+                    <i class="ph ph-download-simple text-lg"></i>
+                </button>
+                
+                <div class="w-px h-4 bg-slate-300 mx-1"></div>
+
+                <button onclick="triggerUpload()" class="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-white bg-slate-900 hover:bg-black rounded-md shadow-sm transition-all hover:scale-[1.02] active:scale-[0.98]">
+                    <i class="ph-bold ph-plus"></i>
+                    <span>Add New</span>
+                </button>
+                <input type="file" id="fileInput" multiple accept="image/*" class="hidden" onchange="handleFiles(this.files)">
+            </div>
+        </div>
+    </header>
+
+    <main class="flex-1 overflow-auto p-6 relative" id="mainDropZone">
+        <div id="emptyState" class="hidden h-full flex flex-col items-center justify-center text-slate-400">
+            <div class="w-16 h-16 bg-slate-100 rounded-2xl flex items-center justify-center mb-4 text-slate-300">
+                <i class="ph-fill ph-images text-3xl"></i>
+            </div>
+            <p class="text-base font-medium text-slate-500">No screenshots yet</p>
+            <p class="text-sm text-slate-400 mt-1">Drag and drop or click "Add New"</p>
+        </div>
+
+        <div id="gridContainer" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 pb-20"></div>
+    </main>
+
+    <div id="statusBar" class="fixed bottom-6 left-1/2 -translate-x-1/2 bg-slate-900/90 backdrop-blur text-white px-4 py-2 rounded-full shadow-xl flex items-center gap-3 hidden transition-all z-50 hover:bg-slate-900 cursor-default">
+        <div class="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+        <span id="statusText" class="text-xs font-medium">Processing...</span>
+    </div>
+
+    <script>
+        // --- APP STATE & DB ---
+        let appData = { cards: [] };
+        let deletedCardsStack = [];
+        let undoTimeout = null;
+        const DB_NAME = "SSavedDB";
+        const STORE_NAME = "cards";
+        let db;
+
+        // --- INIT ---
+        window.addEventListener('DOMContentLoaded', async () => {
+            await initDB();
+            loadCardsFromDB();
+            setupGlobalDrag();
+        });
+
+        // --- DATABASE LOGIC ---
+        function initDB() {
+            return new Promise((resolve, reject) => {
+                const request = indexedDB.open(DB_NAME, 1);
+                request.onupgradeneeded = (e) => {
+                    const db = e.target.result;
+                    if (!db.objectStoreNames.contains(STORE_NAME)) db.createObjectStore(STORE_NAME, { keyPath: "id" });
+                };
+                request.onsuccess = (e) => { db = e.target.result; resolve(db); };
+                request.onerror = (e) => reject("DB Error");
+            });
+        }
+        async function saveCardToDB(card) {
+            if (!db) return;
+            const c = { ...card }; delete c.imageUrl;
+            const tx = db.transaction(STORE_NAME, "readwrite");
+            tx.objectStore(STORE_NAME).put(c);
+            showSaveIndicator();
+        }
+        async function deleteCardFromDB(id) {
+            if (!db) return;
+            const tx = db.transaction(STORE_NAME, "readwrite");
+            tx.objectStore(STORE_NAME).delete(id);
+        }
+        async function loadCardsFromDB() {
+            if (!db) return;
+            const tx = db.transaction(STORE_NAME, "readonly");
+            const req = tx.objectStore(STORE_NAME).getAll();
+            req.onsuccess = () => {
+                appData.cards = req.result.map(c => ({...c, imageUrl: URL.createObjectURL(c.file)})).sort((a,b)=>b.id-a.id);
+                render(); 
+            };
+        }
+
+        // --- UI INDICATORS ---
+        function showSaveIndicator() {
+            const el = document.getElementById('saveIndicator');
+            el.classList.remove('opacity-0');
+            setTimeout(() => el.classList.add('opacity-0'), 2000);
+        }
+        function showStatus(show, text="") {
+            const el = document.getElementById('statusBar');
+            const txt = document.getElementById('statusText');
+            el.classList.toggle('hidden', !show);
+            el.classList.toggle('flex', show);
+            txt.innerText = text;
+        }
+
+        // --- MULTI-LEVEL UNDO + FLUID MOTION ---
+        function triggerUndo() {
+            if (deletedCardsStack.length > 0) {
+                const cardToRestore = deletedCardsStack.pop();
+                
+                // 1. Prepare State
+                appData.cards.push(cardToRestore);
+                appData.cards.sort((a, b) => b.id - a.id);
+                saveCardToDB(cardToRestore);
+                
+                // 2. View Transition Wrapper
+                // This tells the browser: "I am changing the DOM. Please animate the difference."
+                if (document.startViewTransition) {
+                    document.startViewTransition(() => {
+                        render(cardToRestore.id); // Pass the ID to apply the slide-in animation
+                    });
+                } else {
+                    // Fallback for browsers without ViewTransitions
+                    render(cardToRestore.id);
+                }
+
+                updateUndoButtonUI();
+            }
+        }
+
+        function updateUndoButtonUI() {
+            const btn = document.getElementById('undoBtn');
+            const txt = document.getElementById('undoText');
+            if (undoTimeout) clearTimeout(undoTimeout);
+
+            if (deletedCardsStack.length > 0) {
+                btn.classList.remove('hidden-btn');
+                txt.innerText = deletedCardsStack.length > 1 ? `Undo (${deletedCardsStack.length})` : "Undo Delete";
+                undoTimeout = setTimeout(() => hideUndoBtn(), 5000);
+            } else {
+                hideUndoBtn();
+            }
+        }
+
+        function hideUndoBtn() {
+            document.getElementById('undoBtn').classList.add('hidden-btn');
+        }
+
+        // --- GLOBAL DRAG ---
+        function setupGlobalDrag() {
+            const overlay = document.getElementById('dragOverlay');
+            let dragCounter = 0;
+            window.addEventListener('dragenter', (e) => { e.preventDefault(); dragCounter++; overlay.classList.remove('opacity-0'); });
+            window.addEventListener('dragleave', (e) => { e.preventDefault(); dragCounter--; if (dragCounter === 0) overlay.classList.add('opacity-0'); });
+            window.addEventListener('dragover', (e) => e.preventDefault());
+            window.addEventListener('drop', (e) => { e.preventDefault(); dragCounter = 0; overlay.classList.add('opacity-0'); if (e.dataTransfer.files?.length > 0) handleFiles(e.dataTransfer.files); });
+        }
+
+        // --- CORE ACTIONS ---
+        function triggerUpload() { document.getElementById('fileInput').click(); }
+        function triggerImport() { document.getElementById('importInput').click(); }
+        window.addEventListener('click', (e) => { if (!e.target.closest('.username-wrapper')) closeAllTooltips(); });
+        window.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeAllTooltips(); });
+
+        async function handleImport(files) {
+            if (!files.length) return;
+            showStatus(true, "Restoring...");
+            try {
+                const zip = await JSZip.loadAsync(files[0]);
+                const json = JSON.parse(await zip.file("data.json").async("string"));
+                let newCards = [];
+                for (const d of json) {
+                    const img = zip.file("images/" + d.fileName);
+                    if (img) {
+                        const blob = await img.async("blob");
+                        const file = new File([blob], d.fileName, { type: "image/png" });
+                        const card = {
+                            id: d.id, file: file, imageUrl: URL.createObjectURL(file),
+                            username: d.username, notes: d.notes, link: `https://instagram.com/${d.username}`,
+                            suggestions: d.suggestions || [], isScanning: false
+                        };
+                        newCards.push(card);
+                        saveCardToDB(card);
+                    }
+                }
+                newCards.forEach(nc => {
+                    const idx = appData.cards.findIndex(c => c.id === nc.id);
+                    if(idx === -1) appData.cards.unshift(nc);
+                });
+                appData.cards.sort((a,b) => b.id - a.id);
+                
+                if (document.startViewTransition) document.startViewTransition(() => render());
+                else render();
+
+                showStatus(false);
+            } catch (e) { alert("Import failed"); showStatus(false); }
+        }
+
+        async function handleFiles(files) {
+            if (!files.length) return;
+            showStatus(true, `Processing ${files.length} images...`);
+            const newCards = [];
+            for (let i = 0; i < files.length; i++) {
+                const file = files[i];
+                const tempId = Date.now() + i;
+                const card = {
+                    id: tempId, file: file, imageUrl: URL.createObjectURL(file),
+                    username: "", notes: "", link: "#",
+                    isScanning: true, suggestions: []
+                };
+                newCards.push(card);
+                saveCardToDB(card);
+            }
+            appData.cards.unshift(...newCards);
+            
+            // Render new cards immediately
+            if (document.startViewTransition) document.startViewTransition(() => render(newCards.map(c => c.id)));
+            else render(newCards.map(c => c.id));
+
+            for (const card of newCards) {
+                try {
+                    const cropped = await simpleCrop(card.imageUrl);
+                    const res = await Tesseract.recognize(cropped, 'eng');
+                    const banned = ['follow', 'followers', 'following', 'posts'];
+                    const words = res.data.words.map(w => w.text.trim())
+                        .filter(w => w.length > 4 && !w.includes(':') && !w.includes(',') && !banned.includes(w.toLowerCase()))
+                        .filter((v,i,a) => a.indexOf(v) === i)
+                        .sort((a,b) => b.length - a.length);
+                    const best = words[0] ? cleanString(words[0]) : "";
+                    const actualCard = appData.cards.find(c => c.id === card.id);
+                    if (actualCard) {
+                        actualCard.username = best;
+                        actualCard.link = `https://instagram.com/${best}`;
+                        actualCard.suggestions = words;
+                        actualCard.isScanning = false;
+                        saveCardToDB(actualCard);
+                        updateDOMCard(actualCard.id); 
+                    }
+                } catch (e) { console.error(e); }
+            }
+            showStatus(false);
+        }
+
+        async function exportData() {
+            if (!appData.cards.length) return;
+            showStatus(true, "Zipping...");
+            const zip = new JSZip();
+            const folder = zip.folder("images");
+            const meta = appData.cards.map(c => ({
+                id: c.id, username: c.username, notes: c.notes,
+                suggestions: c.suggestions, fileName: `img_${c.id}.png`
+            }));
+            zip.file("data.json", JSON.stringify(meta, null, 2));
+            appData.cards.forEach(c => folder.file(`img_${c.id}.png`, c.file));
+            saveAs(await zip.generateAsync({type:"blob"}), "ssaved-backup.zip");
+            showStatus(false);
+        }
+
+        function cleanString(s) { return s.replace(/[^a-zA-Z0-9_.]/g, '').toLowerCase(); }
+        function simpleCrop(url) {
+            return new Promise((resolve) => {
+                const img = new Image(); img.onload = () => {
+                    const c = document.createElement('canvas'); const ctx = c.getContext('2d');
+                    const h = img.height * 0.2; c.width = img.width; c.height = h;
+                    ctx.drawImage(img, 0, 0, img.width, h, 0, 0, img.width, h);
+                    c.toBlob(resolve);
+                }; img.src = url;
+            });
+        }
+
+        // --- RENDERERS ---
+        function render(restoreId = null) {
+            const container = document.getElementById('gridContainer');
+            const empty = document.getElementById('emptyState');
+            
+            // Handle restoreId being a single ID or array of IDs
+            const restoreIds = Array.isArray(restoreId) ? restoreId : (restoreId ? [restoreId] : []);
+
+            if (!appData.cards.length) {
+                empty.classList.remove('hidden');
+                container.innerHTML = '';
+                return;
+            }
+            empty.classList.add('hidden');
+            container.innerHTML = '';
+
+            appData.cards.forEach((card) => {
+                const pulseClass = card.isScanning ? "animate-pulse" : "";
+                
+                // Add unique View Transition Name
+                const viewTransitionStyle = `view-transition-name: card-${card.id}`;
+
+                // Add enter animation class only if this card is being restored/added
+                const enterClass = restoreIds.includes(card.id) ? 'animate-restore' : '';
+
+                // Tooltip Logic
+                const showTooltip = !card.isScanning && (card.suggestions.length === 0 || card.suggestions.length > 1);
+                let tooltipHTML = '';
+                
+                if (showTooltip) {
+                    let inner = card.suggestions.length === 0 
+                        ? `<div class="bg-slate-50/90 backdrop-blur-md rounded-xl p-3 shadow-xl border border-slate-200 ring-1 ring-black/5 text-xs text-slate-500 text-center">No valid text found.</div>`
+                        : `<div class="bg-slate-50/90 backdrop-blur-md rounded-xl p-3 shadow-xl border border-slate-200/60 ring-1 ring-black/5">
+                            <div class="flex items-center justify-between mb-2 px-1">
+                                <p class="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Detected Words</p>
+                            </div>
+                            <div class="flex flex-wrap gap-2">
+                                ${card.suggestions.map(w => `<button onmousedown="event.preventDefault(); applySuggestion(${card.id}, '${cleanString(w)}')" class="px-2.5 py-1.5 bg-white hover:bg-slate-100 hover:text-slate-900 border border-slate-200 text-slate-600 text-xs font-medium rounded-lg shadow-sm transition-all">${w}</button>`).join('')}
+                            </div>
+                           </div>`;
+                    tooltipHTML = `<div id="tooltip-${card.id}" class="tooltip-container absolute bottom-full left-0 w-full mb-3 z-50"><div class="tooltip-arrow relative">${inner}</div></div>`;
+                }
+
+                const wand = showTooltip ? `<div class="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none"><i class="ph-fill ph-magic-wand text-slate-300 group-hover/input:text-slate-500 transition-colors"></i></div>` : '';
+
+                const html = `
+                <div id="card-${card.id}" style="${viewTransitionStyle}" class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden group hover:shadow-md transition-shadow flex flex-col ${pulseClass} ${enterClass}">
+                    <div class="aspect-[4/5] bg-slate-100 relative overflow-hidden group/image shrink-0">
+                        <img src="${card.imageUrl}" class="w-full h-full object-cover object-top" alt="Screenshot">
+                        <div class="absolute top-4 right-4 z-20 opacity-0 group-hover/image:opacity-100 transition-opacity">
+                            <button onclick="deleteCard(${card.id})" class="p-2 bg-white/60 hover:bg-red-50/90 backdrop-blur-md border border-white/40 text-slate-700 hover:text-red-600 rounded-md shadow-sm transition-all"><i class="ph-bold ph-x text-lg"></i></button>
+                        </div>
+                    </div>
+                    <div class="p-4 flex flex-col gap-3 flex-1">
+                        <div class="relative username-wrapper z-10">
+                            ${tooltipHTML}
+                            <div class="relative group/input">
+                                <div class="absolute inset-y-0 left-0 pl-1 flex items-center pointer-events-none"><span class="text-slate-400 font-medium">@</span></div>
+                                <input type="text" value="${card.username}" ${showTooltip ? `onfocus="triggerTooltip(${card.id})"` : ''} oninput="updateCard(${card.id}, 'username', this.value)" class="w-full pl-6 pr-8 py-1 bg-transparent border-0 border-b border-slate-200 focus:border-slate-400 focus:ring-0 outline-none placeholder:text-slate-300 text-sm font-semibold text-slate-400 group-hover/input:text-slate-800 focus:text-slate-800 transition-colors cursor-text" placeholder="Username">
+                                ${wand}
+                            </div>
+                        </div>
+                        <textarea onchange="updateCard(${card.id}, 'notes', this.value)" class="w-full text-xs text-slate-500 bg-transparent border-0 border-b border-slate-100 focus:border-slate-300 focus:ring-0 outline-none resize-none p-1 placeholder:text-slate-300" rows="1" placeholder="Add notes here...">${card.notes}</textarea>
+                        
+                        <a href="${card.link}" target="_blank" class="mt-auto w-fit group/btn flex items-center justify-center gap-2 px-4 py-2 bg-slate-50 hover:bg-slate-100 text-slate-600 hover:text-slate-900 border border-slate-200 text-xs font-medium rounded-full transition-colors">
+                            Visit Profile 
+                            <i class="ph-bold ph-arrow-up-right transform transition-transform duration-200 group-hover/btn:translate-x-0.5 group-hover/btn:-translate-y-0.5"></i>
+                        </a>
+                    </div>
+                </div>`;
+                container.insertAdjacentHTML('beforeend', html);
+            });
+        }
+
+        function updateDOMCard(id) {
+            const card = appData.cards.find(c => c.id === id);
+            if (!card) return;
+            const existingEl = document.getElementById(`card-${id}`);
+            if (existingEl) {
+                const input = existingEl.querySelector('input[type="text"]');
+                const link = existingEl.querySelector('a[target="_blank"]');
+                if (input && document.activeElement !== input) input.value = card.username;
+                if (link) link.href = card.link;
+                if (!card.isScanning) existingEl.classList.remove('animate-pulse');
+            }
+        }
+
+        // --- ACTIONS ---
+        function triggerTooltip(id) {
+            closeAllTooltips();
+            const el = document.getElementById(`tooltip-${id}`);
+            if(el) el.classList.add('active');
+        }
+        function closeAllTooltips() { document.querySelectorAll('.tooltip-container').forEach(el => el.classList.remove('active')); }
+        function applySuggestion(id, word) {
+            const c = appData.cards.find(x => x.id === id);
+            if(c) { c.username = word; c.link = `https://instagram.com/${word}`; saveCardToDB(c); updateDOMCard(id); closeAllTooltips(); }
+        }
+        function updateCard(id, f, v) {
+            const c = appData.cards.find(x => x.id === id);
+            if(c) { c[f] = v; if(f==='username') c.link = `https://instagram.com/${v}`; saveCardToDB(c); }
+        }
+        function deleteCard(id) {
+            const cardIndex = appData.cards.findIndex(c => c.id === id);
+            if(cardIndex !== -1) {
+                // Add to Undo Stack
+                deletedCardsStack.push(appData.cards[cardIndex]);
+                appData.cards.splice(cardIndex, 1);
+                
+                deleteCardFromDB(id);
+                
+                // Use ViewTransition if available for fluid closing
+                if (document.startViewTransition) document.startViewTransition(() => render());
+                else render();
+                
+                updateUndoButtonUI();
+            }
+        }
+    </script>
+</body>
+</html>

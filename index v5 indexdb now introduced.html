@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SSaved - Complete</title>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <script src='https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js'></script>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+
+    <style>
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        
+        .tooltip-arrow::after {
+            content: " ";
+            position: absolute;
+            top: 100%;
+            left: 50%;
+            margin-left: -6px;
+            border-width: 6px;
+            border-style: solid;
+            border-color: #f8fafc transparent transparent transparent; 
+            filter: drop-shadow(0 1px 1px rgb(0 0 0 / 0.05));
+        }
+
+        .tooltip-container {
+            transition: opacity 0.2s ease, transform 0.2s ease;
+            opacity: 0;
+            pointer-events: none;
+            transform: translateY(10px);
+        }
+        .tooltip-container.active {
+            opacity: 1;
+            pointer-events: auto;
+            transform: translateY(0);
+        }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-900 h-screen flex flex-col font-sans antialiased selection:bg-slate-200 selection:text-slate-900">
+
+    <header class="bg-white border-b border-slate-200 px-6 py-4 flex justify-between items-center sticky top-0 z-10 shadow-sm">
+        <div class="flex items-center gap-3">
+            <h1 class="text-xl font-bold tracking-tight text-slate-900">SSaved</h1>
+            <span id="saveIndicator" class="text-xs font-medium text-slate-400 opacity-0 transition-opacity flex items-center gap-1">
+                <i class="ph-bold ph-check text-green-500"></i> Saved
+            </span>
+        </div>
+        
+        <div class="flex gap-2">
+            <button onclick="triggerImport()" class="flex items-center gap-2 px-3 py-2 text-sm font-medium text-slate-600 bg-white border border-slate-200 hover:bg-slate-50 rounded-md transition-colors" title="Restore Backup">
+                <i class="ph ph-upload-simple"></i> Import ZIP
+            </button>
+            <input type="file" id="importInput" accept=".zip" class="hidden" onchange="handleImport(this.files)">
+
+            <button onclick="exportData()" class="flex items-center gap-2 px-3 py-2 text-sm font-medium text-slate-600 bg-white border border-slate-200 hover:bg-slate-50 rounded-md transition-colors" title="Save Backup">
+                <i class="ph ph-download-simple"></i> Export ZIP
+            </button>
+            
+            <button onclick="triggerUpload()" class="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-slate-900 hover:bg-black rounded-md shadow-sm transition-colors ml-2">
+                <i class="ph ph-plus"></i> Upload
+            </button>
+            <input type="file" id="fileInput" multiple accept="image/*" class="hidden" onchange="handleFiles(this.files)">
+        </div>
+    </header>
+
+    <main class="flex-1 overflow-auto p-6 relative" ondrop="handleDrop(event)" ondragover="handleDragOver(event)">
+        
+        <div id="emptyState" class="hidden h-full flex flex-col items-center justify-center text-slate-400 border-2 border-dashed border-slate-300 rounded-xl bg-slate-50/50">
+            <i class="ph ph-images text-6xl mb-4"></i>
+            <p class="text-lg font-medium text-slate-600">Drag and drop screenshots here</p>
+        </div>
+
+        <div id="gridContainer" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 pb-20"></div>
+
+    </main>
+
+    <div id="statusBar" class="fixed bottom-6 right-6 bg-slate-900 text-white px-4 py-3 rounded-lg shadow-lg flex items-center gap-3 hidden transition-all z-50">
+        <div class="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+        <span id="statusText" class="text-sm font-medium">Processing...</span>
+    </div>
+
+    <script>
+        // --- APP STATE ---
+        let appData = { cards: [] };
+        
+        // --- DATABASE SETUP (IndexedDB) ---
+        const DB_NAME = "SSavedDB";
+        const STORE_NAME = "cards";
+        let db;
+
+        function initDB() {
+            return new Promise((resolve, reject) => {
+                const request = indexedDB.open(DB_NAME, 1);
+                request.onupgradeneeded = (event) => {
+                    const db = event.target.result;
+                    if (!db.objectStoreNames.contains(STORE_NAME)) {
+                        db.createObjectStore(STORE_NAME, { keyPath: "id" });
+                    }
+                };
+                request.onsuccess = (event) => {
+                    db = event.target.result;
+                    resolve(db);
+                };
+                request.onerror = (event) => reject("DB Error");
+            });
+        }
+
+        async function saveCardToDB(card) {
+            if (!db) return;
+            const cardToSave = { ...card }; 
+            delete cardToSave.imageUrl; 
+            delete cardToSave.isTooltipOpen; 
+            
+            const tx = db.transaction(STORE_NAME, "readwrite");
+            tx.objectStore(STORE_NAME).put(cardToSave);
+            showSaveIndicator();
+        }
+
+        async function deleteCardFromDB(id) {
+            if (!db) return;
+            const tx = db.transaction(STORE_NAME, "readwrite");
+            tx.objectStore(STORE_NAME).delete(id);
+        }
+
+        async function loadCardsFromDB() {
+            if (!db) return;
+            const tx = db.transaction(STORE_NAME, "readonly");
+            const store = tx.objectStore(STORE_NAME);
+            const request = store.getAll();
+            
+            request.onsuccess = () => {
+                const cards = request.result;
+                appData.cards = cards.map(c => ({
+                    ...c,
+                    imageUrl: URL.createObjectURL(c.file), 
+                    isTooltipOpen: false
+                })).sort((a, b) => b.id - a.id);
+                
+                render();
+            };
+        }
+
+        function showSaveIndicator() {
+            const el = document.getElementById('saveIndicator');
+            el.classList.remove('opacity-0');
+            setTimeout(() => el.classList.add('opacity-0'), 2000);
+        }
+
+        // --- DOM ELEMENTS ---
+        const gridContainer = document.getElementById('gridContainer');
+        const emptyState = document.getElementById('emptyState');
+        const statusBar = document.getElementById('statusBar');
+        const statusText = document.getElementById('statusText');
+
+        // --- INIT ---
+        window.addEventListener('DOMContentLoaded', async () => {
+            await initDB();
+            loadCardsFromDB();
+        });
+
+        // --- INTERACTIONS ---
+        window.addEventListener('click', (e) => {
+            if (!e.target.closest('.username-wrapper')) {
+                closeAllTooltips();
+            }
+        });
+
+        // --- DRAG & DROP ---
+        function handleDragOver(e) { e.preventDefault(); }
+        function handleDrop(e) {
+            e.preventDefault();
+            if (e.dataTransfer.files?.length > 0) handleFiles(e.dataTransfer.files);
+        }
+
+        // --- CORE FUNCTIONS ---
+        function triggerUpload() { document.getElementById('fileInput').click(); }
+        function triggerImport() { document.getElementById('importInput').click(); }
+
+        // --- IMPORT LOGIC (The New Part) ---
+        async function handleImport(files) {
+            if (!files.length) return;
+            const file = files[0];
+            showStatus(true, "Unzipping Backup...");
+
+            try {
+                const zip = await JSZip.loadAsync(file);
+                
+                // 1. Read the Metadata JSON
+                if (!zip.file("data.json")) {
+                    alert("Invalid backup file: data.json missing.");
+                    showStatus(false);
+                    return;
+                }
+                const jsonContent = await zip.file("data.json").async("string");
+                const importedCards = JSON.parse(jsonContent);
+
+                showStatus(true, `Restoring ${importedCards.length} items...`);
+
+                // 2. Reconstruct Cards
+                for (const cardData of importedCards) {
+                    // Check if image exists in zip
+                    const imgPath = "images/" + cardData.fileName;
+                    const imgFile = zip.file(imgPath);
+
+                    if (imgFile) {
+                        // Turn zip content back into a Blob/File
+                        const imgBlob = await imgFile.async("blob");
+                        const restoredFile = new File([imgBlob], cardData.fileName, { type: "image/png" });
+
+                        const reconstructedCard = {
+                            id: cardData.id, // Keep original ID to prevent duplicates
+                            file: restoredFile, // Restored file object
+                            imageUrl: URL.createObjectURL(restoredFile),
+                            username: cardData.username,
+                            notes: cardData.notes,
+                            link: `https://instagram.com/${cardData.username}`,
+                            suggestions: cardData.suggestions || [], // Restore OCR words
+                            isScanning: false,
+                            isTooltipOpen: false
+                        };
+
+                        // 3. Update State & Database
+                        // We check if card exists to avoid duplicate visual (optional, but good practice)
+                        const existingIdx = appData.cards.findIndex(c => c.id === reconstructedCard.id);
+                        if (existingIdx !== -1) {
+                            appData.cards[existingIdx] = reconstructedCard;
+                        } else {
+                            appData.cards.unshift(reconstructedCard);
+                        }
+                        
+                        saveCardToDB(reconstructedCard);
+                    }
+                }
+
+                // 4. Finish
+                appData.cards.sort((a, b) => b.id - a.id); // Sort by newest
+                render();
+                showStatus(false);
+                alert("Import Successful!");
+
+            } catch (err) {
+                console.error(err);
+                alert("Error importing file. Is it a valid .zip?");
+                showStatus(false);
+            }
+        }
+
+        async function handleFiles(files) {
+            if (!files.length) return;
+            showStatus(true, `Queued ${files.length} images...`);
+
+            for (let i = 0; i < files.length; i++) {
+                const file = files[i];
+                const tempId = Date.now() + i;
+                const imageUrl = URL.createObjectURL(file);
+
+                const newCard = {
+                    id: tempId,
+                    file: file,
+                    imageUrl: imageUrl, 
+                    username: "", 
+                    notes: "",
+                    link: "#",
+                    isScanning: true,
+                    suggestions: [] 
+                };
+
+                appData.cards.unshift(newCard);
+                render(); 
+                saveCardToDB(newCard); 
+
+                try {
+                    showStatus(true, `Reading image ${i + 1}/${files.length}...`);
+                    
+                    const croppedImageBlob = await simpleCrop(imageUrl);
+                    const result = await Tesseract.recognize(croppedImageBlob, 'eng');
+
+                    const bannedWords = ['follow', 'followers', 'following', 'posts'];
+                    const words = result.data.words
+                        .map(w => w.text.trim())
+                        .filter(w => w.length > 4) 
+                        .filter(w => !w.includes(':') && !w.includes(','))
+                        .filter(w => !bannedWords.includes(w.toLowerCase()))
+                        .filter((value, index, self) => self.indexOf(value) === index)
+                        .sort((a, b) => b.length - a.length);
+
+                    const bestGuess = words[0] ? cleanString(words[0]) : "";
+
+                    const cardIndex = appData.cards.findIndex(c => c.id === tempId);
+                    if (cardIndex !== -1) {
+                        const updatedCard = appData.cards[cardIndex];
+                        updatedCard.username = bestGuess;
+                        updatedCard.link = `https://instagram.com/${bestGuess}`;
+                        updatedCard.isScanning = false;
+                        updatedCard.suggestions = words;
+                        
+                        render();
+                        saveCardToDB(updatedCard); 
+                    }
+
+                } catch (error) {
+                    console.error("OCR Error:", error);
+                    updateCardStatus(tempId, "error", false);
+                }
+            }
+            showStatus(false);
+        }
+
+        function cleanString(str) {
+            return str.replace(/[^a-zA-Z0-9_.]/g, '').toLowerCase();
+        }
+
+        function simpleCrop(url) {
+            return new Promise((resolve, reject) => {
+                const img = new Image();
+                img.crossOrigin = "Anonymous";
+                img.onload = () => {
+                    const canvas = document.createElement('canvas');
+                    const ctx = canvas.getContext('2d');
+                    const cropH = img.height * 0.20; 
+                    canvas.width = img.width;
+                    canvas.height = cropH;
+                    ctx.drawImage(img, 0, 0, img.width, cropH, 0, 0, img.width, cropH);
+                    canvas.toBlob(blob => resolve(blob));
+                };
+                img.onerror = reject;
+                img.src = url;
+            });
+        }
+
+        // --- EXPORT LOGIC ---
+        async function exportData() {
+            if (appData.cards.length === 0) {
+                alert("Nothing to export!");
+                return;
+            }
+
+            showStatus(true, "Creating Backup ZIP...");
+            const zip = new JSZip();
+            const imgFolder = zip.folder("images");
+            
+            // Save metadata (including notes and suggestions)
+            const cleanData = appData.cards.map(c => ({
+                id: c.id,
+                username: c.username,
+                notes: c.notes,
+                suggestions: c.suggestions,
+                fileName: `img_${c.id}.png` // Link metadata to filename
+            }));
+            
+            zip.file("data.json", JSON.stringify(cleanData, null, 2));
+
+            // Save images
+            appData.cards.forEach(c => {
+                 imgFolder.file(`img_${c.id}.png`, c.file);
+            });
+
+            const content = await zip.generateAsync({type:"blob"});
+            saveAs(content, "ssaved-backup.zip");
+            showStatus(false);
+        }
+
+        // --- RENDER ---
+        function render() {
+            if (appData.cards.length === 0) {
+                emptyState.classList.remove('hidden');
+                gridContainer.innerHTML = '';
+                return;
+            } else {
+                emptyState.classList.add('hidden');
+            }
+
+            gridContainer.innerHTML = '';
+
+            appData.cards.forEach(card => {
+                const pulseClass = card.isScanning ? "animate-pulse" : "";
+                
+                // Tooltip
+                let tooltipContent = "";
+                if (card.suggestions.length > 0) {
+                     tooltipContent = `
+                        <div class="bg-slate-50/90 backdrop-blur-md rounded-xl p-3 shadow-xl border border-slate-200/60 ring-1 ring-black/5">
+                            <div class="flex items-center justify-between mb-2 px-1">
+                                <p class="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Detected Words</p>
+                                <span class="text-[10px] text-slate-400">Click to select</span>
+                            </div>
+                            <div class="flex flex-wrap gap-2">
+                                ${card.suggestions.map(word => `
+                                    <button 
+                                        onmousedown="event.preventDefault(); applySuggestion(${card.id}, '${cleanString(word)}')" 
+                                        class="px-2.5 py-1.5 bg-white hover:bg-slate-100 hover:text-slate-900 hover:border-slate-300 text-slate-600 text-xs font-medium rounded-lg border border-slate-200 shadow-sm transition-all">
+                                        ${word}
+                                    </button>
+                                `).join('')}
+                            </div>
+                        </div>`;
+                } else {
+                    tooltipContent = `
+                        <div class="bg-slate-50/90 backdrop-blur-md rounded-xl p-3 shadow-xl border border-slate-200 ring-1 ring-black/5 text-xs text-slate-500 text-center">
+                            No valid text found.
+                        </div>`;
+                }
+
+                const cardHTML = `
+                    <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden group hover:shadow-md transition-all flex flex-col ${pulseClass}">
+                        <div class="aspect-[4/5] bg-slate-100 relative overflow-hidden group/image shrink-0">
+                            <img src="${card.imageUrl}" class="w-full h-full object-cover object-top" alt="Screenshot">
+                            <div class="absolute inset-0 bg-black/60 opacity-0 group-hover/image:opacity-100 transition-opacity flex items-center justify-center">
+                                <button onclick="deleteCard(${card.id})" class="p-3 bg-white rounded-full hover:bg-red-50 text-red-600 transition shadow-sm">
+                                    <i class="ph-fill ph-trash text-xl"></i>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="p-4 flex flex-col gap-3 flex-1">
+                            <div class="relative username-wrapper z-10">
+                                <div id="tooltip-${card.id}" class="tooltip-container absolute bottom-full left-0 w-full mb-3 z-50">
+                                    <div class="tooltip-arrow relative">
+                                        ${tooltipContent}
+                                    </div>
+                                </div>
+                                <div class="relative group/input">
+                                    <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                        <span class="text-slate-400">@</span>
+                                    </div>
+                                    <input type="text" 
+                                        value="${card.username}" 
+                                        onfocus="showTooltip(${card.id})"
+                                        oninput="updateCard(${card.id}, 'username', this.value)"
+                                        class="w-full pl-7 pr-8 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-400 focus:border-transparent placeholder:text-slate-400 transition-all cursor-text hover:bg-slate-100"
+                                        placeholder="Username">
+                                    <div class="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
+                                        <i class="ph-fill ph-magic-wand text-slate-300 group-hover/input:text-slate-500 transition-colors"></i>
+                                    </div>
+                                </div>
+                            </div>
+                            <textarea 
+                                onchange="updateCard(${card.id}, 'notes', this.value)"
+                                class="w-full text-sm text-slate-600 bg-transparent border-0 border-b border-slate-100 focus:border-slate-300 focus:ring-0 resize-none p-1 placeholder:text-slate-300" 
+                                rows="1" 
+                                placeholder="Add notes here...">${card.notes}</textarea>
+                            <a href="${card.link}" target="_blank" 
+                               class="mt-auto w-full flex items-center justify-center gap-2 py-2 bg-slate-50 hover:bg-slate-100 text-slate-600 hover:text-slate-900 border border-slate-200 text-sm font-medium rounded-md transition-colors">
+                                Visit Profile <i class="ph-bold ph-arrow-right"></i>
+                            </a>
+                        </div>
+                    </div>
+                `;
+                gridContainer.insertAdjacentHTML('beforeend', cardHTML);
+            });
+        }
+
+        // --- ACTIONS ---
+        function showTooltip(id) {
+            closeAllTooltips();
+            const tooltip = document.getElementById(`tooltip-${id}`);
+            if (tooltip) tooltip.classList.add('active');
+        }
+
+        function closeAllTooltips() {
+            document.querySelectorAll('.tooltip-container').forEach(el => {
+                el.classList.remove('active');
+            });
+        }
+
+        function applySuggestion(cardId, word) {
+            const card = appData.cards.find(c => c.id === cardId);
+            if (card) {
+                card.username = word;
+                card.link = `https://instagram.com/${word}`;
+                render(); 
+                saveCardToDB(card); 
+            }
+        }
+
+        function updateCard(id, field, value) {
+            const card = appData.cards.find(c => c.id === id);
+            if (card) {
+                card[field] = value;
+                if (field === 'username') card.link = `https://instagram.com/${value}`;
+                saveCardToDB(card);
+            }
+        }
+
+        function deleteCard(id) {
+            if(confirm("Delete this screenshot?")) {
+                appData.cards = appData.cards.filter(c => c.id !== id);
+                render();
+                deleteCardFromDB(id);
+            }
+        }
+
+        function showStatus(show, text = "") {
+            statusBar.classList.toggle('hidden', !show);
+            statusBar.classList.toggle('flex', show);
+            statusText.innerText = text;
+        }
+        
+        function updateCardStatus(id, status, isScanning) {
+             const card = appData.cards.find(c => c.id === id);
+             if(card) {
+                 card.isScanning = isScanning;
+                 render();
+             }
+        }
+
+    </script>
+</body>
+</html>

@@ -1,0 +1,437 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SSaved - Fluid Width</title>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <script src='https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js'></script>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+
+    <style>
+        /* Tooltip Arrow */
+        .tooltip-arrow::after {
+            content: " ";
+            position: absolute;
+            top: 100%;
+            left: 50%;
+            margin-left: -6px;
+            border-width: 6px;
+            border-style: solid;
+            border-color: #f8fafc transparent transparent transparent; 
+            filter: drop-shadow(0 1px 1px rgb(0 0 0 / 0.05));
+        }
+
+        /* Tooltip Animation */
+        .tooltip-container {
+            transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+            opacity: 0;
+            pointer-events: none;
+            transform: translateY(8px) scale(0.95);
+        }
+        .tooltip-container.active {
+            opacity: 1;
+            pointer-events: auto;
+            transform: translateY(0) scale(1);
+        }
+
+        #undoBtn {
+            transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        #undoBtn.hidden-btn {
+            opacity: 0;
+            transform: translateX(10px);
+            pointer-events: none;
+            width: 0;
+            padding: 0;
+            margin: 0;
+            border: 0;
+        }
+
+        @keyframes slideUpEnter {
+            from { opacity: 0; transform: translateY(30px) scale(0.96); }
+            to { opacity: 1; transform: translateY(0) scale(1); }
+        }
+        .animate-restore {
+            animation: slideUpEnter 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+            opacity: 0; 
+        }
+        #dragOverlay { transition: opacity 0.2s ease; }
+        
+        ::view-transition-group(root) {
+            animation-duration: 0.4s;
+            animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        /* Custom Range Slider */
+        input[type=range] {
+            -webkit-appearance: none;
+            width: 100%;
+            background: transparent;
+        }
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            height: 14px;
+            width: 14px;
+            border-radius: 50%;
+            background: #ffffff;
+            border: 1px solid #cbd5e1;
+            cursor: pointer;
+            margin-top: -5px;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+        }
+        input[type=range]::-webkit-slider-runnable-track {
+            width: 100%;
+            height: 4px;
+            cursor: pointer;
+            background: #e2e8f0;
+            border-radius: 2px;
+        }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-900 font-sans antialiased selection:bg-slate-200 selection:text-slate-900 min-h-screen">
+
+    <header class="bg-white/80 backdrop-blur-md border-b border-slate-200 px-6 py-4 flex justify-between items-center sticky top-0 z-40">
+        <div class="flex items-center gap-3">
+            <h1 class="text-xl font-bold tracking-tight text-slate-900">SSaved</h1>
+            <span id="saveIndicator" class="text-[10px] font-bold uppercase tracking-wider text-slate-300 opacity-0 transition-opacity flex items-center gap-1">
+                Saved
+            </span>
+        </div>
+        
+        <div class="flex items-center gap-3">
+            <button id="undoBtn" onclick="triggerUndo()" class="hidden-btn flex items-center gap-2 px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-100 rounded-md text-sm font-medium transition-colors shadow-sm overflow-hidden whitespace-nowrap">
+                <i class="ph-bold ph-arrow-u-up-left"></i>
+                <span id="undoText">Undo Delete</span>
+            </button>
+
+            <div class="flex items-center gap-2 bg-slate-100/50 px-3 py-1.5 rounded-lg border border-slate-200/50 mr-2">
+                <i class="ph ph-corners-in text-slate-400 text-sm"></i>
+                <input type="range" min="600" max="2400" value="1390" class="w-24 accent-slate-900" id="widthSlider" oninput="updateContainerWidth(this.value)">
+                <i class="ph ph-corners-out text-slate-400 text-sm"></i>
+            </div>
+
+            <div class="flex items-center gap-1 bg-slate-100/50 p-1 rounded-lg border border-slate-200/50">
+                <button onclick="triggerImport()" class="w-8 h-8 flex items-center justify-center text-slate-500 hover:text-slate-900 hover:bg-white rounded-md transition-all" title="Import Backup">
+                    <i class="ph ph-upload-simple text-lg"></i>
+                </button>
+                <input type="file" id="importInput" accept=".zip" class="hidden" onchange="handleImport(this.files)">
+
+                <button onclick="exportData()" class="w-8 h-8 flex items-center justify-center text-slate-500 hover:text-slate-900 hover:bg-white rounded-md transition-all" title="Export Backup">
+                    <i class="ph ph-download-simple text-lg"></i>
+                </button>
+                
+                <div class="w-px h-4 bg-slate-300 mx-1"></div>
+
+                <button onclick="triggerUpload()" class="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-white bg-slate-900 hover:bg-black rounded-md shadow-sm transition-all hover:scale-[1.02] active:scale-[0.98]">
+                    <i class="ph-bold ph-plus"></i>
+                    <span>Add New</span>
+                </button>
+                <input type="file" id="fileInput" multiple accept="image/*" class="hidden" onchange="handleFiles(this.files)">
+            </div>
+        </div>
+    </header>
+
+    <main id="mainContainer" class="p-6 relative mx-auto min-h-screen transition-[max-width] duration-200 ease-out" style="max-width: 1390px;">
+        
+        <div id="emptyState" class="hidden min-h-[80vh] flex flex-col items-center justify-center text-slate-400">
+            <div class="w-16 h-16 bg-slate-100 rounded-2xl flex items-center justify-center mb-4 text-slate-300"><i class="ph-fill ph-images text-3xl"></i></div>
+            <p class="text-base font-medium text-slate-500">No screenshots yet</p>
+            <p class="text-sm text-slate-400 mt-1">Drag and drop or click "Add New"</p>
+        </div>
+
+        <div id="gridContainer" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 pb-20"></div>
+    </main>
+
+    <div id="statusBar" class="fixed bottom-6 left-1/2 -translate-x-1/2 bg-slate-900/90 backdrop-blur text-white px-4 py-2 rounded-full shadow-xl flex items-center gap-3 hidden transition-all z-50 hover:bg-slate-900 cursor-default">
+        <div class="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin"></div><span id="statusText" class="text-xs font-medium">Processing...</span>
+    </div>
+    
+    <div id="dragOverlay" class="fixed inset-0 bg-slate-900/10 backdrop-blur-sm z-50 pointer-events-none opacity-0 flex items-center justify-center">
+        <div class="bg-white px-8 py-6 rounded-2xl shadow-2xl flex flex-col items-center gap-3 transform scale-100 transition-transform"><div class="p-4 bg-blue-50 text-blue-600 rounded-full"><i class="ph-fill ph-upload-simple text-3xl"></i></div><p class="text-lg font-semibold text-slate-700">Drop images to import</p></div>
+    </div>
+
+    <script>
+        let appData = { cards: [] };
+        let deletedCardsStack = [];
+        let undoTimeout = null;
+        const DB_NAME = "SSavedDB";
+        const STORE_NAME = "cards";
+        let db;
+
+        // --- INIT ---
+        window.addEventListener('DOMContentLoaded', async () => {
+            await initDB();
+            loadCardsFromDB();
+            setupGlobalDrag();
+            initWidthSlider(); // Load saved width
+        });
+
+        // --- WIDTH SLIDER LOGIC ---
+        function updateContainerWidth(val) {
+            const container = document.getElementById('mainContainer');
+            // If val is near max (2400), treat as 100% for full fluid
+            if (val > 2350) {
+                container.style.maxWidth = '100%';
+            } else {
+                container.style.maxWidth = `${val}px`;
+            }
+            localStorage.setItem('ssaved_width', val);
+        }
+
+        function initWidthSlider() {
+            const savedWidth = localStorage.getItem('ssaved_width');
+            if (savedWidth) {
+                document.getElementById('widthSlider').value = savedWidth;
+                updateContainerWidth(savedWidth);
+            }
+        }
+
+        // --- DB LOGIC ---
+        function initDB() {
+            return new Promise((resolve, reject) => {
+                const req = indexedDB.open(DB_NAME, 1);
+                req.onupgradeneeded = (e) => { const db = e.target.result; if (!db.objectStoreNames.contains(STORE_NAME)) db.createObjectStore(STORE_NAME, { keyPath: "id" }); };
+                req.onsuccess = (e) => { db = e.target.result; resolve(db); };
+                req.onerror = (e) => reject("DB Error");
+            });
+        }
+        async function saveCardToDB(card) {
+            if (!db) return;
+            const c = { ...card }; delete c.imageUrl;
+            const tx = db.transaction(STORE_NAME, "readwrite");
+            tx.objectStore(STORE_NAME).put(c);
+            showSaveIndicator();
+        }
+        async function deleteCardFromDB(id) {
+            if (!db) return;
+            const tx = db.transaction(STORE_NAME, "readwrite");
+            tx.objectStore(STORE_NAME).delete(id);
+        }
+        async function loadCardsFromDB() {
+            if (!db) return;
+            const tx = db.transaction(STORE_NAME, "readonly");
+            const req = tx.objectStore(STORE_NAME).getAll();
+            req.onsuccess = () => {
+                appData.cards = req.result.map(c => ({...c, imageUrl: URL.createObjectURL(c.file)})).sort((a,b)=>b.id-a.id);
+                render(); 
+            };
+        }
+
+        // --- RESTORE HIGHLIGHT LOGIC ---
+        function clearRestoreStatus(id) {
+            const card = appData.cards.find(c => c.id === id);
+            if (card && card.isRestored) {
+                card.isRestored = false; 
+                const el = document.getElementById(`card-${id}`);
+                if (el) {
+                    el.classList.remove('border-rose-200', 'shadow-xl', 'shadow-rose-400/40');
+                    el.classList.add('border-slate-200', 'shadow-sm');
+                }
+                saveCardToDB(card); 
+            }
+        }
+
+        function triggerUndo() {
+            if (deletedCardsStack.length > 0) {
+                const cardToRestore = deletedCardsStack.pop();
+                cardToRestore.isRestored = true;
+                appData.cards.push(cardToRestore);
+                appData.cards.sort((a, b) => b.id - a.id);
+                saveCardToDB(cardToRestore);
+                if (document.startViewTransition) document.startViewTransition(() => render(cardToRestore.id));
+                else render(cardToRestore.id);
+                updateUndoButtonUI();
+            }
+        }
+
+        // --- RENDER LOGIC ---
+        function render(restoreId = null) {
+            const container = document.getElementById('gridContainer');
+            const empty = document.getElementById('emptyState');
+            const restoreIds = Array.isArray(restoreId) ? restoreId : (restoreId ? [restoreId] : []);
+
+            if (!appData.cards.length) { empty.classList.remove('hidden'); container.innerHTML = ''; return; }
+            empty.classList.add('hidden');
+            container.innerHTML = '';
+
+            appData.cards.forEach((card) => {
+                const viewStyle = `view-transition-name: card-${card.id}`;
+                const enterClass = restoreIds.includes(card.id) ? 'animate-restore' : '';
+                const pulseClass = card.isScanning ? "animate-pulse" : "";
+                
+                let borderClass = "border-slate-200 shadow-sm";
+                let restoreAttr = "";
+                
+                if (card.isRestored) {
+                    borderClass = "border-rose-200 shadow-xl shadow-rose-400/40"; 
+                    restoreAttr = `onmouseenter="clearRestoreStatus(${card.id})"`;
+                }
+
+                // Tooltip
+                const showTooltip = !card.isScanning && (card.suggestions.length === 0 || card.suggestions.length > 1);
+                let tooltipHTML = '';
+                if (showTooltip) {
+                    let inner = card.suggestions.length === 0 
+                        ? `<div class="bg-slate-50/90 backdrop-blur-md rounded-xl p-3 shadow-xl border border-slate-200 ring-1 ring-black/5 text-xs text-slate-500 text-center">No valid text found.</div>`
+                        : `<div class="bg-slate-50/90 backdrop-blur-md rounded-xl p-3 shadow-xl border border-slate-200/60 ring-1 ring-black/5"><div class="flex items-center justify-between mb-2 px-1"><p class="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Detected Words</p></div><div class="flex flex-wrap gap-2">${card.suggestions.map(w => `<button onmousedown="event.preventDefault(); applySuggestion(${card.id}, '${cleanString(w)}')" class="px-2.5 py-1.5 bg-white hover:bg-slate-100 hover:text-slate-900 border border-slate-200 text-slate-600 text-xs font-medium rounded-lg shadow-sm transition-all">${w}</button>`).join('')}</div></div>`;
+                    tooltipHTML = `<div id="tooltip-${card.id}" class="tooltip-container absolute bottom-full left-0 w-full mb-3 z-50"><div class="tooltip-arrow relative">${inner}</div></div>`;
+                }
+                const wand = showTooltip ? `<div class="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none"><i class="ph-fill ph-magic-wand text-slate-300 group-hover/input:text-slate-500 transition-colors"></i></div>` : '';
+
+                const html = `
+                <div id="card-${card.id}" ${restoreAttr} style="${viewStyle}" class="bg-white rounded-xl border overflow-hidden group hover:shadow-md transition-all duration-300 flex flex-col ${borderClass} ${pulseClass} ${enterClass}">
+                    <div class="aspect-[9/16] bg-slate-100 relative overflow-hidden group/image shrink-0">
+                        <img src="${card.imageUrl}" class="w-full h-full object-cover object-top" alt="Screenshot">
+                        <div class="absolute top-4 right-4 z-20 opacity-0 group-hover/image:opacity-100 transition-opacity">
+                            <button onclick="deleteCard(${card.id})" class="p-2 bg-white/60 hover:bg-red-50/90 backdrop-blur-md border border-white/40 text-slate-700 hover:text-red-600 rounded-md shadow-sm transition-all"><i class="ph-bold ph-x text-lg"></i></button>
+                        </div>
+                    </div>
+                    <div class="p-4 flex flex-col gap-3 flex-1">
+                        <div class="relative username-wrapper z-10">
+                            ${tooltipHTML}
+                            <div class="relative group/input">
+                                <div class="absolute inset-y-0 left-0 pl-1 flex items-center pointer-events-none"><span class="text-slate-400 font-medium">@</span></div>
+                                <input type="text" value="${card.username}" ${showTooltip ? `onfocus="triggerTooltip(${card.id})"` : ''} oninput="updateCard(${card.id}, 'username', this.value)" class="w-full pl-6 pr-8 py-1 bg-transparent border-0 border-b border-slate-200 focus:border-slate-400 focus:ring-0 outline-none placeholder:text-slate-300 text-sm font-semibold text-slate-400 group-hover/input:text-slate-800 focus:text-slate-800 transition-colors cursor-text" placeholder="Username">
+                                ${wand}
+                            </div>
+                        </div>
+                        <textarea onchange="updateCard(${card.id}, 'notes', this.value)" class="w-full text-xs text-slate-500 bg-transparent border-0 border-b border-slate-100 focus:border-slate-300 focus:ring-0 outline-none resize-none p-1 placeholder:text-slate-300" rows="1" placeholder="Add notes here...">${card.notes}</textarea>
+                        <a href="${card.link}" target="_blank" class="mt-auto w-fit group/btn flex items-center justify-center gap-2 px-4 py-2 bg-slate-50 hover:bg-slate-100 text-slate-600 hover:text-slate-900 border border-slate-200 text-xs font-medium rounded-full transition-colors">
+                            Visit Profile <i class="ph-bold ph-arrow-up-right transform transition-transform duration-200 group-hover/btn:translate-x-0.5 group-hover/btn:-translate-y-0.5"></i>
+                        </a>
+                    </div>
+                </div>`;
+                container.insertAdjacentHTML('beforeend', html);
+            });
+        }
+
+        // --- UTILS & HELPERS ---
+        function showSaveIndicator() { const el = document.getElementById('saveIndicator'); el.classList.remove('opacity-0'); setTimeout(() => el.classList.add('opacity-0'), 2000); }
+        function showStatus(show, text="") { const el = document.getElementById('statusBar'); const txt = document.getElementById('statusText'); el.classList.toggle('hidden', !show); el.classList.toggle('flex', show); txt.innerText = text; }
+        function updateUndoButtonUI() {
+            const btn = document.getElementById('undoBtn'); const txt = document.getElementById('undoText');
+            if (undoTimeout) clearTimeout(undoTimeout);
+            if (deletedCardsStack.length > 0) {
+                btn.classList.remove('hidden-btn');
+                txt.innerText = deletedCardsStack.length > 1 ? `Undo (${deletedCardsStack.length})` : "Undo Delete";
+                undoTimeout = setTimeout(() => btn.classList.add('hidden-btn'), 5000);
+            } else { btn.classList.add('hidden-btn'); }
+        }
+        function setupGlobalDrag() {
+            const overlay = document.getElementById('dragOverlay'); let dragCounter = 0;
+            window.addEventListener('dragenter', (e) => { e.preventDefault(); dragCounter++; overlay.classList.remove('opacity-0'); });
+            window.addEventListener('dragleave', (e) => { e.preventDefault(); dragCounter--; if (dragCounter === 0) overlay.classList.add('opacity-0'); });
+            window.addEventListener('dragover', (e) => e.preventDefault());
+            window.addEventListener('drop', (e) => { e.preventDefault(); dragCounter = 0; overlay.classList.add('opacity-0'); if (e.dataTransfer.files?.length > 0) handleFiles(e.dataTransfer.files); });
+        }
+        function cleanString(s) { return s.replace(/[^a-zA-Z0-9_.]/g, '').toLowerCase(); }
+        function simpleCrop(url) {
+            return new Promise((resolve) => {
+                const img = new Image(); img.onload = () => {
+                    const c = document.createElement('canvas'); const ctx = c.getContext('2d');
+                    const h = img.height * 0.2; c.width = img.width; c.height = h;
+                    ctx.drawImage(img, 0, 0, img.width, h, 0, 0, img.width, h);
+                    c.toBlob(resolve);
+                }; img.src = url;
+            });
+        }
+        function updateDOMCard(id) {
+            const card = appData.cards.find(c => c.id === id); if (!card) return;
+            const el = document.getElementById(`card-${id}`);
+            if (el) {
+                const input = el.querySelector('input[type="text"]'); const link = el.querySelector('a[target="_blank"]');
+                if (input && document.activeElement !== input) input.value = card.username;
+                if (link) link.href = card.link;
+                if (!card.isScanning) el.classList.remove('animate-pulse');
+            }
+        }
+
+        // --- CORE EVENTS ---
+        function triggerUpload() { document.getElementById('fileInput').click(); }
+        function triggerImport() { document.getElementById('importInput').click(); }
+        window.addEventListener('click', (e) => { if (!e.target.closest('.username-wrapper')) closeAllTooltips(); });
+        window.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeAllTooltips(); });
+        function triggerTooltip(id) { closeAllTooltips(); const el = document.getElementById(`tooltip-${id}`); if(el) el.classList.add('active'); }
+        function closeAllTooltips() { document.querySelectorAll('.tooltip-container').forEach(el => el.classList.remove('active')); }
+        
+        // --- ASYNC ACTIONS ---
+        function applySuggestion(id, word) { const c = appData.cards.find(x => x.id === id); if(c) { c.username = word; c.link = `https://instagram.com/${word}`; saveCardToDB(c); updateDOMCard(id); closeAllTooltips(); } }
+        function updateCard(id, f, v) { const c = appData.cards.find(x => x.id === id); if(c) { c[f] = v; if(f==='username') c.link = `https://instagram.com/${v}`; saveCardToDB(c); } }
+        function deleteCard(id) {
+            const idx = appData.cards.findIndex(c => c.id === id);
+            if(idx !== -1) {
+                deletedCardsStack.push(appData.cards[idx]);
+                appData.cards.splice(idx, 1);
+                deleteCardFromDB(id);
+                if (document.startViewTransition) document.startViewTransition(() => render()); else render();
+                updateUndoButtonUI();
+            }
+        }
+        async function handleImport(files) {
+            if (!files.length) return;
+            showStatus(true, "Restoring...");
+            try {
+                const zip = await JSZip.loadAsync(files[0]);
+                const json = JSON.parse(await zip.file("data.json").async("string"));
+                let newCards = [];
+                for (const d of json) {
+                    const img = zip.file("images/" + d.fileName);
+                    if (img) {
+                        const blob = await img.async("blob");
+                        const file = new File([blob], d.fileName, { type: "image/png" });
+                        const card = { id: d.id, file: file, imageUrl: URL.createObjectURL(file), username: d.username, notes: d.notes, link: `https://instagram.com/${d.username}`, suggestions: d.suggestions || [], isScanning: false };
+                        newCards.push(card); saveCardToDB(card);
+                    }
+                }
+                newCards.forEach(nc => { if(appData.cards.findIndex(c => c.id === nc.id) === -1) appData.cards.unshift(nc); });
+                appData.cards.sort((a,b) => b.id - a.id);
+                if (document.startViewTransition) document.startViewTransition(() => render()); else render();
+                showStatus(false);
+            } catch (e) { alert("Import failed"); showStatus(false); }
+        }
+        async function handleFiles(files) {
+            if (!files.length) return;
+            showStatus(true, `Processing ${files.length} images...`);
+            const newCards = [];
+            for (let i = 0; i < files.length; i++) {
+                const file = files[i];
+                const tempId = Date.now() + i;
+                const card = { id: tempId, file: file, imageUrl: URL.createObjectURL(file), username: "", notes: "", link: "#", isScanning: true, suggestions: [] };
+                newCards.push(card); saveCardToDB(card);
+            }
+            appData.cards.unshift(...newCards);
+            if (document.startViewTransition) document.startViewTransition(() => render(newCards.map(c => c.id))); else render(newCards.map(c => c.id));
+            for (const card of newCards) {
+                try {
+                    const cropped = await simpleCrop(card.imageUrl);
+                    const res = await Tesseract.recognize(cropped, 'eng');
+                    const banned = ['follow', 'followers', 'following', 'posts'];
+                    const words = res.data.words.map(w => w.text.trim()).filter(w => w.length > 4 && !w.includes(':') && !w.includes(',') && !banned.includes(w.toLowerCase())).filter((v,i,a) => a.indexOf(v) === i).sort((a,b) => b.length - a.length);
+                    const best = words[0] ? cleanString(words[0]) : "";
+                    const actual = appData.cards.find(c => c.id === card.id);
+                    if (actual) { actual.username = best; actual.link = `https://instagram.com/${best}`; actual.suggestions = words; actual.isScanning = false; saveCardToDB(actual); updateDOMCard(actual.id); }
+                } catch (e) { console.error(e); }
+            }
+            showStatus(false);
+        }
+        async function exportData() {
+            if (!appData.cards.length) return;
+            showStatus(true, "Zipping...");
+            const zip = new JSZip();
+            const folder = zip.folder("images");
+            const meta = appData.cards.map(c => ({ id: c.id, username: c.username, notes: c.notes, suggestions: c.suggestions, fileName: `img_${c.id}.png` }));
+            zip.file("data.json", JSON.stringify(meta, null, 2));
+            appData.cards.forEach(c => folder.file(`img_${c.id}.png`, c.file));
+            saveAs(await zip.generateAsync({type:"blob"}), "ssaved-backup.zip");
+            showStatus(false);
+        }
+    </script>
+</body>
+</html>

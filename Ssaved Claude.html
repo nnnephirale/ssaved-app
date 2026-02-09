@@ -57,6 +57,7 @@
             background: white;
             border-radius: 1.25rem;
             border: 1px solid rgba(0, 0, 0, 0.04);
+            overflow: hidden; /* This ensures border-radius clips children during transforms */
             box-shadow: 
                 0 2px 4px -1px rgba(0, 0, 0, 0.02),
                 0 8px 24px -4px rgba(0, 0, 0, 0.06);
@@ -233,6 +234,70 @@
             box-shadow: 0 0 0 3px rgba(244, 63, 94, 0.12);
         }
 
+        /* --- COLLAPSIBLE NOTES (Mobile Only) --- */
+        @media (max-width: 767px) {
+            .notes-wrapper {
+                position: relative;
+            }
+            .notes-wrapper .notes-toggle {
+                display: none; /* Hidden by default */
+            }
+            .notes-wrapper .notes-fade {
+                display: none; /* Hidden by default */
+            }
+            .notes-wrapper.is-collapsible .notes-textarea {
+                max-height: 4.5em; /* ~3 lines at text-xs (1.5em line-height) */
+                overflow: hidden;
+                transition: max-height 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+            }
+            .notes-wrapper.is-collapsible.is-expanded .notes-textarea {
+                max-height: 500px; /* arbitrary large value */
+            }
+            .notes-wrapper.is-collapsible .notes-fade {
+                display: block;
+                position: absolute;
+                bottom: 1.5rem; /* above the toggle */
+                left: 0;
+                right: 0;
+                height: 1.5em;
+                background: linear-gradient(to bottom, transparent, white);
+                pointer-events: none;
+                opacity: 1;
+                transition: opacity 0.2s ease;
+            }
+            .notes-wrapper.is-collapsible.is-expanded .notes-fade {
+                opacity: 0;
+            }
+            .notes-wrapper.is-collapsible .notes-toggle {
+                display: flex; /* Only show when collapsible */
+                align-items: center;
+                justify-content: center;
+                width: 100%;
+                padding: 0.25rem 0;
+                color: #a3a3a3;
+                transition: color 0.15s ease;
+            }
+            .notes-toggle:hover,
+            .notes-toggle:active {
+                color: #525252;
+            }
+            .notes-toggle i {
+                font-size: 0.875rem;
+                transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+            }
+            .notes-wrapper.is-expanded .notes-toggle i {
+                transform: rotate(180deg);
+            }
+        }
+        @media (min-width: 768px) {
+            .notes-toggle {
+                display: none !important;
+            }
+            .notes-fade {
+                display: none !important;
+            }
+        }
+
         /* --- DROP OVERLAY --- */
         .drop-overlay-card {
             background: rgba(255,255,255,0.9);
@@ -240,6 +305,13 @@
             -webkit-backdrop-filter: blur(16px);
             border-radius: 1.5rem;
             box-shadow: 0 24px 80px -12px rgba(0,0,0,0.15);
+        }
+
+        /* --- IMAGE HOVER SCALE (Desktop only, non-touch) --- */
+        @media (hover: hover) and (pointer: fine) {
+            .group\/image:hover .img-hover-scale {
+                transform: scale(1.02);
+            }
         }
     </style>
 </head>
@@ -443,6 +515,11 @@
                 </section>`;
                 wrapper.insertAdjacentHTML('beforeend', section);
             });
+
+            // After DOM is built, init collapsible notes on mobile
+            requestAnimationFrame(() => {
+                initAllNotesCollapsible();
+            });
         }
 
         function generateCardHTML(c, rIds) {
@@ -470,8 +547,8 @@
                  style="view-transition-name: card-${c.id}" 
                  class="card group flex flex-col ${isRestored} ${pulse} ${enter}">
                 
-                <div class="aspect-[9/16] bg-neutral-100 relative overflow-hidden group/image shrink-0 cursor-pointer rounded-t-[1.25rem]" onclick="handleImageClick(event, ${c.id})">
-                    <img src="${c.imageUrl}" class="w-full h-full object-cover object-top pointer-events-none transition-transform duration-500 group-hover/image:scale-[1.02]" loading="lazy">
+                <div class="aspect-[9/16] bg-neutral-100 relative overflow-hidden group/image shrink-0 cursor-pointer" onclick="handleImageClick(event, ${c.id})">
+                    <img src="${c.imageUrl}" class="w-full h-full object-cover object-top pointer-events-none transition-transform duration-500 img-hover-scale" loading="lazy">
                     
                     <!-- External Link Button -->
                     <button onclick="event.stopPropagation(); openProfile(${c.id})" class="external-link-btn p-2 bg-white/80 hover:bg-white backdrop-blur-md border border-white/50 text-neutral-600 hover:text-neutral-900 rounded-lg shadow-lg transition-all">
@@ -497,11 +574,17 @@
                             ${hasSuggestions ? `<div class="absolute inset-y-0 right-0 pr-2 flex items-center pointer-events-none"><i class="ph-fill ph-magic-wand text-neutral-300 text-sm"></i></div>` : ''}
                         </div>
                     </div>
-                    <textarea 
-                        oninput="autoResize(this); updateCard(${c.id}, 'notes', this.value)" 
-                        onfocus="autoResize(this)"
-                        class="auto-grow w-full text-xs text-neutral-500 bg-transparent border-0 border-b border-neutral-50 focus:border-neutral-200 outline-none resize-none p-1 placeholder:text-neutral-300" 
-                        rows="1" placeholder="Add notes...">${c.notes}</textarea>
+                    <div class="notes-wrapper" id="notes-wrapper-${c.id}">
+                        <div class="notes-fade"></div>
+                        <textarea 
+                            oninput="autoResize(this); updateCard(${c.id}, 'notes', this.value); checkNotesCollapsible(${c.id})" 
+                            onfocus="autoResize(this)"
+                            class="notes-textarea auto-grow w-full text-xs text-neutral-500 bg-transparent border-0 border-b border-neutral-50 focus:border-neutral-200 outline-none resize-none p-1 placeholder:text-neutral-300" 
+                            rows="1" placeholder="Add notes...">${c.notes}</textarea>
+                        <button class="notes-toggle" onclick="toggleNotes(${c.id})" aria-label="Expand notes">
+                            <i class="ph-bold ph-caret-down"></i>
+                        </button>
+                    </div>
                 </div>
             </div>`;
         }
@@ -511,6 +594,124 @@
             el.style.height = 'auto'; 
             el.style.height = el.scrollHeight + 'px';
         }
+
+        // --- COLLAPSIBLE NOTES (Mobile) ---
+        const LINE_HEIGHT = 18; // ~1.5em at text-xs (12px)
+        const MAX_LINES = 3;
+        const DWELL_DELAY = 1500; // ms
+        let dwellTimers = new Map();
+        let notesObserver = null;
+
+        function checkNotesCollapsible(id) {
+            if (window.innerWidth >= 768) return; // Desktop: skip
+            
+            const wrapper = document.getElementById(`notes-wrapper-${id}`);
+            const textarea = wrapper?.querySelector('.notes-textarea');
+            if (!wrapper || !textarea) return;
+
+            // Temporarily remove max-height to measure true height
+            const wasCollapsible = wrapper.classList.contains('is-collapsible');
+            const wasExpanded = wrapper.classList.contains('is-expanded');
+            wrapper.classList.remove('is-collapsible', 'is-expanded');
+            textarea.style.maxHeight = 'none';
+            
+            const fullHeight = textarea.scrollHeight;
+            const threshold = LINE_HEIGHT * MAX_LINES;
+            
+            if (fullHeight > threshold) {
+                wrapper.classList.add('is-collapsible');
+                if (wasExpanded) wrapper.classList.add('is-expanded');
+                textarea.style.maxHeight = '';
+            } else {
+                textarea.style.maxHeight = '';
+            }
+        }
+
+        function toggleNotes(id) {
+            const wrapper = document.getElementById(`notes-wrapper-${id}`);
+            if (wrapper?.classList.contains('is-collapsible')) {
+                wrapper.classList.toggle('is-expanded');
+            }
+        }
+
+        function expandNotes(id) {
+            const wrapper = document.getElementById(`notes-wrapper-${id}`);
+            if (wrapper?.classList.contains('is-collapsible') && !wrapper.classList.contains('is-expanded')) {
+                wrapper.classList.add('is-expanded');
+            }
+        }
+
+        function initNotesObserver() {
+            if (window.innerWidth >= 768) return; // Desktop: no observer needed
+            
+            if (notesObserver) notesObserver.disconnect();
+
+            notesObserver = new IntersectionObserver((entries) => {
+                entries.forEach(entry => {
+                    const card = entry.target;
+                    const id = parseInt(card.id.replace('card-', ''));
+                    
+                    if (entry.isIntersecting && entry.intersectionRatio >= 0.6) {
+                        // Card is 60%+ visible — start dwell timer
+                        if (!dwellTimers.has(id)) {
+                            dwellTimers.set(id, setTimeout(() => {
+                                expandNotes(id);
+                                dwellTimers.delete(id);
+                            }, DWELL_DELAY));
+                        }
+                    } else {
+                        // Card left the zone — cancel timer
+                        if (dwellTimers.has(id)) {
+                            clearTimeout(dwellTimers.get(id));
+                            dwellTimers.delete(id);
+                        }
+                    }
+                });
+            }, {
+                threshold: [0, 0.6],
+                rootMargin: '-20% 0px -20% 0px' // Center bias
+            });
+
+            // Observe all cards
+            document.querySelectorAll('[id^="card-"]').forEach(card => {
+                notesObserver.observe(card);
+            });
+        }
+
+        function initAllNotesCollapsible() {
+            if (window.innerWidth >= 768) return;
+            
+            // First, auto-resize all textareas to get true heights
+            document.querySelectorAll('.notes-textarea').forEach(textarea => {
+                autoResize(textarea);
+            });
+            
+            // Then check which ones need collapse
+            appData.cards.forEach(c => {
+                checkNotesCollapsible(c.id);
+            });
+            
+            // Start the dwell observer
+            initNotesObserver();
+        }
+
+        // Re-init on resize (crossing the 768px boundary)
+        let lastWasMobile = window.innerWidth < 768;
+        window.addEventListener('resize', () => {
+            const isMobile = window.innerWidth < 768;
+            if (isMobile !== lastWasMobile) {
+                lastWasMobile = isMobile;
+                if (isMobile) {
+                    initAllNotesCollapsible();
+                } else {
+                    // Desktop: remove all collapse states
+                    document.querySelectorAll('.notes-wrapper').forEach(w => {
+                        w.classList.remove('is-collapsible', 'is-expanded');
+                    });
+                    if (notesObserver) notesObserver.disconnect();
+                }
+            }
+        });
 
         // --- DRAG & DROP V2 ---
         function handleDragStart(e, id) {
