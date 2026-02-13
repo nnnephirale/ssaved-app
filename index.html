@@ -305,6 +305,36 @@
             }
         }
 
+        /* --- FOLDER SIDE NAV --- */
+        .side-nav-item {
+            padding: 0.25rem 0.75rem;
+            font-size: 0.65rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: rgba(0,0,0,0.2);
+            cursor: pointer;
+            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+            border-right: 2px solid transparent;
+            white-space: nowrap;
+        }
+        .side-nav-item:hover {
+            color: rgba(0,0,0,0.4);
+        }
+        .side-nav-item.is-active {
+            color: rgba(0,0,0,0.6);
+            border-right-color: rgba(0,0,0,0.4);
+            transform: translateX(-4px);
+        }
+
+        /* --- MOBILE BREADCRUMB --- */
+        .mobile-breadcrumb {
+            transition: opacity 0.2s ease;
+        }
+        #mobileBreadcrumb.is-visible {
+            opacity: 1;
+        }
+
         /* --- DROP OVERLAY --- */
         .drop-overlay-card {
             background: rgba(255,255,255,0.9);
@@ -425,6 +455,13 @@
         </div>
     </header>
 
+    <!-- Mobile Folder Breadcrumb -->
+    <div id="mobileBreadcrumb" class="md:hidden fixed top-0 left-0 right-0 z-35 pointer-events-none opacity-0 transition-all duration-300" style="z-index: 35;">
+        <div class="px-4 pt-2 pb-1">
+            <span id="breadcrumbText" class="mobile-breadcrumb inline-block text-[10px] font-semibold uppercase tracking-wider text-neutral-400 bg-white/80 backdrop-blur-md px-3 py-1 rounded-full border border-neutral-100/80 shadow-sm"></span>
+        </div>
+    </div>
+
     <main id="mainContainer" class="p-4 md:p-6 pt-36 md:pt-28 relative mx-auto min-h-screen transition-[max-width] duration-200 ease-out" style="max-width: 1390px;">
         
         <div id="emptyState" class="hidden min-h-[70vh] flex flex-col items-center justify-center text-neutral-400">
@@ -436,6 +473,10 @@
         <div id="folderWrapper" class="flex flex-col gap-12 pb-32"></div>
 
     </main>
+
+    <!-- Folder Side Nav (Desktop only) -->
+    <nav id="folderSideNav" class="hidden md:flex fixed right-6 top-1/2 -translate-y-1/2 z-30 flex-col items-end gap-1" aria-label="Folder navigation">
+    </nav>
 
     <!-- Share Modal -->
     <div id="shareModal" class="fixed inset-0 z-50 hidden items-center justify-center p-4 modal-backdrop">
@@ -692,16 +733,94 @@
         // --- SCROLL BEHAVIOR ---
         function initScrollBehavior() {
             const header = document.getElementById('mainHeader');
+            const breadcrumb = document.getElementById('mobileBreadcrumb');
             let lastScrollY = window.scrollY;
             window.addEventListener('scroll', () => {
                 const currentScrollY = window.scrollY;
                 if (currentScrollY < 0) return;
                 if (Math.abs(currentScrollY - lastScrollY) < 10) return;
-                if (currentScrollY > lastScrollY && currentScrollY > 60) header.classList.add('-translate-y-full');
-                else header.classList.remove('-translate-y-full');
+                const scrollingDown = currentScrollY > lastScrollY && currentScrollY > 60;
+                if (scrollingDown) {
+                    header.classList.add('-translate-y-full');
+                    if (breadcrumb) breadcrumb.classList.add('is-visible');
+                } else {
+                    header.classList.remove('-translate-y-full');
+                    if (breadcrumb) breadcrumb.classList.remove('is-visible');
+                }
                 lastScrollY = currentScrollY;
             }, { passive: true });
         }
+
+        // --- FOLDER NAV (Desktop side nav + Mobile breadcrumb) ---
+        let folderObserver = null;
+        let activeFolderName = '';
+
+        function buildFolderNav() {
+            // Desktop side nav
+            const nav = document.getElementById('folderSideNav');
+            if (nav && window.innerWidth >= 768) {
+                nav.innerHTML = appData.folders.map(f =>
+                    `<div class="side-nav-item" data-folder-id="${f.id}" onclick="scrollToFolder('${f.id}')">${f.name}</div>`
+                ).join('');
+            }
+
+            // Init observer for both desktop and mobile
+            initFolderObserver();
+        }
+
+        function scrollToFolder(folderId) {
+            const section = document.getElementById(`folder-${folderId}`);
+            if (section) {
+                const headerHeight = 120;
+                const y = section.getBoundingClientRect().top + window.scrollY - headerHeight;
+                window.scrollTo({ top: y, behavior: 'smooth' });
+            }
+        }
+
+        function initFolderObserver() {
+            if (folderObserver) folderObserver.disconnect();
+
+            folderObserver = new IntersectionObserver((entries) => {
+                entries.forEach(entry => {
+                    const folderId = entry.target.id.replace('folder-', '');
+                    const folder = appData.folders.find(f => f.id === folderId);
+
+                    // Desktop side nav
+                    const navItem = document.querySelector(`.side-nav-item[data-folder-id="${folderId}"]`);
+                    if (navItem) {
+                        if (entry.isIntersecting) navItem.classList.add('is-active');
+                        else navItem.classList.remove('is-active');
+                    }
+
+                    // Mobile breadcrumb — update to the topmost visible folder
+                    if (entry.isIntersecting && folder) {
+                        activeFolderName = folder.name;
+                        const breadcrumbText = document.getElementById('breadcrumbText');
+                        if (breadcrumbText) breadcrumbText.textContent = folder.name;
+                    }
+                });
+            }, {
+                rootMargin: '-20% 0px -70% 0px',
+                threshold: 0
+            });
+
+            appData.folders.forEach(f => {
+                const section = document.getElementById(`folder-${f.id}`);
+                if (section) folderObserver.observe(section);
+            });
+        }
+
+        // Hide side nav on mobile, show on desktop
+        window.addEventListener('resize', () => {
+            const nav = document.getElementById('folderSideNav');
+            if (!nav) return;
+            if (window.innerWidth < 768) {
+                nav.classList.add('hidden');
+            } else {
+                nav.classList.remove('hidden');
+                nav.classList.add('md:flex');
+            }
+        });
 
         // --- DATABASE OPERATIONS ---
         async function saveCardToDB(card) {
@@ -845,6 +964,7 @@
 
             requestAnimationFrame(() => {
                 initAllNotesCollapsible();
+                buildFolderNav();
             });
         }
 
