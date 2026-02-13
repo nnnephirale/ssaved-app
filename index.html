@@ -476,10 +476,13 @@
 
         // --- STATE ---
         let appData = { cards: [], folders: [] };
-        let deletedCardsStack = [], undoTimeout = null, dragSrcId = null, dragSrcFolderId = null;
+        let undoTimeout = null, dragSrcId = null, dragSrcFolderId = null;
         let collectionId = null;
         
-        const INBOX_ID = 'inbox'; // Will be set to {collectionId}_inbox on load
+        function getInboxId() {
+            const inbox = appData.folders.find(f => f.name === 'Inbox');
+            return inbox ? inbox.id : `${collectionId}_inbox`;
+        }
         const DELETION_GRACE_PERIOD = 10 * 60 * 1000; // 10 minutes in milliseconds
         const deletionTimers = new Map(); // Track scheduled deletions
 
@@ -800,7 +803,7 @@
                 const gridState = folder.isCollapsed ? 'hidden' : '';
                 const opacity = folder.isCollapsed ? 'opacity-50' : 'opacity-100';
 
-                const deleteBtn = folder.id === INBOX_ID ? '' : `
+                const deleteBtn = folder.id === getInboxId() ? '' : `
                 <button onclick="event.stopPropagation(); deleteFolder('${folder.id}')" 
                         class="ml-auto mr-4 p-1.5 text-neutral-300 hover:text-red-500 transition-colors rounded-md opacity-0 group-hover/folder:opacity-100"
                         title="Delete Folder">
@@ -1164,12 +1167,12 @@
         }
 
         async function deleteFolder(id) {
-            if(id === INBOX_ID) return;
+            if(id === getInboxId()) return;
             if(!confirm("Delete this folder? Cards inside will be moved to Inbox.")) return;
 
             const cardsToMove = appData.cards.filter(c => c.folderId === id);
             for (const c of cardsToMove) {
-                c.folderId = INBOX_ID;
+                c.folderId = getInboxId();
                 await saveCardToDB(c);
             }
 
@@ -1178,7 +1181,7 @@
                 appData.folders.splice(idx, 1);
                 await deleteFolderFromDB(id);
             }
-            reindexCards(INBOX_ID);
+            reindexCards(getInboxId());
             render();
         }
 
