@@ -783,7 +783,18 @@
             appData.folders.forEach(folder => {
                 const fCards = appData.cards
                     .filter(c => c.folderId === folder.id && !c.deletedAt)
-                    .sort((a,b) => a.order - b.order);
+                    .sort((a,b) => {
+                        // If both have manual order (non-zero), use that
+                        if (a.order !== 0 || b.order !== 0) {
+                            return a.order - b.order;
+                        }
+                        // Otherwise sort by createdAt (newest first)
+                        if (a.createdAt && b.createdAt) {
+                            return new Date(b.createdAt) - new Date(a.createdAt);
+                        }
+                        // Fallback to ID (newer = larger)
+                        return b.id - a.id;
+                    });
                 const cardsHtml = fCards.map(c => generateCardHTML(c, rIds)).join('');
                 const chevron = folder.isCollapsed ? 'ph-caret-right' : 'ph-caret-down';
                 const gridState = folder.isCollapsed ? 'hidden' : '';
@@ -1277,7 +1288,7 @@
                     imageUrl,
                     imagePath,
                     folderId: actualInboxId,
-                    order: -id, // Use negative ID so newer cards (larger IDs) come first
+                    order: 0, // Will be auto-sorted by created_at timestamp
                     createdAt,
                     suggestions: [],
                     isScanning: true
