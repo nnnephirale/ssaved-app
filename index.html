@@ -1088,8 +1088,9 @@
         }
 
         function handleCardDragOver(e, targetId) {
+            if (!dragSrcId) return; // External file drag — let global handler process it
             e.preventDefault(); e.dataTransfer.dropEffect = 'move';
-            if (!dragSrcId || dragSrcId === targetId) return;
+            if (dragSrcId === targetId) return;
 
             const targetCard = appData.cards.find(c => c.id === targetId);
             if (targetCard.folderId !== dragSrcFolderId) return;
@@ -1114,8 +1115,12 @@
         }
 
         function handleCardDrop(e, targetId) {
+            if (!dragSrcId) {
+                // External file drop — let global handler process it
+                return;
+            }
             e.stopPropagation(); e.preventDefault();
-            if (!dragSrcId || dragSrcId === targetId) return;
+            if (dragSrcId === targetId) return;
 
             const targetCard = appData.cards.find(c => c.id === targetId);
             
