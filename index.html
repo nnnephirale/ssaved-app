@@ -627,12 +627,20 @@
             }
             
             // Load cards
-            const { data: cards } = await db
+            const { data: cards, error: cardsError } = await db
                 .from('cards')
                 .select('*')
                 .eq('collection_id', id)
                 .order('order');
-            
+
+            if (cardsError) {
+                console.error('Error loading cards:', cardsError);
+                alert('Error loading cards: ' + cardsError.message);
+                return false;
+            }
+
+            console.log('Loaded cards from DB:', cards?.length || 0);
+
             appData.cards = (cards || []).map(c => ({
                 id: c.id,
                 username: c.username || '',
@@ -642,9 +650,9 @@
                 imagePath: c.image_path,
                 folderId: c.folder_id || actualInboxId,
                 order: c.order,
-                createdAt: c.created_at,
+                createdAt: c.created_at || null, // Backwards compatible
                 suggestions: c.suggestions || [],
-                deletedAt: c.deleted_at, // Load deleted_at timestamp
+                deletedAt: c.deleted_at || null, // Load deleted_at timestamp
                 isScanning: false
             }));
 
@@ -703,13 +711,21 @@
                 image_path: card.imagePath,
                 folder_id: card.folderId,
                 order: card.order,
-                created_at: card.createdAt,
                 suggestions: card.suggestions
             };
+
+            // Only include created_at if it exists (backwards compatible)
+            if (card.createdAt) {
+                dbCard.created_at = card.createdAt;
+            }
+
             console.log('Saving card to DB:', dbCard);
             const { error } = await db.from('cards').upsert(dbCard);
             if (error) {
                 console.error('Card save error:', error);
+                alert('Failed to save card: ' + error.message);
+            } else {
+                console.log('Card saved successfully:', card.id);
             }
             showSaved();
             return { error };
