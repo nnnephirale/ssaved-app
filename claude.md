@@ -302,6 +302,44 @@ ALTER TABLE collections ADD COLUMN slug TEXT UNIQUE;
 7. `Ssaved Supabase (9).html` - Before manual collection ID entry
 8. `Ssaved Supabase (10).html` - Current backup (latest version)
 
+## ✅ Fixes Applied (Feb 14, 2026)
+
+### Fix: Stale INBOX_ID constant (Commit 6276826)
+**Problem:** `const INBOX_ID = 'inbox'` was never updated to match actual inbox IDs (`{collectionId}_inbox`). Deleting a folder moved cards to non-existent `'inbox'` folder (cards vanished), and the Inbox folder itself could be deleted.
+
+**Solution:** Replaced with `getInboxId()` function that dynamically looks up the actual inbox folder from `appData.folders`. Updated all 4 references: render delete-button check, deleteFolder guard, card-move-to-inbox, reindex-after-delete.
+
+### Fix: External file drop onto cards froze the app (Commit 071500c)
+**Problem:** Dropping an external image file onto an existing card caused `handleCardDrop` to call `stopPropagation()` before checking if it was a card drag. The file drop event was swallowed, the drag overlay counter got stuck, and the app froze requiring a page refresh.
+
+**Solution:** Added early `if (!dragSrcId) return` guard in both `handleCardDragOver` and `handleCardDrop` so external file drags bubble up to the global file drop handler.
+
+### Cleanup: Removed dead `deletedCardsStack` variable
+Was declared but never used — leftover from previous undo implementation replaced by `deletedAt` timestamps.
+
+---
+
+## Known Minor Issues (Not Yet Fixed)
+
+### 1. `saveCardToDB` doesn't save `deleted_at`
+**Impact:** Low. If a full card upsert is triggered on a soft-deleted card (e.g., via `clearRestoreStatus`), the upsert omits `deleted_at`, potentially stripping the deletion timestamp. Currently unlikely to cause visible issues.
+
+### 2. `clearRestoreStatus` triggers unnecessary DB write
+**Impact:** Low. Sets UI-only `isRestored` property then calls `saveCardToDB()`, causing a wasted Supabase request on hover. No visible effect to user.
+
+### 3. `handleImageClick` is a no-op
+**Impact:** None. Function exists and is called on every card image click but does nothing. Dead code adding unnecessary event handling.
+
+### 4. `order: 0` has dual meaning
+**Impact:** Edge case. `order: 0` means both "new card, use timestamp sort" and "just moved to a folder." Could cause unexpected sort order if two cards in the same folder both have `order: 0` with different timestamps.
+
+### 5. Missing features documented but not in code
+- `saveToRecentCollections()` / `showRecentCollections()` — Recent collections tracking feature is absent
+- `renameCollection()` / slug feature — URL slug renaming with pencil icon is absent
+- These were either removed or lost during edits. The CLAUDE.md documentation describes them but the code doesn't contain them.
+
+---
+
 ## Git Commits Referenced
 - `23e0a82` - Button improvements
 - `16ccb7d` - Integrating Supabase for unique URLs

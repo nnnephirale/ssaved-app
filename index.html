@@ -700,6 +700,11 @@
                 isScanning: false
             }));
 
+            // Detect link mode for existing cards
+            appData.cards.forEach(card => {
+                card.linkMode = detectLinkMode(card);
+            });
+
             // Schedule deletion for cards with deleted_at timestamp
             appData.cards.forEach(card => {
                 if (card.deletedAt) {
@@ -974,6 +979,7 @@
             const pulse = c.isScanning ? "animate-pulse-subtle" : "";
             const enter = rIds.includes(c.id) ? 'animate-restore' : '';
             
+            const linkMode = isLinkMode(c);
             const hasSuggestions = !c.isScanning && c.suggestions && c.suggestions.length !== 1;
             let tooltip = "";
             if (hasSuggestions) {
@@ -1009,13 +1015,20 @@
                     <div class="relative username-wrapper z-10">
                         ${tooltip}
                         <div class="relative group/input">
-                            <div class="absolute inset-y-0 left-0 pl-1 flex items-center pointer-events-none"><span class="text-neutral-300 font-medium">@</span></div>
-                            <textarea 
-                                oninput="autoResize(this); updateCard(${c.id}, 'username', this.value)" 
-                                onfocus="autoResize(this); ${hasSuggestions ? `triggerTooltip(${c.id})` : ''}"
-                                class="auto-grow w-full pl-6 pr-8 py-1 bg-transparent border-0 border-b border-neutral-100 focus:border-neutral-300 outline-none text-sm font-semibold text-neutral-400 group-hover/input:text-neutral-700 focus:text-neutral-900 transition-colors placeholder:text-neutral-300" 
-                                placeholder="Username" rows="1">${c.username}</textarea>
-                            ${hasSuggestions ? `<div class="absolute inset-y-0 right-0 pr-2 flex items-center pointer-events-none"><i class="ph-fill ph-magic-wand text-neutral-300 text-sm"></i></div>` : ''}
+                            <div class="absolute inset-y-0 left-0 pl-1 flex items-center cursor-pointer z-10" onclick="toggleLinkMode(${c.id})" title="${linkMode ? 'Switch to username' : 'Switch to link'}">
+                                ${linkMode
+                                    ? `<i class="ph-bold ph-link text-neutral-400 text-sm hover:text-neutral-600 transition-colors"></i>`
+                                    : `<span class="text-neutral-300 font-medium hover:text-neutral-500 transition-colors">@</span>`}
+                            </div>
+                            <textarea
+                                oninput="${linkMode ? '' : 'autoResize(this); '}updateCard(${c.id}, 'username', this.value)"
+                                onfocus="${linkMode ? 'expandLinkField(this)' : 'autoResize(this)'};${hasSuggestions && !linkMode ? ` triggerTooltip(${c.id})` : ''}"
+                                onblur="${linkMode ? 'collapseLinkField(this)' : ''}"
+                                class="${linkMode ? 'link-field w-full pl-6 pr-10 py-1 bg-transparent border-0 border-b border-neutral-100 focus:border-neutral-300 outline-none text-sm font-normal text-neutral-500 group-hover/input:text-neutral-700 focus:text-neutral-900 transition-colors placeholder:text-neutral-300 overflow-hidden whitespace-nowrap resize-none' : 'auto-grow w-full pl-6 pr-8 py-1 bg-transparent border-0 border-b border-neutral-100 focus:border-neutral-300 outline-none text-sm font-semibold text-neutral-400 group-hover/input:text-neutral-700 focus:text-neutral-900 transition-colors placeholder:text-neutral-300'}"
+                                style="${linkMode ? 'height: 24px; transition: height 0.2s ease, white-space 0.2s ease;' : ''}"
+                                placeholder="${linkMode ? 'Paste link...' : 'Username'}" rows="1">${linkMode ? c.link : c.username}</textarea>
+                            ${linkMode && c.link ? `<button onclick="event.stopPropagation(); copyCardLink(${c.id})" class="absolute inset-y-0 right-0 pl-4 pr-1 flex items-center text-neutral-300 hover:text-neutral-600 transition-colors bg-gradient-to-l from-white from-60% to-transparent" title="Copy link"><i class="ph-bold ph-copy text-xs"></i></button>` : ''}
+                            ${hasSuggestions && !linkMode ? `<div class="absolute inset-y-0 right-0 pr-2 flex items-center pointer-events-none"><i class="ph-fill ph-magic-wand text-neutral-300 text-sm"></i></div>` : ''}
                         </div>
                     </div>
                     <div class="notes-wrapper" id="notes-wrapper-${c.id}">
@@ -1419,7 +1432,8 @@
                     order: 0, // Will be auto-sorted by created_at timestamp
                     createdAt,
                     suggestions: [],
-                    isScanning: true
+                    isScanning: true,
+                    linkMode: false
                 };
                 
                 newCards.push(card);
@@ -1542,13 +1556,72 @@
             } 
         }
         
-        async function updateCard(id, f, v) { 
-            const c = appData.cards.find(x => x.id === id); 
-            if(c) { 
-                c[f] = v; 
-                if(f === 'username') c.link = `https://instagram.com/${v}`; 
-                await saveCardToDB(c); 
-            } 
+        function expandLinkField(el) {
+            el.style.whiteSpace = 'normal';
+            el.style.overflow = 'hidden';
+            el.style.height = 'auto';
+            el.style.height = el.scrollHeight + 'px';
+        }
+
+        function collapseLinkField(el) {
+            el.style.whiteSpace = 'nowrap';
+            el.style.overflow = 'hidden';
+            el.style.height = '24px';
+        }
+
+        function copyCardLink(id) {
+            const c = appData.cards.find(x => x.id === id);
+            if (c?.link) {
+                navigator.clipboard.writeText(c.link);
+                showSaved();
+            }
+        }
+
+        function isLinkMode(card) {
+            return card.linkMode === true;
+        }
+
+        function detectLinkMode(card) {
+            // Auto-detect on load: if link exists and doesn't match the IG username pattern, it's link mode
+            if (!card.link || card.link === '#' || !card.username) return false;
+            const expectedIgLink = `https://instagram.com/${card.username}`;
+            return card.link !== expectedIgLink;
+        }
+
+        function toggleLinkMode(id) {
+            const c = appData.cards.find(x => x.id === id);
+            if (!c) return;
+
+            if (c.linkMode) {
+                // Switch to username mode
+                c.linkMode = false;
+                c.username = '';
+                c.link = '#';
+            } else {
+                // Switch to link mode
+                c.linkMode = true;
+                c.username = '';
+                c.link = '';
+            }
+            saveCardToDB(c);
+            transitionRender();
+        }
+
+        async function updateCard(id, f, v) {
+            const c = appData.cards.find(x => x.id === id);
+            if(c) {
+                c[f] = v;
+                if(f === 'username') {
+                    if (c.linkMode) {
+                        // In link mode, the input field IS the link
+                        c.link = v;
+                        c.username = v;
+                    } else {
+                        c.link = `https://instagram.com/${v}`;
+                    }
+                }
+                await saveCardToDB(c);
+            }
         }
 
         async function deleteCard(id) {
