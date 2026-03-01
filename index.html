@@ -402,7 +402,7 @@
             <!-- Mobile Header Row -->
             <div class="flex items-center justify-between w-full md:w-auto">
                 <div class="flex items-center gap-2">
-                    <h1 class="text-lg font-semibold tracking-tight text-neutral-800">SSaved</h1>
+                    <h1 class="text-lg font-semibold tracking-tight text-neutral-800">SSaved <span id="headerCollectionName" class="text-neutral-300 font-normal"></span></h1>
                     <!-- Mobile: Link icon next to title -->
                     <button onclick="showShareModal()" class="md:hidden w-8 h-8 flex items-center justify-center text-neutral-400 hover:text-neutral-900 rounded-md transition-all" title="Share Link">
                         <i class="ph ph-link text-lg"></i>
@@ -496,8 +496,8 @@
             </div>
             <p class="text-sm text-neutral-500 mb-4">Anyone with this link can view and edit your collection. Bookmark it to return later.</p>
             <div class="flex gap-2">
-                <input type="text" id="shareUrlInput" readonly class="flex-1 px-3 py-2 bg-neutral-50 border border-neutral-200 rounded-lg text-sm text-neutral-700 font-mono">
-                <button onclick="copyShareUrl()" class="btn-primary px-4 py-2 flex items-center gap-2">
+                <div class="flex-1 px-3 py-2 bg-neutral-50 border border-neutral-200 rounded-lg text-sm text-neutral-700 font-mono overflow-x-auto whitespace-nowrap" id="shareUrlDisplay"></div>
+                <button onclick="copyShareUrl()" class="btn-primary px-4 py-2 flex items-center gap-2 shrink-0">
                     <i class="ph-bold ph-copy"></i> Copy
                 </button>
             </div>
@@ -537,6 +537,9 @@
         // --- INIT ---
         window.addEventListener('DOMContentLoaded', async () => {
             await initCollection();
+            if (collectionId) {
+                document.getElementById('headerCollectionName').textContent = `(${collectionId})`;
+            }
             await cleanupOldDeletedCards();
             setupGlobalDrag();
             initScrollBehavior();
@@ -1810,8 +1813,7 @@
         // --- SHARE MODAL ---
         function showShareModal() {
             const modal = document.getElementById('shareModal');
-            const input = document.getElementById('shareUrlInput');
-            input.value = window.location.href;
+            document.getElementById('shareUrlDisplay').textContent = window.location.href;
             modal.classList.remove('hidden');
             modal.classList.add('flex');
         }
@@ -1824,8 +1826,7 @@
         }
 
         function copyShareUrl() {
-            const input = document.getElementById('shareUrlInput');
-            navigator.clipboard.writeText(input.value);
+            navigator.clipboard.writeText(document.getElementById('shareUrlDisplay').textContent);
             document.getElementById('copyConfirm').classList.remove('opacity-0');
             setTimeout(() => {
                 document.getElementById('copyConfirm').classList.add('opacity-0');
