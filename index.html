@@ -80,6 +80,27 @@
             filter: grayscale(80%);
             transform: scale(0.98);
         }
+        .card.is-selected {
+            box-shadow: 0 0 0 3px #3b82f6;
+            border-radius: 0.75rem;
+        }
+        .card.is-selected:hover { transform: none; }
+        .selection-check {
+            position: absolute;
+            top: 0.75rem;
+            left: 0.75rem;
+            width: 22px;
+            height: 22px;
+            background: #3b82f6;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 10;
+            box-shadow: 0 2px 8px rgba(59,130,246,0.3);
+            color: white;
+            font-size: 12px;
+        }
 
         /* --- AUTO-GROW INPUTS --- */
         .auto-grow {
@@ -508,6 +529,11 @@
     <div id="statusBar" class="fixed bottom-6 left-1/2 -translate-x-1/2 bg-neutral-900/90 backdrop-blur-md text-white px-5 py-2.5 rounded-full shadow-2xl flex items-center gap-3 hidden transition-all z-50">
         <div class="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin"></div><span id="statusText" class="text-xs font-medium">Processing...</span>
     </div>
+
+    <div id="selectionToolbar" class="fixed bottom-6 left-1/2 -translate-x-1/2 bg-blue-600 backdrop-blur-md text-white pl-5 pr-3 py-2.5 rounded-full shadow-2xl flex items-center gap-3 hidden z-50">
+        <span id="selectionCount" class="text-xs font-medium">0 selected</span>
+        <button onclick="exitSelectionMode()" class="w-7 h-7 flex items-center justify-center hover:bg-blue-500 rounded-full transition-colors"><i class="ph-bold ph-x text-sm"></i></button>
+    </div>
     
     <div id="dragOverlay" class="fixed inset-0 bg-neutral-900/5 backdrop-blur-sm z-50 pointer-events-none opacity-0 flex items-center justify-center transition-opacity duration-200">
         <div class="drop-overlay-card px-10 py-8 flex flex-col items-center gap-4">
@@ -525,6 +551,7 @@
         // --- STATE ---
         let appData = { cards: [], folders: [] };
         let undoTimeout = null, dragSrcId = null, dragSrcFolderId = null;
+        let selectionMode = false, selectedCardIds = new Set(), selectionFolderId = null;
         let collectionId = null;
         
         function getInboxId() {
@@ -542,12 +569,18 @@
             }
             await cleanupOldDeletedCards();
             setupGlobalDrag();
+            setupLongPress();
             initScrollBehavior();
 
             // Prefs (local only)
             const w = localStorage.getItem('ssaved_width');
             if (w) { document.getElementById('widthSlider').value = w; updateWidth(w); }
             setMobileCols(localStorage.getItem('ssaved_cols') || 1);
+
+            // ESC to exit selection mode
+            document.addEventListener('keydown', e => {
+                if (e.key === 'Escape' && selectionMode) exitSelectionMode();
+            });
         });
 
         // --- VIEW MODE ---
@@ -1002,21 +1035,26 @@
             }
 
             const dragAttrs = viewMode ? '' : `draggable="true" ondragstart="handleDragStart(event, ${c.id})" ondragover="handleCardDragOver(event, ${c.id})" ondrop="handleCardDrop(event, ${c.id})" ondragend="handleDragEnd(event)"`;
+            const isSelected = selectionMode && selectedCardIds.has(c.id);
+            const selClass = isSelected ? 'is-selected' : '';
+            const inSelectableFolder = selectionMode && c.folderId === selectionFolderId;
 
             return `
             <div id="card-${c.id}" ${dragAttrs}
                  ${restoreAttr}
                  style="view-transition-name: card-${c.id}"
-                 class="card group flex flex-col ${isRestored} ${pulse} ${enter}">
+                 class="card group flex flex-col ${selClass} ${isRestored} ${pulse} ${enter}">
 
                 <div class="aspect-[9/16] bg-neutral-100 relative overflow-hidden group/image shrink-0 cursor-pointer" onclick="handleImageClick(event, ${c.id})">
                     <img src="${c.imageUrl}" class="w-full h-full object-cover object-top pointer-events-none transition-transform duration-500 img-hover-scale" loading="lazy">
 
-                    <button onclick="event.stopPropagation(); openProfile(${c.id})" class="external-link-btn p-2 bg-white/80 hover:bg-white backdrop-blur-md border border-white/50 text-neutral-600 hover:text-neutral-900 rounded-lg shadow-lg transition-all">
-                        <i class="ph-bold ph-arrow-up-right text-base"></i>
-                    </button>
+                    ${isSelected ? '<div class="selection-check"><i class="ph-bold ph-check"></i></div>' : ''}
 
-                    ${viewMode ? '' : `<button onclick="event.stopPropagation(); deleteCard(${c.id})" class="delete-btn p-2 bg-white/80 hover:bg-red-50 backdrop-blur-md border border-white/50 text-neutral-600 hover:text-red-500 rounded-lg shadow-lg transition-all">
+                    ${selectionMode ? '' : `<button onclick="event.stopPropagation(); openProfile(${c.id})" class="external-link-btn p-2 bg-white/80 hover:bg-white backdrop-blur-md border border-white/50 text-neutral-600 hover:text-neutral-900 rounded-lg shadow-lg transition-all">
+                        <i class="ph-bold ph-arrow-up-right text-base"></i>
+                    </button>`}
+
+                    ${(viewMode || selectionMode) ? '' : `<button onclick="event.stopPropagation(); deleteCard(${c.id})" class="delete-btn p-2 bg-white/80 hover:bg-red-50 backdrop-blur-md border border-white/50 text-neutral-600 hover:text-red-500 rounded-lg shadow-lg transition-all">
                         <i class="ph-bold ph-x text-base"></i>
                     </button>`}
                 </div>
@@ -1168,6 +1206,118 @@
             }
         });
 
+        // --- MULTI-SELECT ---
+        function setupLongPress() {
+            if (viewMode) return;
+            const wrapper = document.getElementById('folderWrapper');
+            let pressTimer = null, startX = 0, startY = 0, pressTarget = null;
+
+            wrapper.addEventListener('pointerdown', e => {
+                if (selectionMode) return;
+                const card = e.target.closest('.card');
+                if (!card) return;
+                const id = parseInt(card.id.replace('card-', ''));
+                if (!id) return;
+                startX = e.clientX; startY = e.clientY; pressTarget = id;
+                pressTimer = setTimeout(() => {
+                    pressTimer = null;
+                    enterSelectionMode(pressTarget);
+                }, 500);
+            });
+
+            wrapper.addEventListener('pointermove', e => {
+                if (!pressTimer) return;
+                if (Math.abs(e.clientX - startX) > 10 || Math.abs(e.clientY - startY) > 10) {
+                    clearTimeout(pressTimer); pressTimer = null;
+                }
+            });
+
+            wrapper.addEventListener('pointerup', () => { if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; } });
+            wrapper.addEventListener('pointercancel', () => { if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; } });
+
+            wrapper.addEventListener('contextmenu', e => {
+                if (selectionMode || pressTimer) e.preventDefault();
+            });
+        }
+
+        function enterSelectionMode(cardId) {
+            const card = appData.cards.find(c => c.id === cardId);
+            if (!card) return;
+            selectionMode = true;
+            selectionFolderId = card.folderId;
+            selectedCardIds.clear();
+            selectedCardIds.add(cardId);
+            updateSelectionToolbar();
+            transitionRender();
+        }
+
+        function exitSelectionMode() {
+            selectionMode = false;
+            selectedCardIds.clear();
+            selectionFolderId = null;
+            document.getElementById('selectionToolbar').classList.add('hidden');
+            transitionRender();
+        }
+
+        function toggleCardSelection(id) {
+            const card = appData.cards.find(c => c.id === id);
+            if (!card || card.folderId !== selectionFolderId) return;
+
+            if (selectedCardIds.has(id)) {
+                selectedCardIds.delete(id);
+                if (selectedCardIds.size === 0) { exitSelectionMode(); return; }
+            } else {
+                selectedCardIds.add(id);
+            }
+
+            // Update DOM directly for responsiveness (no full re-render)
+            const el = document.getElementById(`card-${id}`);
+            if (el) {
+                el.classList.toggle('is-selected', selectedCardIds.has(id));
+                const check = el.querySelector('.selection-check');
+                if (selectedCardIds.has(id) && !check) {
+                    el.querySelector('.group\\/image')?.insertAdjacentHTML('afterbegin', '<div class="selection-check"><i class="ph-bold ph-check"></i></div>');
+                } else if (!selectedCardIds.has(id) && check) {
+                    check.remove();
+                }
+            }
+            updateSelectionToolbar();
+        }
+
+        function updateSelectionToolbar() {
+            const toolbar = document.getElementById('selectionToolbar');
+            const count = document.getElementById('selectionCount');
+            if (selectionMode) {
+                toolbar.classList.remove('hidden');
+                count.textContent = `${selectedCardIds.size} selected`;
+            } else {
+                toolbar.classList.add('hidden');
+            }
+        }
+
+        async function handleFolderDropMultiple(targetFolderId) {
+            const cardsToMove = appData.cards.filter(c => selectedCardIds.has(c.id));
+            const sourceFolderIds = new Set();
+
+            cardsToMove.forEach(c => {
+                sourceFolderIds.add(c.folderId);
+                c.folderId = targetFolderId;
+                c.order = 0;
+            });
+
+            // Batch DB update
+            const ids = cardsToMove.map(c => c.id);
+            await db.from('cards')
+                .update({ folder_id: targetFolderId, order: 0 })
+                .in('id', ids);
+
+            // Reindex affected folders
+            reindexCards(targetFolderId);
+            sourceFolderIds.forEach(fid => reindexCards(fid));
+
+            exitSelectionMode();
+        }
+
         // --- DRAG & DROP ---
         function handleDragStart(e, id) {
             dragSrcId = id;
@@ -1199,7 +1349,11 @@
             }
 
             document.body.classList.add('global-dragging');
-            setTimeout(() => document.getElementById(`card-${id}`)?.classList.add('is-dragging'), 0);
+            if (selectionMode && selectedCardIds.has(id)) {
+                setTimeout(() => selectedCardIds.forEach(sid => document.getElementById(`card-${sid}`)?.classList.add('is-dragging')), 0);
+            } else {
+                setTimeout(() => document.getElementById(`card-${id}`)?.classList.add('is-dragging'), 0);
+            }
         }
 
         function handleFolderDragOver(e, folderId) {
@@ -1220,12 +1374,16 @@
             e.preventDefault();
             document.getElementById(`folder-${folderId}`).classList.remove('folder-drop-active');
             if (dragSrcId && dragSrcFolderId !== folderId) {
-                const c = appData.cards.find(x => x.id === dragSrcId);
-                if (c) {
-                    c.folderId = folderId; c.order = 0; 
-                    saveCardToDB(c);
-                    reindexCards(folderId); reindexCards(dragSrcFolderId);
-                    transitionRender();
+                if (selectionMode && selectedCardIds.size > 0) {
+                    handleFolderDropMultiple(folderId);
+                } else {
+                    const c = appData.cards.find(x => x.id === dragSrcId);
+                    if (c) {
+                        c.folderId = folderId; c.order = 0;
+                        saveCardToDB(c);
+                        reindexCards(folderId); reindexCards(dragSrcFolderId);
+                        transitionRender();
+                    }
                 }
             }
         }
@@ -1233,6 +1391,7 @@
         function handleCardDragOver(e, targetId) {
             if (!dragSrcId) return; // External file drag — let global handler process it
             e.preventDefault(); e.dataTransfer.dropEffect = 'move';
+            if (selectionMode) return; // Skip reorder visuals in multi-select
             if (dragSrcId === targetId) return;
 
             const targetCard = appData.cards.find(c => c.id === targetId);
@@ -1258,15 +1417,18 @@
         }
 
         function handleCardDrop(e, targetId) {
-            if (!dragSrcId) {
-                // External file drop — let global handler process it
-                return;
-            }
+            if (!dragSrcId) return; // External file drop — let global handler process it
             e.stopPropagation(); e.preventDefault();
             if (dragSrcId === targetId) return;
 
             const targetCard = appData.cards.find(c => c.id === targetId);
-            
+
+            // In selection mode, only handle cross-folder moves (skip reorder)
+            if (selectionMode) {
+                if (targetCard.folderId !== dragSrcFolderId) handleFolderDrop(e, targetCard.folderId);
+                return;
+            }
+
             if (targetCard.folderId === dragSrcFolderId) {
                 const folderCards = appData.cards.filter(c => c.folderId === dragSrcFolderId).sort((a,b) => a.order - b.order);
                 const from = folderCards.findIndex(c => c.id === dragSrcId);
@@ -1287,7 +1449,7 @@
         function handleDragEnd() {
             document.body.classList.remove('global-dragging');
             document.querySelectorAll('.is-dragging, .card-shift-forward, .card-shift-backward, .folder-drop-active').forEach(el => {
-                el.classList.remove('is-dragging', 'card-shift-forward', 'card-shift-backward', 'folder-drop-active'); 
+                el.classList.remove('is-dragging', 'card-shift-forward', 'card-shift-backward', 'folder-drop-active');
                 el.style.transform = '';
             });
             dragSrcId = null; dragSrcFolderId = null;
@@ -1525,10 +1687,9 @@
             document.getElementById('fileInput').click(); 
         }
         
-        function handleImageClick(e, id) { 
-            if(!e.target.closest('button')) { 
-                // Image click no longer opens link
-            }
+        function handleImageClick(e, id) {
+            if (e.target.closest('button')) return;
+            if (selectionMode) { toggleCardSelection(id); return; }
         }
         
         function openProfile(id) {
