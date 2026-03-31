@@ -424,9 +424,12 @@
             <div class="flex items-center justify-between w-full md:w-auto">
                 <div class="flex items-center gap-2">
                     <h1 class="text-lg font-semibold tracking-tight text-neutral-800">SSaved <span id="headerCollectionName" class="text-neutral-300 font-normal"></span></h1>
-                    <!-- Mobile: Link icon next to title -->
+                    <!-- Mobile: Link + Backup icons next to title -->
                     <button onclick="showShareModal()" class="md:hidden w-8 h-8 flex items-center justify-center text-neutral-400 hover:text-neutral-900 rounded-md transition-all" title="Share Link">
                         <i class="ph ph-link text-lg"></i>
+                    </button>
+                    <button onclick="manualBackupToGitHub()" id="backupBtnMobile" class="md:hidden w-8 h-8 flex items-center justify-center text-neutral-400 hover:text-neutral-900 rounded-md transition-all" title="Backup to GitHub">
+                        <i class="ph ph-cloud-arrow-up text-lg"></i>
                     </button>
                     <span id="saveIndicator" class="text-[10px] font-medium uppercase tracking-wider text-neutral-300 opacity-0 transition-opacity">Saved</span>
                 </div>
@@ -461,9 +464,10 @@
                     <input type="range" min="600" max="2400" value="1390" class="w-20 md:w-24" id="widthSlider" oninput="updateWidth(this.value)">
                 </div>
 
-                <!-- Desktop: Share button (inside overflow container) -->
+                <!-- Desktop: Share + Backup buttons -->
                 <div class="hidden md:flex items-center gap-1 bg-neutral-100/50 p-1 rounded-lg border border-neutral-200/50 shrink-0">
                     <button onclick="showShareModal()" class="w-8 h-8 flex items-center justify-center text-neutral-400 hover:text-neutral-900 hover:bg-white rounded-md transition-all" title="Share Link"><i class="ph ph-link text-lg"></i></button>
+                    <button onclick="manualBackupToGitHub()" id="backupBtnDesktop" class="w-8 h-8 flex items-center justify-center text-neutral-400 hover:text-neutral-900 hover:bg-white rounded-md transition-all" title="Backup to GitHub"><i class="ph ph-cloud-arrow-up text-lg"></i></button>
                 </div>
                 
                 <input type="file" id="fileInput" multiple accept="image/*" class="hidden view-hide" onchange="handleFiles(this.files)">
@@ -568,6 +572,7 @@
                 document.getElementById('headerCollectionName').textContent = `(${collectionId})`;
             }
             await cleanupOldDeletedCards();
+            autoBackupToGitHub();
             setupGlobalDrag();
             setupLongPress();
             initScrollBehavior();
@@ -1998,6 +2003,125 @@
         document.getElementById('shareModal')?.addEventListener('click', (e) => {
             if (e.target.id === 'shareModal') closeShareModal();
         });
+
+        // --- GITHUB BACKUP ---
+        const GH_TOKEN_KEY = 'ssaved_gh_token';
+        const GH_REPO_KEY = 'ssaved_gh_repo';
+
+        function getGitHubConfig() {
+            return {
+                token: localStorage.getItem(GH_TOKEN_KEY),
+                repo: localStorage.getItem(GH_REPO_KEY)
+            };
+        }
+
+        function promptGitHubSetup() {
+            const token = prompt('GitHub Personal Access Token:\n(Create one at github.com/settings/tokens with "repo" scope)');
+            if (!token) return null;
+            const repo = prompt('Private repo name:', 'nnnephirale/ssaved-backups');
+            if (!repo) return null;
+            localStorage.setItem(GH_TOKEN_KEY, token.trim());
+            localStorage.setItem(GH_REPO_KEY, repo.trim());
+            return { token: token.trim(), repo: repo.trim() };
+        }
+
+        function buildBackupJSON() {
+            return JSON.stringify({
+                collectionId,
+                exportedAt: new Date().toISOString(),
+                folders: appData.folders,
+                cards: appData.cards.map(c => ({
+                    id: c.id,
+                    username: c.username,
+                    notes: c.notes,
+                    link: c.link,
+                    imagePath: c.imagePath,
+                    folderId: c.folderId,
+                    order: c.order,
+                    createdAt: c.createdAt,
+                    suggestions: c.suggestions,
+                    deletedAt: c.deletedAt
+                }))
+            }, null, 2);
+        }
+
+        async function backupToGitHub(config, silent = false) {
+            if (!collectionId || appData.cards.length === 0) return;
+
+            const { token, repo } = config;
+            const date = new Date().toISOString().slice(0, 10);
+            const path = `${collectionId}/${date}.json`;
+            const content = btoa(unescape(encodeURIComponent(buildBackupJSON())));
+
+            try {
+                // Check if file already exists (to get its SHA for update)
+                let sha = null;
+                const getRes = await fetch(`https://api.github.com/repos/${repo}/contents/${path}`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                if (getRes.ok) {
+                    const existing = await getRes.json();
+                    sha = existing.sha;
+                }
+
+                const body = {
+                    message: `backup ${collectionId} — ${date}`,
+                    content
+                };
+                if (sha) body.sha = sha;
+
+                const putRes = await fetch(`https://api.github.com/repos/${repo}/contents/${path}`, {
+                    method: 'PUT',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(body)
+                });
+
+                if (!putRes.ok) {
+                    const err = await putRes.json();
+                    throw new Error(err.message || putRes.statusText);
+                }
+
+                if (!silent) flashBackupStatus('Backed up');
+                console.log('GitHub backup saved:', path);
+            } catch (e) {
+                console.error('GitHub backup failed:', e);
+                if (!silent) flashBackupStatus('Backup failed', true);
+            }
+        }
+
+        function flashBackupStatus(text, isError = false) {
+            const indicator = document.getElementById('saveIndicator');
+            const original = indicator.textContent;
+            indicator.textContent = text;
+            indicator.style.color = isError ? '#ef4444' : '#22c55e';
+            indicator.style.opacity = '1';
+            setTimeout(() => {
+                indicator.style.opacity = '0';
+                setTimeout(() => {
+                    indicator.textContent = original;
+                    indicator.style.color = '';
+                }, 300);
+            }, 2000);
+        }
+
+        async function manualBackupToGitHub() {
+            let config = getGitHubConfig();
+            if (!config.token || !config.repo) {
+                config = promptGitHubSetup();
+                if (!config) return;
+            }
+            flashBackupStatus('Backing up...');
+            await backupToGitHub(config);
+        }
+
+        async function autoBackupToGitHub() {
+            const config = getGitHubConfig();
+            if (!config.token || !config.repo) return; // skip if not configured
+            await backupToGitHub(config, true);
+        }
     </script>
 </body>
 </html>
