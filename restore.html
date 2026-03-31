@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SSaved — Restore</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+    <style>
+        body {
+            background: linear-gradient(180deg, #FAFAF8 0%, #F7F6F3 100%);
+            min-height: 100vh;
+        }
+        .card {
+            background: white;
+            border-radius: 1.25rem;
+            border: 1px solid rgba(0, 0, 0, 0.04);
+            overflow: hidden;
+            box-shadow: 0 2px 4px -1px rgba(0, 0, 0, 0.02), 0 8px 24px -4px rgba(0, 0, 0, 0.06);
+        }
+        .notes-text {
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+    </style>
+</head>
+<body class="p-4 md:p-8">
+
+    <!-- Header -->
+    <div class="max-w-5xl mx-auto mb-8">
+        <div class="flex items-center gap-3 mb-6">
+            <a href="index.html" class="text-neutral-400 hover:text-neutral-600 transition-colors">
+                <i class="ph-bold ph-arrow-left text-lg"></i>
+            </a>
+            <h1 class="text-lg font-semibold text-neutral-800">SSaved <span class="text-neutral-300 font-normal">Restore</span></h1>
+        </div>
+
+        <!-- Setup / Picker -->
+        <div id="setupPanel" class="bg-white rounded-2xl border border-neutral-100 shadow-sm p-6 mb-6">
+            <div id="tokenSetup" class="hidden mb-4">
+                <p class="text-sm text-neutral-500 mb-3">No GitHub token found. Enter your token to access backups.</p>
+                <div class="flex gap-2">
+                    <input type="password" id="tokenInput" placeholder="GitHub Personal Access Token" class="flex-1 px-3 py-2 text-sm border border-neutral-200 rounded-lg focus:outline-none focus:border-neutral-400">
+                    <button onclick="saveToken()" class="px-4 py-2 bg-neutral-800 text-white text-sm font-medium rounded-lg hover:bg-neutral-700 transition-colors">Save</button>
+                </div>
+            </div>
+
+            <div id="picker" class="hidden">
+                <div class="flex flex-col sm:flex-row gap-3">
+                    <div class="flex-1">
+                        <label class="text-xs font-medium text-neutral-400 uppercase tracking-wider mb-1.5 block">Collection</label>
+                        <select id="collectionSelect" onchange="loadDates()" class="w-full px-3 py-2 text-sm border border-neutral-200 rounded-lg bg-white focus:outline-none focus:border-neutral-400">
+                            <option value="">Loading...</option>
+                        </select>
+                    </div>
+                    <div class="flex-1">
+                        <label class="text-xs font-medium text-neutral-400 uppercase tracking-wider mb-1.5 block">Backup Date</label>
+                        <select id="dateSelect" class="w-full px-3 py-2 text-sm border border-neutral-200 rounded-lg bg-white focus:outline-none focus:border-neutral-400">
+                            <option value="">Select collection first</option>
+                        </select>
+                    </div>
+                    <div class="flex items-end">
+                        <button onclick="loadBackup()" class="px-5 py-2 bg-neutral-800 text-white text-sm font-medium rounded-lg hover:bg-neutral-700 transition-colors whitespace-nowrap">
+                            <i class="ph-bold ph-download-simple mr-1.5"></i>Restore
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <div id="statusText" class="text-sm text-neutral-400 mt-3 hidden"></div>
+        </div>
+
+        <!-- Paste fallback -->
+        <details class="mb-6">
+            <summary class="text-xs text-neutral-400 cursor-pointer hover:text-neutral-600">Or paste JSON manually</summary>
+            <div class="mt-3 flex gap-2">
+                <textarea id="jsonPaste" rows="3" placeholder="Paste backup JSON here..." class="flex-1 px-3 py-2 text-sm border border-neutral-200 rounded-lg font-mono focus:outline-none focus:border-neutral-400"></textarea>
+                <button onclick="loadFromPaste()" class="px-4 py-2 bg-neutral-800 text-white text-sm font-medium rounded-lg hover:bg-neutral-700 transition-colors self-end">Load</button>
+            </div>
+        </details>
+    </div>
+
+    <!-- Cards Grid -->
+    <div id="cardsContainer" class="max-w-5xl mx-auto"></div>
+
+    <script>
+        const SUPABASE_URL = 'https://uauqqdaalnddedgjdgcg.supabase.co';
+        const GH_TOKEN_KEY = 'ssaved_gh_token';
+        const GH_REPO_KEY = 'ssaved_gh_repo';
+        const GH_API = 'https://api.github.com';
+
+        let repoContents = {}; // { collectionId: [{ name, path, sha }] }
+
+        function getConfig() {
+            return {
+                token: localStorage.getItem(GH_TOKEN_KEY),
+                repo: localStorage.getItem(GH_REPO_KEY) || 'nnnephirale/ssaved-backups'
+            };
+        }
+
+        function showStatus(text, isError = false) {
+            const el = document.getElementById('statusText');
+            el.textContent = text;
+            el.className = `text-sm mt-3 ${isError ? 'text-red-500' : 'text-neutral-400'}`;
+            el.classList.remove('hidden');
+        }
+
+        function saveToken() {
+            const token = document.getElementById('tokenInput').value.trim();
+            if (!token) return;
+            localStorage.setItem(GH_TOKEN_KEY, token);
+            localStorage.setItem(GH_REPO_KEY, 'nnnephirale/ssaved-backups');
+            init();
+        }
+
+        async function init() {
+            const { token, repo } = getConfig();
+
+            if (!token) {
+                document.getElementById('tokenSetup').classList.remove('hidden');
+                document.getElementById('picker').classList.add('hidden');
+                return;
+            }
+
+            document.getElementById('tokenSetup').classList.add('hidden');
+            document.getElementById('picker').classList.remove('hidden');
+            showStatus('Loading backup list...');
+
+            try {
+                // Get repo root contents (each folder = a collection)
+                const res = await fetch(`${GH_API}/repos/${repo}/contents/`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+
+                if (!res.ok) throw new Error(`GitHub API error: ${res.status}`);
+
+                const items = await res.json();
+                const folders = items.filter(i => i.type === 'dir');
+
+                if (folders.length === 0) {
+                    showStatus('No backups found in repo.');
+                    return;
+                }
+
+                // Populate collection dropdown
+                const select = document.getElementById('collectionSelect');
+                select.innerHTML = '<option value="">Choose...</option>' +
+                    folders.map(f => `<option value="${f.name}">${f.name}</option>`).join('');
+
+                showStatus(`Found ${folders.length} collection(s).`);
+            } catch (e) {
+                showStatus('Failed to load backups: ' + e.message, true);
+            }
+        }
+
+        async function loadDates() {
+            const collection = document.getElementById('collectionSelect').value;
+            const dateSelect = document.getElementById('dateSelect');
+
+            if (!collection) {
+                dateSelect.innerHTML = '<option value="">Select collection first</option>';
+                return;
+            }
+
+            const { token, repo } = getConfig();
+            showStatus('Loading dates...');
+
+            try {
+                const res = await fetch(`${GH_API}/repos/${repo}/contents/${collection}`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+
+                if (!res.ok) throw new Error(`GitHub API error: ${res.status}`);
+
+                const files = await res.json();
+                const jsonFiles = files.filter(f => f.name.endsWith('.json')).sort((a, b) => b.name.localeCompare(a.name));
+
+                repoContents[collection] = jsonFiles;
+
+                dateSelect.innerHTML = jsonFiles.map(f => {
+                    const date = f.name.replace('.json', '');
+                    return `<option value="${f.name}">${date}</option>`;
+                }).join('');
+
+                showStatus(`Found ${jsonFiles.length} backup(s) for ${collection}.`);
+            } catch (e) {
+                showStatus('Failed to load dates: ' + e.message, true);
+            }
+        }
+
+        async function loadBackup() {
+            const collection = document.getElementById('collectionSelect').value;
+            const file = document.getElementById('dateSelect').value;
+            if (!collection || !file) return;
+
+            const { token, repo } = getConfig();
+            showStatus('Downloading backup...');
+
+            try {
+                const res = await fetch(`${GH_API}/repos/${repo}/contents/${collection}/${file}`, {
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Accept': 'application/vnd.github.raw+json'
+                    }
+                });
+
+                if (!res.ok) throw new Error(`GitHub API error: ${res.status}`);
+
+                const data = await res.json();
+                renderBackup(data);
+                showStatus(`Restored ${data.cards?.length || 0} cards from ${file.replace('.json', '')}.`);
+            } catch (e) {
+                showStatus('Failed to load backup: ' + e.message, true);
+            }
+        }
+
+        function loadFromPaste() {
+            try {
+                const data = JSON.parse(document.getElementById('jsonPaste').value);
+                renderBackup(data);
+                showStatus(`Loaded ${data.cards?.length || 0} cards from pasted JSON.`);
+            } catch (e) {
+                showStatus('Invalid JSON: ' + e.message, true);
+            }
+        }
+
+        function getImageUrl(imagePath) {
+            if (!imagePath) return '';
+            return `${SUPABASE_URL}/storage/v1/object/public/images/${imagePath}`;
+        }
+
+        function escapeHtml(str) {
+            if (!str) return '';
+            return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        }
+
+        function renderBackup(data) {
+            const container = document.getElementById('cardsContainer');
+            const folders = data.folders || [];
+            const cards = (data.cards || []).filter(c => !c.deletedAt);
+
+            if (cards.length === 0) {
+                container.innerHTML = '<p class="text-center text-neutral-400 py-12">No cards in this backup.</p>';
+                return;
+            }
+
+            let html = '';
+
+            folders.forEach(folder => {
+                const folderCards = cards.filter(c => c.folderId === folder.id);
+                if (folderCards.length === 0) return;
+
+                html += `
+                <section class="mb-10">
+                    <div class="mb-4 flex items-center gap-2 pl-1">
+                        <i class="ph-bold ph-folder text-neutral-300 text-sm"></i>
+                        <span class="text-xs font-semibold uppercase tracking-wider text-neutral-400">${escapeHtml(folder.name)}</span>
+                        <span class="text-xs text-neutral-300">${folderCards.length}</span>
+                    </div>
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 md:gap-6">
+                        ${folderCards.map(c => renderCard(c)).join('')}
+                    </div>
+                </section>`;
+            });
+
+            // Cards not in any folder
+            const orphans = cards.filter(c => !folders.some(f => f.id === c.folderId));
+            if (orphans.length > 0) {
+                html += `
+                <section class="mb-10">
+                    <div class="mb-4 flex items-center gap-2 pl-1">
+                        <i class="ph-bold ph-folder text-neutral-300 text-sm"></i>
+                        <span class="text-xs font-semibold uppercase tracking-wider text-neutral-400">Uncategorized</span>
+                        <span class="text-xs text-neutral-300">${orphans.length}</span>
+                    </div>
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 md:gap-6">
+                        ${orphans.map(c => renderCard(c)).join('')}
+                    </div>
+                </section>`;
+            }
+
+            container.innerHTML = html;
+        }
+
+        function renderCard(c) {
+            const imageUrl = c.imageUrl || getImageUrl(c.imagePath);
+            const hasNotes = c.notes && c.notes.trim();
+            const hasUsername = c.username && c.username.trim();
+            const hasLink = c.link && c.link !== '#' && c.link.trim();
+
+            return `
+            <div class="card flex flex-col">
+                ${imageUrl ? `
+                <div class="aspect-[9/16] bg-neutral-100 relative overflow-hidden shrink-0">
+                    <img src="${imageUrl}" class="w-full h-full object-cover object-top" loading="lazy"
+                         onerror="this.parentElement.innerHTML='<div class=\\'flex items-center justify-center h-full text-neutral-300\\'><i class=\\'ph ph-image-broken text-3xl\\'></i></div>'">
+                </div>` : ''}
+
+                <div class="p-4 flex flex-col gap-2 flex-1">
+                    ${hasUsername ? `
+                    <div class="flex items-center gap-1.5">
+                        <span class="text-neutral-300 font-medium text-sm">@</span>
+                        <span class="text-sm font-medium text-neutral-700">${escapeHtml(c.username)}</span>
+                    </div>` : ''}
+
+                    ${hasLink ? `
+                    <a href="${escapeHtml(c.link)}" target="_blank" class="text-xs text-blue-500 hover:text-blue-600 truncate">
+                        <i class="ph-bold ph-link text-[10px]"></i> ${escapeHtml(c.link)}
+                    </a>` : ''}
+
+                    ${hasNotes ? `
+                    <p class="notes-text text-sm text-neutral-500 leading-relaxed">${escapeHtml(c.notes)}</p>` : ''}
+
+                    ${!hasUsername && !hasNotes && !hasLink ? `
+                    <p class="text-xs text-neutral-300 italic">No metadata</p>` : ''}
+                </div>
+            </div>`;
+        }
+
+        // Init on load
+        init();
+    </script>
+</body>
+</html>
