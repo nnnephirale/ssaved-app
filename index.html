@@ -530,6 +530,22 @@
         </div>
     </div>
 
+    <!-- Tag Overview (long-press a folder tab) -->
+    <div id="tagOverview" class="fixed inset-0 z-50 hidden items-end md:items-center justify-center modal-backdrop">
+        <div class="modal-content w-full max-w-md rounded-b-none md:rounded-[1.25rem] max-h-[75vh] flex flex-col">
+            <div class="flex items-center justify-between px-5 pt-5 pb-3 shrink-0">
+                <div>
+                    <h2 class="text-lg font-semibold">Jump to folder</h2>
+                    <p class="text-xs text-neutral-400 mt-0.5" id="tagOverviewSubtitle"></p>
+                </div>
+                <button onclick="closeTagOverview()" class="p-2 text-neutral-400 hover:text-neutral-900 rounded-lg transition-colors">
+                    <i class="ph-bold ph-x"></i>
+                </button>
+            </div>
+            <div id="tagOverviewList" class="px-3 pb-5 overflow-y-auto flex flex-col gap-1 no-scrollbar"></div>
+        </div>
+    </div>
+
     <div id="statusBar" class="fixed bottom-6 left-1/2 -translate-x-1/2 bg-neutral-900/90 backdrop-blur-md text-white px-5 py-2.5 rounded-full shadow-2xl flex items-center gap-3 hidden transition-all z-50">
         <div class="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin"></div><span id="statusText" class="text-xs font-medium">Processing...</span>
     </div>
@@ -575,7 +591,9 @@
             autoBackupToGitHub();
             setupGlobalDrag();
             setupLongPress();
+            setupFolderLongPress();
             initScrollBehavior();
+            preloadImages();
 
             // Prefs (local only)
             const w = localStorage.getItem('ssaved_width');
@@ -990,7 +1008,8 @@
 
                 const section = `
                 <section id="folder-${folder.id}" class="folder-enter group/folder">
-                    <div class="mb-5 flex items-end relative pl-1 cursor-pointer"
+                    <div class="folder-header mb-5 flex items-end relative pl-1 cursor-pointer"
+                         data-folder-id="${folder.id}"
                          onclick="toggleFolder('${folder.id}')"
                          ${folderDrag}>
 
@@ -1243,6 +1262,139 @@
             wrapper.addEventListener('contextmenu', e => {
                 if (selectionMode || pressTimer) e.preventDefault();
             });
+        }
+
+        // --- FOLDER LONG-PRESS → TAG OVERVIEW ---
+        function setupFolderLongPress() {
+            const wrapper = document.getElementById('folderWrapper');
+            let pressTimer = null, startX = 0, startY = 0, fired = false, targetFolderId = null;
+
+            wrapper.addEventListener('pointerdown', e => {
+                if (selectionMode) return;
+                const header = e.target.closest('.folder-header');
+                if (!header) return;
+                startX = e.clientX; startY = e.clientY;
+                fired = false;
+                targetFolderId = header.dataset.folderId;
+                pressTimer = setTimeout(() => {
+                    pressTimer = null;
+                    fired = true;
+                    if (navigator.vibrate) navigator.vibrate(10);
+                    showTagOverview(targetFolderId);
+                }, 500);
+            });
+
+            wrapper.addEventListener('pointermove', e => {
+                if (!pressTimer) return;
+                if (Math.abs(e.clientX - startX) > 10 || Math.abs(e.clientY - startY) > 10) {
+                    clearTimeout(pressTimer); pressTimer = null;
+                }
+            });
+
+            const cancel = () => { if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; } };
+            wrapper.addEventListener('pointerup', cancel);
+            wrapper.addEventListener('pointercancel', cancel);
+
+            // Swallow the toggle-folder click that fires right after a long press
+            wrapper.addEventListener('click', e => {
+                if (fired && e.target.closest('.folder-header')) {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    fired = false;
+                }
+            }, true);
+
+            // Prevent the browser context menu during a long press on a folder tab
+            wrapper.addEventListener('contextmenu', e => {
+                if (pressTimer && e.target.closest('.folder-header')) e.preventDefault();
+            });
+        }
+
+        function showTagOverview(activeFolderId = null) {
+            const modal = document.getElementById('tagOverview');
+            const list = document.getElementById('tagOverviewList');
+            const subtitle = document.getElementById('tagOverviewSubtitle');
+            if (!modal || !list) return;
+
+            const total = appData.cards.filter(c => !c.deletedAt).length;
+            if (subtitle) subtitle.textContent = `${appData.folders.length} folder${appData.folders.length === 1 ? '' : 's'} · ${total} item${total === 1 ? '' : 's'}`;
+
+            list.innerHTML = appData.folders.map(f => {
+                const count = appData.cards.filter(c => c.folderId === f.id && !c.deletedAt).length;
+                const isActive = f.id === activeFolderId;
+                return `
+                <button onclick="jumpToFolderFromOverview('${f.id}')"
+                        class="w-full flex items-center justify-between gap-3 px-4 py-3 rounded-xl text-left transition-colors ${isActive ? 'bg-neutral-100' : 'hover:bg-neutral-50 active:bg-neutral-100'}">
+                    <span class="flex items-center gap-2.5 min-w-0">
+                        <i class="ph-bold ph-folder text-neutral-400 shrink-0"></i>
+                        <span class="text-sm font-medium text-neutral-700 truncate">${f.name}</span>
+                    </span>
+                    <span class="text-xs font-medium text-neutral-400 shrink-0">${count}</span>
+                </button>`;
+            }).join('');
+
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+        }
+
+        function closeTagOverview() {
+            const modal = document.getElementById('tagOverview');
+            if (!modal) return;
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+        }
+
+        function jumpToFolderFromOverview(folderId) {
+            closeTagOverview();
+            const f = appData.folders.find(x => x.id === folderId);
+            // Expand the folder if collapsed so the jump reveals its contents
+            if (f && f.isCollapsed) {
+                f.isCollapsed = false;
+                saveFolderToDB(f);
+                render();
+            }
+            requestAnimationFrame(() => scrollToFolder(folderId));
+        }
+
+        // Close tag overview on backdrop click
+        document.getElementById('tagOverview')?.addEventListener('click', e => {
+            if (e.target.id === 'tagOverview') closeTagOverview();
+        });
+
+        // --- IMAGE PRELOADING ---
+        // Warm the browser cache for every card image in the background so
+        // that scrolling reveals them instantly instead of loading on demand.
+        let preloadedImageUrls = new Set();
+        function preloadImages() {
+            const urls = appData.cards
+                .filter(c => !c.deletedAt && c.imageUrl)
+                .map(c => c.imageUrl)
+                .filter(url => !preloadedImageUrls.has(url));
+
+            if (!urls.length) return;
+            urls.forEach(url => preloadedImageUrls.add(url));
+
+            const CONCURRENCY = 6;
+            let idx = 0;
+            const loadNext = () => {
+                if (idx >= urls.length) return;
+                const url = urls[idx++];
+                const img = new Image();
+                img.decoding = 'async';
+                const done = () => loadNext();
+                img.onload = done;
+                img.onerror = done;
+                img.src = url;
+            };
+
+            const start = () => {
+                for (let i = 0; i < Math.min(CONCURRENCY, urls.length); i++) loadNext();
+            };
+            if (window.requestIdleCallback) {
+                requestIdleCallback(start, { timeout: 1500 });
+            } else {
+                setTimeout(start, 200);
+            }
         }
 
         function enterSelectionMode(cardId) {
@@ -1630,6 +1782,7 @@
             
             appData.cards.unshift(...newCards);
             transitionRender(newCards.map(c => c.id));
+            preloadImages();
             
             showStatus(true, 'Processing OCR...');
             await new Promise(r => setTimeout(r, 100));
@@ -1707,8 +1860,9 @@
         });
         window.addEventListener('keydown', (e) => { 
             if (e.key === 'Escape') {
-                closeAllTooltips(); 
+                closeAllTooltips();
                 closeShareModal();
+                closeTagOverview();
             }
         });
         
