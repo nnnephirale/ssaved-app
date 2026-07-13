@@ -1271,7 +1271,9 @@
 
             wrapper.addEventListener('pointerdown', e => {
                 if (selectionMode) return;
-                const header = e.target.closest('.folder-header');
+                const tab = e.target.closest('.folder-tab');
+                if (!tab) return;
+                const header = tab.closest('.folder-header');
                 if (!header) return;
                 startX = e.clientX; startY = e.clientY;
                 fired = false;
@@ -1297,7 +1299,7 @@
 
             // Swallow the toggle-folder click that fires right after a long press
             wrapper.addEventListener('click', e => {
-                if (fired && e.target.closest('.folder-header')) {
+                if (fired && e.target.closest('.folder-tab')) {
                     e.stopPropagation();
                     e.preventDefault();
                     fired = false;
@@ -1306,7 +1308,7 @@
 
             // Prevent the browser context menu during a long press on a folder tab
             wrapper.addEventListener('contextmenu', e => {
-                if (pressTimer && e.target.closest('.folder-header')) e.preventDefault();
+                if (pressTimer && e.target.closest('.folder-tab')) e.preventDefault();
             });
         }
 
