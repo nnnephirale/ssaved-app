@@ -997,9 +997,17 @@
                 const gridState = folder.isCollapsed ? 'hidden' : '';
                 const opacity = folder.isCollapsed ? 'opacity-50' : 'opacity-100';
 
+                const addBtn = viewMode ? '' : `
+                <button onclick="event.stopPropagation(); triggerUpload('${folder.id}')"
+                        class="ml-auto flex items-center gap-1 px-2 py-1 text-neutral-300 hover:text-blue-500 hover:bg-blue-50/60 transition-all rounded-md opacity-100 md:opacity-0 md:group-hover/folder:opacity-100"
+                        title="Add screenshot to this folder">
+                    <i class="ph-bold ph-plus text-xs"></i>
+                    <i class="ph-bold ph-image text-sm"></i>
+                </button>`;
+
                 const deleteBtn = (viewMode || folder.id === getInboxId()) ? '' : `
                 <button onclick="event.stopPropagation(); deleteFolder('${folder.id}')"
-                        class="ml-auto mr-4 p-1.5 text-neutral-300 hover:text-red-500 transition-colors rounded-md opacity-0 group-hover/folder:opacity-100"
+                        class="mr-4 ml-1 p-1.5 text-neutral-300 hover:text-red-500 transition-colors rounded-md opacity-0 group-hover/folder:opacity-100"
                         title="Delete Folder">
                     <i class="ph-bold ph-x text-sm"></i>
                 </button>`;
@@ -1024,6 +1032,7 @@
                             <span class="opacity-50 font-normal">${fCards.length}</span>
                         </div>
 
+                        ${addBtn}
                         ${deleteBtn}
                         <div class="h-px bg-neutral-200/60 w-full mb-px absolute bottom-0 left-0 right-0 -z-10"></div>
                     </div>
@@ -1723,7 +1732,24 @@
             console.log('Files to upload:', files.length);
             
             const newCards = [];
-            
+
+            // Resolve destination folder: the per-folder add button sets a
+            // target; otherwise fall back to Inbox. Reset immediately so a
+            // later global upload isn't misrouted.
+            const inboxFolder = appData.folders.find(f => f.name === 'Inbox');
+            const actualInboxId = inboxFolder ? inboxFolder.id : `${collectionId}_inbox`;
+            const destFolderId = (uploadTargetFolderId && appData.folders.some(f => f.id === uploadTargetFolderId))
+                ? uploadTargetFolderId : actualInboxId;
+            uploadTargetFolderId = null;
+
+            // Expand the destination folder if it's collapsed so the new
+            // cards are visible after upload.
+            const destFolder = appData.folders.find(f => f.id === destFolderId);
+            if (destFolder && destFolder.isCollapsed) {
+                destFolder.isCollapsed = false;
+                saveFolderToDB(destFolder);
+            }
+
             for (let i = 0; i < files.length; i++) {
                 const file = files[i];
                 const id = Date.now() + i;
@@ -1746,10 +1772,6 @@
                 
                 const imageUrl = getPublicImageUrl(imagePath);
                 console.log('Image URL:', imageUrl);
-                
-                // Get the actual inbox folder ID
-                const inboxFolder = appData.folders.find(f => f.name === 'Inbox');
-                const actualInboxId = inboxFolder ? inboxFolder.id : `${collectionId}_inbox`;
 
                 const createdAt = new Date().toISOString();
                 const card = {
@@ -1759,7 +1781,7 @@
                     link: '#',
                     imageUrl,
                     imagePath,
-                    folderId: actualInboxId,
+                    folderId: destFolderId,
                     order: 0, // Will be auto-sorted by created_at timestamp
                     createdAt,
                     suggestions: [],
@@ -1843,8 +1865,12 @@
         function cleanString(s) { 
             return s.replace(/[^a-zA-Z0-9_.]/g, '').toLowerCase(); 
         }
-        function triggerUpload() { 
-            document.getElementById('fileInput').click(); 
+        // Folder to drop uploads into (null = default Inbox). Set by the
+        // per-folder add button so images can go straight into a tag.
+        let uploadTargetFolderId = null;
+        function triggerUpload(folderId = null) {
+            uploadTargetFolderId = folderId;
+            document.getElementById('fileInput').click();
         }
         
         function handleImageClick(e, id) {
