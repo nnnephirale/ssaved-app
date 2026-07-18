@@ -546,6 +546,18 @@
         </div>
     </div>
 
+    <!-- Delete Folder Confirmation Modal -->
+    <div id="deleteFolderModal" class="fixed inset-0 z-50 hidden items-center justify-center p-4 modal-backdrop">
+        <div class="modal-content w-full max-w-sm p-6">
+            <p class="text-sm text-neutral-700">Delete <strong id="deleteFolderName"></strong>?</p>
+            <p class="text-xs text-neutral-400 mt-1">Cards inside will be moved to Inbox.</p>
+            <div class="flex gap-2 mt-5">
+                <button onclick="closeDeleteModal()" class="flex-1 px-4 py-2 text-sm font-medium text-neutral-500 bg-neutral-100 hover:bg-neutral-200 rounded-lg transition-colors">Cancel</button>
+                <button onclick="executeDeleteFolder()" class="flex-1 px-4 py-2 text-sm font-medium text-red-600 bg-red-50 hover:bg-red-100 border border-red-100 rounded-lg transition-colors">Delete</button>
+            </div>
+        </div>
+    </div>
+
     <div id="statusBar" class="fixed bottom-6 left-1/2 -translate-x-1/2 bg-neutral-900/90 backdrop-blur-md text-white px-5 py-2.5 rounded-full shadow-2xl flex items-center gap-3 hidden transition-all z-50">
         <div class="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin"></div><span id="statusText" class="text-xs font-medium">Processing...</span>
     </div>
@@ -999,15 +1011,15 @@
 
                 const addBtn = viewMode ? '' : `
                 <button onclick="event.stopPropagation(); triggerUpload('${folder.id}')"
-                        class="ml-auto flex items-center gap-1 px-2 py-1 text-neutral-300 hover:text-blue-500 hover:bg-blue-50/60 transition-all rounded-md opacity-100 md:opacity-0 md:group-hover/folder:opacity-100"
+                        class="ml-auto flex items-center gap-1 px-2 py-1 text-neutral-400 active:text-blue-500 md:text-neutral-300 md:opacity-0 md:group-hover/folder:opacity-100 hover:text-blue-500 hover:bg-blue-50/60 transition-all rounded-md"
                         title="Add screenshot to this folder">
                     <i class="ph-bold ph-plus text-xs"></i>
                     <i class="ph-bold ph-image text-sm"></i>
                 </button>`;
 
                 const deleteBtn = (viewMode || folder.id === getInboxId()) ? '' : `
-                <button onclick="event.stopPropagation(); deleteFolder('${folder.id}')"
-                        class="mr-4 ml-1 p-1.5 text-neutral-300 hover:text-red-500 transition-colors rounded-md opacity-0 group-hover/folder:opacity-100"
+                <button onclick="event.stopPropagation(); confirmDeleteFolder('${folder.id}', '${folder.name.replace(/'/g, "\\'")}')"
+                        class="mr-4 ml-1 p-1.5 text-neutral-400 active:text-red-500 md:text-neutral-300 md:opacity-0 md:group-hover/folder:opacity-100 hover:text-red-500 transition-colors rounded-md"
                         title="Delete Folder">
                     <i class="ph-bold ph-x text-sm"></i>
                 </button>`;
@@ -1016,12 +1028,12 @@
 
                 const section = `
                 <section id="folder-${folder.id}" class="folder-enter group/folder">
-                    <div class="folder-header mb-5 flex items-end relative pl-1 cursor-pointer"
+                    <div class="folder-header mb-5 flex items-end relative pl-1"
                          data-folder-id="${folder.id}"
-                         onclick="toggleFolder('${folder.id}')"
                          ${folderDrag}>
 
-                        <div class="folder-tab bg-neutral-200/80 text-neutral-500 py-1.5 text-xs font-semibold uppercase tracking-wider rounded-t-lg transition-all duration-200 select-none group-hover/folder:bg-neutral-300/80 group-hover/folder:text-neutral-600 flex items-center gap-2 ${opacity}">
+                        <div class="folder-tab bg-neutral-200/80 text-neutral-500 py-1.5 text-xs font-semibold uppercase tracking-wider rounded-t-lg transition-all duration-200 select-none cursor-pointer group-hover/folder:bg-neutral-300/80 group-hover/folder:text-neutral-600 flex items-center gap-2 ${opacity}"
+                             onclick="toggleFolder('${folder.id}')">
                             <i class="ph-bold ${chevron} text-xs"></i>
                             <span class="folder-name-display" ${viewMode ? '' : `ondblclick="event.stopPropagation(); editFolderName('${folder.id}')"`}>${folder.name}</span>
                             ${viewMode ? '' : `<input type="text" id="folder-name-input-${folder.id}" class="folder-name-input hidden bg-white/90 px-2 py-0.5 rounded border border-neutral-300 text-neutral-700 text-xs font-semibold uppercase tracking-wider"
@@ -1643,9 +1655,28 @@
             }
         }
 
-        async function deleteFolder(id) {
-            if(id === getInboxId()) return;
-            if(!confirm("Delete this folder? Cards inside will be moved to Inbox.")) return;
+        let pendingDeleteFolderId = null;
+
+        function confirmDeleteFolder(id, name) {
+            if (id === getInboxId()) return;
+            pendingDeleteFolderId = id;
+            document.getElementById('deleteFolderName').textContent = name;
+            const modal = document.getElementById('deleteFolderModal');
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+        }
+
+        function closeDeleteModal() {
+            pendingDeleteFolderId = null;
+            const modal = document.getElementById('deleteFolderModal');
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+        }
+
+        async function executeDeleteFolder() {
+            const id = pendingDeleteFolderId;
+            if (!id) return;
+            closeDeleteModal();
 
             const cardsToMove = appData.cards.filter(c => c.folderId === id);
             for (const c of cardsToMove) {
