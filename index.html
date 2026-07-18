@@ -1096,20 +1096,19 @@
                     <div class="relative username-wrapper z-10">
                         ${tooltip}
                         <div class="relative group/input">
-                            <div class="absolute inset-y-0 left-0 pl-1 flex items-center ${viewMode ? 'pointer-events-none' : 'cursor-pointer'} z-10" ${viewMode ? '' : `onclick="toggleLinkMode(${c.id})" title="${linkMode ? 'Switch to username' : 'Switch to link'}"`}>
+                            <div class="absolute inset-y-0 left-0 pl-1 flex items-center ${viewMode ? 'pointer-events-none' : 'cursor-pointer'} z-10" ${viewMode ? '' : `onclick="${hasSuggestions && !linkMode ? `triggerTooltip(${c.id})` : `toggleLinkMode(${c.id})`}" title="${linkMode ? 'Switch to username' : hasSuggestions ? 'Show suggestions' : 'Switch to link'}"`}>
                                 ${linkMode
                                     ? `<i class="ph-bold ph-link text-neutral-400 text-sm"></i>`
-                                    : `<span class="text-neutral-300 font-medium">@</span>`}
+                                    : `<span class="${hasSuggestions ? 'text-neutral-400' : 'text-neutral-200'} font-medium">@</span>`}
                             </div>
                             <textarea
                                 oninput="${linkMode ? '' : 'autoResize(this); '}updateCard(${c.id}, 'username', this.value)"
-                                onfocus="${linkMode ? 'expandLinkField(this)' : 'autoResize(this)'};${hasSuggestions && !linkMode ? ` triggerTooltip(${c.id})` : ''}"
+                                onfocus="${linkMode ? 'expandLinkField(this)' : 'autoResize(this)'}"
                                 onblur="${linkMode ? 'collapseLinkField(this)' : ''}"
-                                class="${linkMode ? 'link-field w-full pl-6 pr-10 py-1 bg-transparent border-0 border-b border-neutral-100 focus:border-neutral-300 outline-none text-sm font-normal text-neutral-500 group-hover/input:text-neutral-700 focus:text-neutral-900 transition-colors placeholder:text-neutral-300 overflow-hidden whitespace-nowrap resize-none' : 'auto-grow w-full pl-6 pr-8 py-1 bg-transparent border-0 border-b border-neutral-100 focus:border-neutral-300 outline-none text-sm font-semibold text-neutral-400 group-hover/input:text-neutral-700 focus:text-neutral-900 transition-colors placeholder:text-neutral-300'}"
+                                class="${linkMode ? 'link-field w-full pl-6 pr-10 py-1 bg-transparent border-0 border-b border-neutral-100 focus:border-neutral-300 outline-none text-sm font-normal text-neutral-500 group-hover/input:text-neutral-700 focus:text-neutral-900 transition-colors placeholder:text-neutral-300 overflow-hidden whitespace-nowrap resize-none' : 'auto-grow w-full pl-6 pr-2 py-1 bg-transparent border-0 border-b border-neutral-100 focus:border-neutral-300 outline-none text-sm font-semibold text-neutral-400 group-hover/input:text-neutral-700 focus:text-neutral-900 transition-colors placeholder:text-neutral-300'}"
                                 style="${linkMode ? 'height: 24px; transition: height 0.2s ease, white-space 0.2s ease;' : ''}"
                                 placeholder="${linkMode ? 'Paste link...' : 'Username'}" rows="1">${linkMode ? c.link : c.username}</textarea>
                             ${linkMode && c.link ? `<button onclick="event.stopPropagation(); copyCardLink(${c.id})" class="absolute inset-y-0 right-0 pl-4 pr-1 flex items-center text-neutral-300 hover:text-neutral-600 transition-colors bg-gradient-to-l from-white from-60% to-transparent" title="Copy link"><i class="ph-bold ph-copy text-xs"></i></button>` : ''}
-                            ${hasSuggestions && !linkMode ? `<div class="absolute inset-y-0 right-0 pr-2 flex items-center pointer-events-none"><i class="ph-fill ph-magic-wand text-neutral-300 text-sm"></i></div>` : ''}
                         </div>
                     </div>
                     <div class="notes-wrapper" id="notes-wrapper-${c.id}">
