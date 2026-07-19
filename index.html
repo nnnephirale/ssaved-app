@@ -1108,7 +1108,7 @@
                     <div class="relative username-wrapper z-10">
                         ${tooltip}
                         <div class="relative group/input">
-                            <div class="absolute inset-y-0 left-0 pl-1 flex items-center ${viewMode ? 'pointer-events-none' : 'cursor-pointer'} z-10" ${viewMode ? '' : `onclick="${hasSuggestions && !linkMode ? `triggerTooltip(${c.id})` : `toggleLinkMode(${c.id})`}" title="${linkMode ? 'Switch to username' : hasSuggestions ? 'Show suggestions' : 'Switch to link'}"`}>
+                            <div class="absolute inset-y-0 left-0 pl-1 flex items-center ${viewMode ? 'pointer-events-none' : 'cursor-pointer'} z-10" style="touch-action: manipulation; user-select: none;" ${viewMode ? '' : `onclick="handleTagTap(${c.id})" title="${linkMode ? 'Double-tap to switch to username' : hasSuggestions ? 'Tap for suggestions · double-tap for link' : 'Double-tap to switch to link'}"`}>
                                 ${linkMode
                                     ? `<i class="ph-bold ph-link text-neutral-400 text-sm"></i>`
                                     : `<span class="${hasSuggestions ? 'text-neutral-400' : 'text-neutral-200'} font-medium">@</span>`}
@@ -1993,6 +1993,29 @@
             }
             saveCardToDB(c);
             transitionRender();
+        }
+
+        // Tap the @ / link icon: a single tap shows OCR suggestions (when the card has
+        // any), a double tap toggles URL (link) mode. The timer lets us tell them apart
+        // so the two actions never conflict on the same hotspot.
+        const tagTapTimers = {};
+        function handleTagTap(id) {
+            if (tagTapTimers[id]) {
+                // Second tap inside the window → double tap → switch to/from URL mode.
+                clearTimeout(tagTapTimers[id]);
+                delete tagTapTimers[id];
+                closeAllTooltips();
+                toggleLinkMode(id);
+                return;
+            }
+            tagTapTimers[id] = setTimeout(() => {
+                delete tagTapTimers[id];
+                // Single tap → show suggestions if this card has any to offer.
+                const c = appData.cards.find(x => x.id === id);
+                if (c && !isLinkMode(c) && !c.isScanning && c.suggestions && c.suggestions.length !== 1) {
+                    triggerTooltip(id);
+                }
+            }, 260);
         }
 
         async function updateCard(id, f, v) {
