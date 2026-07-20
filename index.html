@@ -75,11 +75,6 @@
                 0 4px 8px -2px rgba(244, 63, 94, 0.08),
                 0 16px 48px -8px rgba(244, 63, 94, 0.2);
         }
-        .card.is-dragging {
-            opacity: 0.4;
-            filter: grayscale(80%);
-            transform: scale(0.98);
-        }
         .card.is-selected {
             box-shadow: 0 0 0 3px #3b82f6;
             border-radius: 0.75rem;
@@ -114,6 +109,8 @@
         .no-scrollbar::-webkit-scrollbar { display: none; }
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
         ::view-transition-group(root) { animation-duration: 0.35s; animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1); }
+        /* Keep the page hit-testable during view transitions (drags started mid-transition) */
+        ::view-transition { pointer-events: none; }
         
         /* --- ANIMATIONS --- */
         @keyframes slideUp { 
@@ -149,20 +146,59 @@
         }
 
         /* --- DRAG & DROP --- */
-        body.global-dragging, body.global-dragging * { cursor: grabbing !important; }
-        .card-shift-forward { transform: translateX(-24px); transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
-        .card-shift-backward { transform: translateX(24px); transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
+        body.global-dragging { cursor: grabbing; user-select: none; -webkit-user-select: none; }
+        body.global-dragging * { cursor: grabbing !important; }
+        /* cards don't intercept the pointer mid-drag → clean hit-testing, no hover jitter */
+        body.global-dragging .card { pointer-events: none; }
+        .card { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+        .card textarea, .card input { -webkit-user-select: text; user-select: text; }
 
-        /* Drag image styling - ensure rounded corners are preserved */
-        .drag-ghost {
-            position: absolute;
-            top: -10000px;
-            left: -10000px;
-            border-radius: 1.25rem;
-            overflow: hidden;
-            pointer-events: none;
+        /* The card being dragged stays in the grid as an invisible slot (defines the gap) */
+        .card-placeholder { opacity: 0; }
+        /* Extra selected cards collapse out of flow while their group is dragged */
+        .card-hidden { display: none; }
+        /* Momentary lift when a card is picked up */
+        .card-lifted {
+            transform: scale(1.03);
+            box-shadow: 0 14px 42px -10px rgba(0, 0, 0, 0.28);
+            transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+            z-index: 30;
+            position: relative;
         }
-        
+
+        /* Floating clone that follows the pointer */
+        .drag-ghost-live {
+            position: fixed;
+            top: 0;
+            left: 0;
+            margin: 0;
+            z-index: 1000;
+            pointer-events: none;
+            border-radius: 1.25rem;
+            opacity: 0.96;
+            box-shadow: 0 24px 60px -16px rgba(0, 0, 0, 0.38);
+            transform: translate(0, 0);
+            transform-origin: top left;
+            will-change: transform;
+        }
+        .drag-ghost-count {
+            position: absolute;
+            top: -10px;
+            right: -10px;
+            min-width: 26px;
+            height: 26px;
+            padding: 0 7px;
+            border-radius: 13px;
+            background: #3b82f6;
+            color: #fff;
+            font-size: 12px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 2px 8px rgba(59, 130, 246, 0.4);
+        }
+
         /* --- SLIDER STYLING --- */
         input[type=range] { -webkit-appearance: none; width: 100%; background: transparent; }
         input[type=range]::-webkit-slider-thumb { 
@@ -582,7 +618,7 @@
 
         // --- STATE ---
         let appData = { cards: [], folders: [] };
-        let undoTimeout = null, dragSrcId = null, dragSrcFolderId = null;
+        let undoTimeout = null;
         let selectionMode = false, selectedCardIds = new Set(), selectionFolderId = null;
         let collectionId = null;
         
@@ -1011,7 +1047,7 @@
 
                 const addBtn = viewMode ? '' : `
                 <button onclick="event.stopPropagation(); triggerUpload('${folder.id}')"
-                        class="ml-auto flex items-center gap-1 px-2 py-1 text-neutral-400 active:text-blue-500 md:text-neutral-300 md:opacity-0 md:group-hover/folder:opacity-100 hover:text-blue-500 hover:bg-blue-50/60 transition-all rounded-md"
+                        class="ml-auto flex items-center gap-1 px-2 py-1.5 text-neutral-400 active:text-blue-500 md:text-neutral-300 md:opacity-0 md:group-hover/folder:opacity-100 hover:text-blue-500 hover:bg-blue-50/60 transition-all rounded-md"
                         title="Add screenshot to this folder">
                     <i class="ph-bold ph-plus text-xs"></i>
                     <i class="ph-bold ph-image text-sm"></i>
@@ -1019,18 +1055,15 @@
 
                 const deleteBtn = (viewMode || folder.id === getInboxId()) ? '' : `
                 <button onclick="event.stopPropagation(); confirmDeleteFolder('${folder.id}', '${folder.name.replace(/'/g, "\\'")}')"
-                        class="mr-4 ml-1 p-1.5 text-neutral-400 active:text-red-500 md:text-neutral-300 md:opacity-0 md:group-hover/folder:opacity-100 hover:text-red-500 transition-colors rounded-md"
+                        class="mr-4 ml-1 flex items-center p-1.5 text-neutral-400 active:text-red-500 md:text-neutral-300 md:opacity-0 md:group-hover/folder:opacity-100 hover:text-red-500 transition-colors rounded-md"
                         title="Delete Folder">
                     <i class="ph-bold ph-x text-sm"></i>
                 </button>`;
 
-                const folderDrag = viewMode ? '' : `ondragover="handleFolderDragOver(event, '${folder.id}')" ondragleave="handleFolderDragLeave(event, '${folder.id}')" ondrop="handleFolderDrop(event, '${folder.id}')"`;
-
                 const section = `
                 <section id="folder-${folder.id}" class="folder-enter group/folder">
                     <div class="folder-header mb-5 flex items-end relative pl-1"
-                         data-folder-id="${folder.id}"
-                         ${folderDrag}>
+                         data-folder-id="${folder.id}">
 
                         <div class="folder-tab bg-neutral-200/80 text-neutral-500 py-1.5 text-xs font-semibold uppercase tracking-wider rounded-t-lg transition-all duration-200 select-none cursor-pointer group-hover/folder:bg-neutral-300/80 group-hover/folder:text-neutral-600 flex items-center gap-2 ${opacity}"
                              onclick="toggleFolder('${folder.id}')">
@@ -1049,8 +1082,7 @@
                         <div class="h-px bg-neutral-200/60 w-full mb-px absolute bottom-0 left-0 right-0 -z-10"></div>
                     </div>
 
-                    <div class="folder-grid-area grid ${gridClass} gap-5 md:gap-6 min-h-[50px] transition-all duration-300 ${gridState}"
-                         ${folderDrag}>
+                    <div class="folder-grid-area grid ${gridClass} gap-5 md:gap-6 min-h-[50px] transition-all duration-300 ${gridState}">
                         ${cardsHtml}
                     </div>
                 </section>`;
@@ -1079,7 +1111,7 @@
                 tooltip = `<div id="tooltip-${c.id}" class="tooltip-container absolute bottom-full left-0 w-full mb-3 z-50"><div class="tooltip-arrow relative">${content}</div></div>`;
             }
 
-            const dragAttrs = viewMode ? '' : `draggable="true" ondragstart="handleDragStart(event, ${c.id})" ondragover="handleCardDragOver(event, ${c.id})" ondrop="handleCardDrop(event, ${c.id})" ondragend="handleDragEnd(event)"`;
+            const dragAttrs = viewMode ? '' : `data-card-id="${c.id}"`;
             const isSelected = selectionMode && selectedCardIds.has(c.id);
             const selClass = isSelected ? 'is-selected' : '';
             const inSelectableFolder = selectionMode && c.folderId === selectionFolderId;
@@ -1251,38 +1283,9 @@
         });
 
         // --- MULTI-SELECT ---
-        function setupLongPress() {
-            if (viewMode) return;
-            const wrapper = document.getElementById('folderWrapper');
-            let pressTimer = null, startX = 0, startY = 0, pressTarget = null;
-
-            wrapper.addEventListener('pointerdown', e => {
-                if (selectionMode) return;
-                const card = e.target.closest('.card');
-                if (!card) return;
-                const id = parseInt(card.id.replace('card-', ''));
-                if (!id) return;
-                startX = e.clientX; startY = e.clientY; pressTarget = id;
-                pressTimer = setTimeout(() => {
-                    pressTimer = null;
-                    enterSelectionMode(pressTarget);
-                }, 500);
-            });
-
-            wrapper.addEventListener('pointermove', e => {
-                if (!pressTimer) return;
-                if (Math.abs(e.clientX - startX) > 10 || Math.abs(e.clientY - startY) > 10) {
-                    clearTimeout(pressTimer); pressTimer = null;
-                }
-            });
-
-            wrapper.addEventListener('pointerup', () => { if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; } });
-            wrapper.addEventListener('pointercancel', () => { if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; } });
-
-            wrapper.addEventListener('contextmenu', e => {
-                if (selectionMode || pressTimer) e.preventDefault();
-            });
-        }
+        // Selection is entered via the pointer-drag engine's long-press "pick up"
+        // (see setupLongPress in the POINTER DRAG section). Tapping additional cards
+        // while parked in selection mode adds them via toggleCardSelection().
 
         // --- FOLDER LONG-PRESS → TAG OVERVIEW ---
         function setupFolderLongPress() {
@@ -1419,17 +1422,6 @@
             }
         }
 
-        function enterSelectionMode(cardId) {
-            const card = appData.cards.find(c => c.id === cardId);
-            if (!card) return;
-            selectionMode = true;
-            selectionFolderId = card.folderId;
-            selectedCardIds.clear();
-            selectedCardIds.add(cardId);
-            updateSelectionToolbar();
-            transitionRender();
-        }
-
         function exitSelectionMode() {
             selectionMode = false;
             selectedCardIds.clear();
@@ -1497,141 +1489,346 @@
             exitSelectionMode();
         }
 
-        // --- DRAG & DROP ---
-        function handleDragStart(e, id) {
-            dragSrcId = id;
-            const c = appData.cards.find(x => x.id === id);
-            dragSrcFolderId = c ? c.folderId : null;
+        // --- POINTER DRAG + REORDER ENGINE ---
+        // Unified for mouse + touch. Mouse: press & move starts a drag immediately.
+        // Touch: long-press (450ms held still) "picks up" the card, then moving drags it.
+        // Live FLIP preview shows exactly where the card lands before release.
+        let pressInfo = null;   // pending press (pre-drag)
+        let dragState = null;   // active drag session
+        let justDragged = false; // swallow the click that follows a drop
+        const PICKUP_MS = 450;
 
-            e.dataTransfer.effectAllowed = 'move';
-            e.dataTransfer.setData('text/plain', id);
+        function setupLongPress() {
+            if (viewMode) return;
+            const wrapper = document.getElementById('folderWrapper');
+            wrapper.addEventListener('pointerdown', dragPointerDown);
+            wrapper.addEventListener('pointermove', dragPointerMove, { passive: false });
+            wrapper.addEventListener('pointerup', dragPointerUp);
+            wrapper.addEventListener('pointercancel', dragPointerUp);
+            // pointermove preventDefault doesn't stop touch panning — block touchmove
+            // while a card is picked up so the browser never hijacks the drag via pointercancel
+            wrapper.addEventListener('touchmove', e => {
+                if (dragState || (pressInfo && pressInfo.pickedUp)) e.preventDefault();
+            }, { passive: false });
+            wrapper.addEventListener('contextmenu', e => {
+                if ((pressInfo || dragState || selectionMode) && e.target.closest('.card')) e.preventDefault();
+            });
+            // Eat the click that fires right after a drag so it doesn't open/edit the card
+            wrapper.addEventListener('click', e => {
+                if (justDragged) { e.stopPropagation(); e.preventDefault(); }
+            }, true);
+        }
 
-            // Create a cleaner drag image by hiding buttons temporarily
-            const card = document.getElementById(`card-${id}`);
-            if (card) {
-                // Hide interactive elements that shouldn't show in drag preview
-                const buttons = card.querySelectorAll('button, .external-link-btn, .delete-btn');
-                buttons.forEach(btn => btn.style.opacity = '0');
+        function dragPointerDown(e) {
+            if (viewMode || dragState) return;
+            if (e.button != null && e.button !== 0) return; // primary button only
+            const card = e.target.closest('.card');
+            if (!card) return;
+            if (e.target.closest('button, textarea, input, a, .notes-toggle')) return; // let controls work
+            const id = parseInt(card.id.replace('card-', ''));
+            if (!id) return;
 
-                // Use the card itself as drag image with proper offset
-                try {
-                    e.dataTransfer.setDragImage(card, card.offsetWidth / 2, 50);
-                } catch(err) {
-                    // Fallback if setDragImage fails
-                    console.log('Drag image failed:', err);
-                }
+            pressInfo = {
+                id, startX: e.clientX, startY: e.clientY, x: e.clientX, y: e.clientY,
+                pointerType: e.pointerType, pointerId: e.pointerId, pickedUp: false, timer: null
+            };
+            pressInfo.timer = setTimeout(() => {
+                if (!pressInfo) return;
+                pressInfo.timer = null;
+                pickUp(); // long-press: lift the card (touch + mouse-hold both enter select-capable state)
+            }, PICKUP_MS);
+        }
 
-                // Restore buttons after a brief delay
-                setTimeout(() => {
-                    buttons.forEach(btn => btn.style.opacity = '');
-                }, 50);
+        function pickUp() {
+            if (!pressInfo || dragState) return;
+            pressInfo.pickedUp = true;
+            pressInfo.selectOnPickup = true; // came from a hold → selection-capable
+            if (navigator.vibrate) navigator.vibrate(12);
+            if (!selectionMode) {
+                enterSelectionInPlace(pressInfo.id);
+            } else if (!selectedCardIds.has(pressInfo.id)) {
+                reanchorSelectionInPlace(pressInfo.id);
             }
+            document.getElementById(`card-${pressInfo.id}`)?.classList.add('card-lifted');
+        }
+
+        function dragPointerMove(e) {
+            if (dragState) {
+                e.preventDefault();
+                dragState.x = e.clientX; dragState.y = e.clientY;
+                positionGhost(e.clientX, e.clientY);
+                autoScroll(e.clientY);
+                if (!dragState.rafPending) {
+                    dragState.rafPending = true;
+                    requestAnimationFrame(reorderPreview);
+                }
+                return;
+            }
+            if (!pressInfo) return;
+            pressInfo.x = e.clientX; pressInfo.y = e.clientY;
+            const dist = Math.hypot(e.clientX - pressInfo.startX, e.clientY - pressInfo.startY);
+            if (pressInfo.pickedUp) {
+                if (dist > 4) { e.preventDefault(); beginDrag(); }
+                return;
+            }
+            if (pressInfo.pointerType === 'mouse') {
+                if (dist > 6) { // mouse: drag immediately on move, no selection forced
+                    clearTimeout(pressInfo.timer); pressInfo.timer = null;
+                    pressInfo.pickedUp = true; pressInfo.selectOnPickup = false;
+                    beginDrag();
+                }
+            } else if (dist > 10) {
+                // touch moved before pickup → treat as a scroll, abandon the press
+                clearTimeout(pressInfo.timer); pressInfo.timer = null; pressInfo = null;
+            }
+        }
+
+        function dragPointerUp() {
+            if (dragState) { endDrag(); pressInfo = null; return; }
+            if (!pressInfo) return;
+            if (pressInfo.timer) clearTimeout(pressInfo.timer);
+            if (pressInfo.pickedUp) {
+                // picked up but never dragged → park in selection mode (multi-select entry)
+                document.getElementById(`card-${pressInfo.id}`)?.classList.remove('card-lifted');
+                if (selectionMode) transitionRender();
+            }
+            pressInfo = null;
+        }
+
+        // Enter selection mode without a full re-render (so the drag can continue on the live DOM)
+        function enterSelectionInPlace(id) {
+            const card = appData.cards.find(c => c.id === id);
+            if (!card) return;
+            selectionMode = true;
+            selectionFolderId = card.folderId;
+            selectedCardIds.clear();
+            selectedCardIds.add(id);
+            updateSelectionToolbar();
+            markSelectedInPlace(id, true);
+        }
+        function reanchorSelectionInPlace(id) {
+            const card = appData.cards.find(c => c.id === id);
+            if (!card) return;
+            selectedCardIds.forEach(sid => markSelectedInPlace(sid, false));
+            selectionFolderId = card.folderId;
+            selectedCardIds.clear();
+            selectedCardIds.add(id);
+            updateSelectionToolbar();
+            markSelectedInPlace(id, true);
+        }
+        function markSelectedInPlace(id, on) {
+            const el = document.getElementById(`card-${id}`);
+            if (!el) return;
+            el.classList.toggle('is-selected', on);
+            const check = el.querySelector('.selection-check');
+            if (on && !check) {
+                el.querySelector('.group\\/image')?.insertAdjacentHTML('afterbegin', '<div class="selection-check"><i class="ph-bold ph-check"></i></div>');
+            } else if (!on && check) {
+                check.remove();
+            }
+        }
+
+        function beginDrag() {
+            const anchorId = pressInfo.id;
+            const anchorCard = appData.cards.find(c => c.id === anchorId);
+            const anchorEl = document.getElementById(`card-${anchorId}`);
+            if (!anchorCard || !anchorEl) { pressInfo = null; return; }
+
+            const multi = selectionMode && selectedCardIds.has(anchorId) && selectedCardIds.size > 1;
+            const ids = multi ? [...selectedCardIds] : [anchorId];
+            const rect = anchorEl.getBoundingClientRect();
+
+            const ghost = anchorEl.cloneNode(true);
+            ghost.removeAttribute('id');
+            ghost.classList.remove('card-lifted', 'is-selected', 'card-placeholder');
+            ghost.classList.add('drag-ghost-live');
+            ghost.style.viewTransitionName = 'none'; // avoid duplicate-name clash with the real card
+            ghost.style.width = rect.width + 'px';
+            ghost.style.height = rect.height + 'px';
+            if (multi) {
+                const badge = document.createElement('div');
+                badge.className = 'drag-ghost-count';
+                badge.textContent = ids.length;
+                ghost.appendChild(badge);
+            }
+            document.body.appendChild(ghost);
+
+            dragState = {
+                anchorId, ids, multi, srcFolderId: anchorCard.folderId,
+                ghost, pointerId: pressInfo.pointerId,
+                offsetX: pressInfo.x - rect.left, offsetY: pressInfo.y - rect.top,
+                x: pressInfo.x, y: pressInfo.y, curFolderId: anchorCard.folderId,
+                scale: Math.min(1, 220 / rect.width), // shrink big ghosts so the drop gap stays visible
+                lastKey: null, rafPending: false, expanded: []
+            };
+            pressInfo = null;
+
+            anchorEl.classList.add('card-placeholder');
+            if (multi) ids.filter(x => x !== anchorId).forEach(x => document.getElementById(`card-${x}`)?.classList.add('card-hidden'));
 
             document.body.classList.add('global-dragging');
-            if (selectionMode && selectedCardIds.has(id)) {
-                setTimeout(() => selectedCardIds.forEach(sid => document.getElementById(`card-${sid}`)?.classList.add('is-dragging')), 0);
-            } else {
-                setTimeout(() => document.getElementById(`card-${id}`)?.classList.add('is-dragging'), 0);
+            const wrapper = document.getElementById('folderWrapper');
+            try { wrapper.setPointerCapture(dragState.pointerId); } catch (err) {}
+
+            positionGhost(dragState.x, dragState.y);
+        }
+
+        function positionGhost(x, y) {
+            if (!dragState) return;
+            const s = dragState.scale;
+            // keep the original grab point under the finger as the ghost shrinks
+            dragState.ghost.style.transform = `translate(${x - dragState.offsetX * s}px, ${y - dragState.offsetY * s}px) scale(${s})`;
+        }
+
+        function autoScroll(y) {
+            const margin = 90, speed = 14;
+            if (y < margin) window.scrollBy(0, -speed);
+            else if (y > window.innerHeight - margin) window.scrollBy(0, speed);
+        }
+
+        function reorderPreview() {
+            if (!dragState) return;
+            dragState.rafPending = false;
+            const { x, y } = dragState;
+            const el = document.elementFromPoint(x, y);
+            const section = el && el.closest('section[id^="folder-"]');
+            if (!section) return;
+            const targetFolderId = section.id.replace('folder-', '');
+            const grid = section.querySelector('.folder-grid-area');
+            if (!grid) return;
+
+            // Live-expand a collapsed folder we hover over (persisted on drop)
+            const folder = appData.folders.find(f => f.id === targetFolderId);
+            if (folder && folder.isCollapsed) {
+                folder.isCollapsed = false;
+                grid.classList.remove('hidden');
+                section.querySelector('.folder-tab i')?.classList.replace('ph-caret-right', 'ph-caret-down');
+                if (!dragState.expanded.includes(targetFolderId)) dragState.expanded.push(targetFolderId);
             }
-        }
 
-        function handleFolderDragOver(e, folderId) {
-            if (!dragSrcId || dragSrcFolderId === folderId) return;
-            e.preventDefault(); e.dataTransfer.dropEffect = 'move';
-            document.getElementById(`folder-${folderId}`).classList.add('folder-drop-active');
-            
-            const f = appData.folders.find(x => x.id === folderId);
-            if(f && f.isCollapsed) { f.isCollapsed = false; saveFolderToDB(f); render(); }
-        }
-
-        function handleFolderDragLeave(e, folderId) {
-            if (e.relatedTarget && document.getElementById(`folder-${folderId}`).contains(e.relatedTarget)) return;
-            document.getElementById(`folder-${folderId}`).classList.remove('folder-drop-active');
-        }
-
-        function handleFolderDrop(e, folderId) {
-            e.preventDefault();
-            document.getElementById(`folder-${folderId}`).classList.remove('folder-drop-active');
-            if (dragSrcId && dragSrcFolderId !== folderId) {
-                if (selectionMode && selectedCardIds.size > 0) {
-                    handleFolderDropMultiple(folderId);
-                } else {
-                    const c = appData.cards.find(x => x.id === dragSrcId);
-                    if (c) {
-                        c.folderId = folderId; c.order = 0;
-                        saveCardToDB(c);
-                        reindexCards(folderId); reindexCards(dragSrcFolderId);
-                        transitionRender();
-                    }
+            // Multi-select: no fine reorder, just retarget the destination folder
+            if (dragState.multi) {
+                if (dragState.curFolderId !== targetFolderId) {
+                    highlightFolder(targetFolderId);
+                    dragState.curFolderId = targetFolderId;
                 }
-            }
-        }
-
-        function handleCardDragOver(e, targetId) {
-            if (!dragSrcId) return; // External file drag — let global handler process it
-            e.preventDefault(); e.dataTransfer.dropEffect = 'move';
-            if (selectionMode) return; // Skip reorder visuals in multi-select
-            if (dragSrcId === targetId) return;
-
-            const targetCard = appData.cards.find(c => c.id === targetId);
-            if (targetCard.folderId !== dragSrcFolderId) return;
-
-            const folderCards = appData.cards.filter(c => c.folderId === dragSrcFolderId).sort((a,b) => a.order - b.order);
-            const from = folderCards.findIndex(c => c.id === dragSrcId);
-            const to = folderCards.findIndex(c => c.id === targetId);
-
-            if (from === -1 || to === -1) return;
-
-            document.querySelectorAll('.card-shift-forward, .card-shift-backward').forEach(el => { 
-                el.classList.remove('card-shift-forward', 'card-shift-backward'); 
-                el.style.transform = ''; 
-            });
-            
-            const start = Math.min(from, to), end = Math.max(from, to);
-            for (let i = start; i <= end; i++) {
-                if (i === from) continue;
-                const el = document.getElementById(`card-${folderCards[i].id}`);
-                if (el) el.classList.add(from < to ? 'card-shift-forward' : 'card-shift-backward');
-            }
-        }
-
-        function handleCardDrop(e, targetId) {
-            if (!dragSrcId) return; // External file drop — let global handler process it
-            e.stopPropagation(); e.preventDefault();
-            if (dragSrcId === targetId) return;
-
-            const targetCard = appData.cards.find(c => c.id === targetId);
-
-            // In selection mode, only handle cross-folder moves (skip reorder)
-            if (selectionMode) {
-                if (targetCard.folderId !== dragSrcFolderId) handleFolderDrop(e, targetCard.folderId);
                 return;
             }
 
-            if (targetCard.folderId === dragSrcFolderId) {
-                const folderCards = appData.cards.filter(c => c.folderId === dragSrcFolderId).sort((a,b) => a.order - b.order);
-                const from = folderCards.findIndex(c => c.id === dragSrcId);
-                const to = folderCards.findIndex(c => c.id === targetId);
+            const anchorEl = document.getElementById(`card-${dragState.anchorId}`);
+            const ref = computeInsertRef(grid, x, y, anchorEl);
+            const key = targetFolderId + '::' + (ref ? ref.id : 'END');
+            if (key === dragState.lastKey) return;
+            dragState.lastKey = key;
+            dragState.curFolderId = targetFolderId;
 
-                if (from > -1 && to > -1) {
-                    const [moved] = folderCards.splice(from, 1);
-                    folderCards.splice(to, 0, moved);
-                    folderCards.forEach((c, i) => { c.order = i; saveCardToDB(c); });
-                    appData.cards.sort((a,b) => a.order - b.order);
-                    transitionRender();
-                }
-            } else {
-                handleFolderDrop(e, targetCard.folderId);
-            }
+            flipMove(() => {
+                if (ref) grid.insertBefore(anchorEl, ref);
+                else grid.appendChild(anchorEl);
+            });
         }
 
-        function handleDragEnd() {
-            document.body.classList.remove('global-dragging');
-            document.querySelectorAll('.is-dragging, .card-shift-forward, .card-shift-backward, .folder-drop-active').forEach(el => {
-                el.classList.remove('is-dragging', 'card-shift-forward', 'card-shift-backward', 'folder-drop-active');
-                el.style.transform = '';
+        function computeInsertRef(grid, x, y, anchorEl) {
+            const cards = [...grid.querySelectorAll('.card')].filter(c => c !== anchorEl && !c.classList.contains('card-hidden'));
+            if (!cards.length) return null; // empty grid → append
+            let best = null, bestDist = Infinity, bestRect = null;
+            for (const c of cards) {
+                const r = c.getBoundingClientRect();
+                const d = (x - (r.left + r.width / 2)) ** 2 + (y - (r.top + r.height / 2)) ** 2;
+                if (d < bestDist) { bestDist = d; best = c; bestRect = r; }
+            }
+            const r = bestRect;
+            const relY = y - (r.top + r.height / 2);
+            const cols = getComputedStyle(grid).gridTemplateColumns.split(' ').length;
+            let after;
+            if (cols === 1) after = relY > 0; // vertical list: top half → before, bottom half → after
+            else if (relY > r.height / 2) after = true;
+            else if (relY < -r.height / 2) after = false;
+            else after = x > r.left + r.width / 2;
+            if (!after) return best;
+            let n = best.nextElementSibling;
+            while (n && (n === anchorEl || !n.classList.contains('card') || n.classList.contains('card-hidden'))) n = n.nextElementSibling;
+            return n; // null → append
+        }
+
+        // FLIP: animate every visible card from its old position to its new one
+        function flipMove(mutate) {
+            const els = [...document.querySelectorAll('.folder-grid-area .card')].filter(el => !el.classList.contains('card-hidden'));
+            const first = new Map();
+            els.forEach(el => first.set(el, el.getBoundingClientRect()));
+            mutate();
+            els.forEach(el => {
+                const f = first.get(el);
+                if (!f) return;
+                const l = el.getBoundingClientRect();
+                const dx = f.left - l.left, dy = f.top - l.top;
+                if (!dx && !dy) return;
+                el.style.transition = 'none';
+                el.style.transform = `translate(${dx}px, ${dy}px)`;
+                requestAnimationFrame(() => {
+                    el.style.transition = 'transform 0.28s cubic-bezier(0.16, 1, 0.3, 1)';
+                    el.style.transform = '';
+                });
             });
-            dragSrcId = null; dragSrcFolderId = null;
+        }
+
+        function highlightFolder(folderId) {
+            clearFolderHighlights();
+            document.getElementById(`folder-${folderId}`)?.classList.add('folder-drop-active');
+        }
+        function clearFolderHighlights() {
+            document.querySelectorAll('.folder-drop-active').forEach(el => el.classList.remove('folder-drop-active'));
+        }
+
+        function endDrag() {
+            const ds = dragState;
+            dragState = null;
+            ds.ghost.remove();
+            document.body.classList.remove('global-dragging');
+            clearFolderHighlights();
+            try { document.getElementById('folderWrapper').releasePointerCapture(ds.pointerId); } catch (err) {}
+
+            const anchorEl = document.getElementById(`card-${ds.anchorId}`);
+            anchorEl?.classList.remove('card-placeholder', 'card-lifted');
+            ds.ids.forEach(x => document.getElementById(`card-${x}`)?.classList.remove('card-hidden'));
+
+            // Swallow the trailing click
+            justDragged = true;
+            setTimeout(() => { justDragged = false; }, 80);
+
+            // Persist any folders we auto-expanded during the drag
+            ds.expanded.forEach(fid => {
+                const f = appData.folders.find(x => x.id === fid);
+                if (f) saveFolderToDB(f);
+            });
+
+            if (ds.multi) {
+                if (ds.curFolderId && ds.curFolderId !== ds.srcFolderId) handleFolderDropMultiple(ds.curFolderId);
+                else exitSelectionMode();
+                return;
+            }
+
+            // Single card: commit order (and folder) from its live DOM position
+            const grid = anchorEl ? anchorEl.closest('.folder-grid-area') : null;
+            const section = anchorEl ? anchorEl.closest('section[id^="folder-"]') : null;
+            const newFolderId = section ? section.id.replace('folder-', '') : ds.srcFolderId;
+            const anchorCard = appData.cards.find(c => c.id === ds.anchorId);
+            const folderChanged = newFolderId !== ds.srcFolderId;
+            if (anchorCard && folderChanged) anchorCard.folderId = newFolderId;
+
+            if (grid) {
+                const domCards = [...grid.querySelectorAll('.card')].filter(el => !el.classList.contains('card-hidden'));
+                domCards.forEach((el, i) => {
+                    const cid = parseInt(el.id.replace('card-', ''));
+                    const c = appData.cards.find(x => x.id === cid);
+                    if (c) { c.order = i; saveCardToDB(c); }
+                });
+            }
+            if (folderChanged) reindexCards(ds.srcFolderId);
+
+            if (selectionMode) exitSelectionMode(); // re-renders cleanly
+            else transitionRender();
+            showSaved();
         }
 
         // --- ACTIONS ---
@@ -2179,7 +2376,6 @@
             const ov = document.getElementById('dragOverlay');
             let c = 0;
             ['dragenter','dragleave','dragover','drop'].forEach(evt => window.addEventListener(evt, e => {
-                if (dragSrcId) return; 
                 e.preventDefault();
                 if (evt === 'dragenter' && e.dataTransfer.types.includes('Files')) { 
                     c++; 

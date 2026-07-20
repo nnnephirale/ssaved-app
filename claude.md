@@ -1,5 +1,27 @@
 # SSaved App - Development Log
 
+## ✅ Pointer-Based Drag & Drop Rewrite (Jul 20, 2026)
+
+**Problem:** Reordering was glitchy — it used native HTML5 drag-and-drop, which (a) doesn't fire at all on mobile touch, and (b) only showed a fixed ±24px shift of in-between cards, never the actual landing position.
+
+**Solution:** Replaced native DnD with a unified pointer-event drag engine (`setupLongPress` / `beginDrag` / `reorderPreview` / `endDrag`):
+- **Mouse:** press + move ~6px starts a drag immediately.
+- **Touch:** long-press 450ms (haptic tick) "picks up" the card; moving then drags it. Moving before pickup = normal scroll.
+- **Live ghost:** a floating clone follows the pointer (scaled to ≤220px wide so the grid stays visible), while the real card becomes an invisible placeholder that FLIP-animates to the exact landing slot — the grid always previews the true final arrangement before release.
+- **Multi-select preserved:** long-press pickup enters selection mode; releasing without moving parks there, tapping other cards adds them; dragging a selected card moves the whole group (count badge on ghost, folder highlight as drop target).
+- **Cross-folder:** dropping into another folder's section commits `folderId`; hovering a collapsed folder auto-expands it.
+- Drop commits order from live DOM positions (`saveCardToDB` per card + `reindexCards` for source folder on cross-folder moves).
+
+**Hard-won gotchas (relevant for future edits):**
+1. `::view-transition { pointer-events: none }` is REQUIRED — during a View Transition (0.35s) the transition overlay intercepts hit-testing, so `document.elementFromPoint` returns nothing useful and any drag started mid-transition silently fails to find drop targets.
+2. `e.preventDefault()` on `pointermove` does NOT stop touch scrolling — a non-passive `touchmove` listener that preventDefaults while a card is picked up is required, otherwise the browser starts panning and kills the drag with `pointercancel`.
+3. `setPointerCapture` wrapped in try/catch (synthetic/test pointers throw).
+4. In 1-column grids, before/after is decided by vertical halves; in multi-column by horizontal halves (`computeInsertRef`).
+
+Also fixed: folder-header add-screenshot vs delete-x button misalignment (delete button was `display:block` with line-height inflating it to 35px; both are now flex, `py-1.5`/`p-1.5`, icon centers pixel-identical).
+
+**Removed:** old `handleDragStart`/`handleCardDragOver`/`handleCardDrop`/`handleDragEnd`/`handleFolderDragOver/Leave/Drop` (single-card path), `dragSrcId`/`dragSrcFolderId`, `.card-shift-forward/backward` CSS, old `enterSelectionMode` (replaced by `enterSelectionInPlace` which doesn't re-render mid-gesture). `handleFolderDropMultiple` is retained for multi-drops.
+
 ## ✅ CRITICAL ISSUES RESOLVED (Jan 16, 2026)
 
 ### Issue 1: Missing Database Columns
