@@ -442,6 +442,29 @@
         .view-mode .card textarea::placeholder { color: transparent; }
         .view-mode .folder-name-display { cursor: default; }
 
+        /* --- FEED / LATEST VIEW --- */
+        .view-tab { display:inline-flex; align-items:center; gap:.4rem; padding:.5rem .25rem; margin-right:1.5rem; margin-bottom:-1px; font-size:.9rem; font-weight:500; color:#a3a3a3; background:transparent; border:0; border-bottom:2px solid transparent; cursor:pointer; transition:color .18s, border-color .18s; }
+        .view-tab:hover { color:#525252; }
+        .view-tab.is-active { color:#171717; border-bottom-color:#171717; }
+
+        .feed-filter-panel { flex-shrink:0; }
+        @media (min-width:768px){ .feed-filter-panel { width:13rem; position:sticky; top:7rem; align-self:flex-start; } }
+        .feed-filter-head { display:flex; align-items:center; justify-content:space-between; margin-bottom:.75rem; padding:0 .25rem; }
+        .feed-filter-list { display:flex; flex-direction:row; gap:.5rem; overflow-x:auto; padding-bottom:.25rem; -ms-overflow-style:none; scrollbar-width:none; }
+        @media (min-width:768px){ .feed-filter-list { flex-direction:column; overflow:visible; } }
+        .feed-filter-list::-webkit-scrollbar { display:none; }
+        .feed-filter-chip { display:flex; align-items:center; gap:.4rem; padding:.4rem .7rem; border-radius:.6rem; background:rgba(245,245,245,.8); border:1px solid rgba(0,0,0,.04); color:#737373; font-size:.8rem; font-weight:500; white-space:nowrap; transition:all .18s; cursor:pointer; flex-shrink:0; }
+        .feed-filter-chip:hover { background:#ececec; color:#404040; }
+        .feed-filter-chip.is-active { background:#171717; color:#fff; border-color:#171717; }
+        .feed-filter-chip .feed-filter-count { margin-left:auto; padding-left:.4rem; font-size:.7rem; opacity:.6; font-weight:400; }
+        @media (min-width:768px){ .feed-filter-chip { justify-content:flex-start; } }
+
+        .folder-pill { display:inline-flex; align-items:center; gap:.25rem; padding:.15rem .55rem; border-radius:9999px; background:rgba(245,245,245,.9); border:1px solid rgba(0,0,0,.05); color:#737373; font-size:.65rem; font-weight:600; text-transform:uppercase; letter-spacing:.03em; max-width:100%; }
+        .folder-pill span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+
+        .fv-check { width:1.25rem; height:1.25rem; border-radius:.4rem; border:1.5px solid #d4d4d4; display:inline-flex; align-items:center; justify-content:center; color:transparent; font-size:.75rem; transition:all .15s; shrink:0; }
+        .fv-check.is-on { background:#171717; border-color:#171717; color:#fff; }
+
     </style>
 </head>
 <body class="text-neutral-900 font-sans antialiased selection:bg-rose-100 selection:text-rose-900 min-h-screen">
@@ -538,6 +561,12 @@
             <p class="text-sm text-neutral-400 mt-1">Tap the add buttons to start</p>
         </div>
 
+        <!-- View tabs: Folders vs Latest (feed) -->
+        <div id="viewTabs" class="flex items-center mb-6 border-b border-neutral-200/60">
+            <button onclick="setLayoutMode('folders')" id="tab-folders" class="view-tab"><i class="ph-bold ph-squares-four text-sm"></i> Folders</button>
+            <button onclick="setLayoutMode('feed')" id="tab-feed" class="view-tab"><i class="ph-bold ph-rows text-sm"></i> Latest</button>
+        </div>
+
         <div id="folderWrapper" class="flex flex-col gap-12 pb-32"></div>
 
     </main>
@@ -582,6 +611,26 @@
         </div>
     </div>
 
+    <!-- Folder Visibility (long-press "All screenshots" in the feed) -->
+    <div id="folderVisibilityModal" class="fixed inset-0 z-50 hidden items-end md:items-center justify-center modal-backdrop">
+        <div class="modal-content w-full max-w-md rounded-b-none md:rounded-[1.25rem] max-h-[75vh] flex flex-col">
+            <div class="flex items-center justify-between px-5 pt-5 pb-3 shrink-0">
+                <div>
+                    <h2 class="text-lg font-semibold">Show folders</h2>
+                    <p class="text-xs text-neutral-400 mt-0.5" id="folderVisibilitySubtitle"></p>
+                </div>
+                <button onclick="closeFolderVisibilityModal()" class="p-2 text-neutral-400 hover:text-neutral-900 rounded-lg transition-colors">
+                    <i class="ph-bold ph-x"></i>
+                </button>
+            </div>
+            <div id="folderVisibilityList" class="px-3 pb-3 overflow-y-auto flex flex-col gap-1 no-scrollbar"></div>
+            <div class="px-5 py-3 border-t border-neutral-100 shrink-0 flex items-center justify-between">
+                <button onclick="showAllFolders()" class="text-sm font-medium text-blue-500 hover:text-blue-600">Show all</button>
+                <button onclick="closeFolderVisibilityModal()" class="btn-primary px-5 py-2 text-sm">Done</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Delete Folder Confirmation Modal -->
     <div id="deleteFolderModal" class="fixed inset-0 z-50 hidden items-center justify-center p-4 modal-backdrop">
         <div class="modal-content w-full max-w-sm p-6">
@@ -621,6 +670,8 @@
         let undoTimeout = null;
         let selectionMode = false, selectedCardIds = new Set(), selectionFolderId = null;
         let collectionId = null;
+        let layoutMode = localStorage.getItem('ssaved_layout') || 'folders'; // 'folders' | 'feed'
+        let feedFilter = new Set(); // folderIds to narrow the feed by; empty = show all
         
         function getInboxId() {
             const inbox = appData.folders.find(f => f.name === 'Inbox');
@@ -640,12 +691,14 @@
             setupGlobalDrag();
             setupLongPress();
             setupFolderLongPress();
+            setupFeedFilterLongPress();
             initScrollBehavior();
             preloadImages();
 
             // Prefs (local only)
             const w = localStorage.getItem('ssaved_width');
             if (w) { document.getElementById('widthSlider').value = w; updateWidth(w); }
+            updateLayoutToggleUI();
             setMobileCols(localStorage.getItem('ssaved_cols') || 1);
 
             // ESC to exit selection mode
@@ -1015,12 +1068,18 @@
 
             const hasCards = appData.cards.length > 0;
             const hasCustomFolders = appData.folders.length > 1;
+            const tabs = document.getElementById('viewTabs');
 
-            if (!hasCards && !hasCustomFolders) { 
-                empty.classList.remove('hidden'); wrapper.innerHTML = ''; return; 
+            if (!hasCards && !hasCustomFolders) {
+                empty.classList.remove('hidden'); wrapper.innerHTML = '';
+                if (tabs) tabs.classList.add('hidden');
+                return;
             }
             empty.classList.add('hidden');
+            if (tabs) tabs.classList.remove('hidden');
             wrapper.innerHTML = '';
+
+            if (layoutMode === 'feed') { renderFeed(rIds); return; }
 
             const mCols = localStorage.getItem('ssaved_cols') || 1;
             const gridClass = `grid-cols-${mCols} md:grid-cols-2 lg:grid-cols-3`;
@@ -1095,7 +1154,207 @@
             });
         }
 
-        function generateCardHTML(c, rIds) {
+        // --- FEED / LATEST VIEW ---
+        function getFolderName(id) {
+            const f = appData.folders.find(f => f.id === id);
+            return f ? f.name : 'Inbox';
+        }
+
+        function setLayoutMode(mode) {
+            if (mode !== 'feed' && mode !== 'folders') return;
+            layoutMode = mode;
+            localStorage.setItem('ssaved_layout', mode);
+            if (selectionMode) exitSelectionMode();
+            updateLayoutToggleUI();
+            render();
+        }
+
+        function updateLayoutToggleUI() {
+            ['folders','feed'].forEach(m => {
+                const tab = document.getElementById(`tab-${m}`);
+                if (tab) tab.className = `view-tab ${layoutMode === m ? 'is-active' : ''}`;
+            });
+        }
+
+        function toggleFeedFilter(id) {
+            if (feedFilter.has(id)) feedFilter.delete(id); else feedFilter.add(id);
+            render();
+        }
+
+        function clearFeedFilter() { feedFilter.clear(); render(); }
+
+        // Long-press the "All screenshots" chip to open the folder-visibility picker
+        function setupFeedFilterLongPress() {
+            const wrapper = document.getElementById('folderWrapper');
+            if (!wrapper) return;
+            let pressTimer = null, startX = 0, startY = 0, fired = false;
+
+            wrapper.addEventListener('pointerdown', e => {
+                const chip = e.target.closest('.feed-all-chip');
+                if (!chip) return;
+                startX = e.clientX; startY = e.clientY; fired = false;
+                pressTimer = setTimeout(() => {
+                    pressTimer = null; fired = true;
+                    if (navigator.vibrate) navigator.vibrate(10);
+                    openFolderVisibilityModal();
+                }, 500);
+            });
+            wrapper.addEventListener('pointermove', e => {
+                if (!pressTimer) return;
+                if (Math.abs(e.clientX - startX) > 10 || Math.abs(e.clientY - startY) > 10) {
+                    clearTimeout(pressTimer); pressTimer = null;
+                }
+            });
+            const cancel = () => { if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; } };
+            wrapper.addEventListener('pointerup', cancel);
+            wrapper.addEventListener('pointercancel', cancel);
+            // Swallow the clearFeedFilter click that fires right after a long press
+            wrapper.addEventListener('click', e => {
+                if (fired && e.target.closest('.feed-all-chip')) { e.stopPropagation(); e.preventDefault(); fired = false; }
+            }, true);
+            wrapper.addEventListener('contextmenu', e => {
+                if (pressTimer && e.target.closest('.feed-all-chip')) e.preventDefault();
+            });
+        }
+
+        // Folders that currently hold at least one live card
+        function foldersWithCards() {
+            return appData.folders.filter(f => appData.cards.some(c => c.folderId === f.id && !c.deletedAt));
+        }
+
+        // Current visible set (feedFilter is an include-set; empty means "all")
+        function feedVisibleIds() {
+            const withCards = foldersWithCards().map(f => f.id);
+            if (feedFilter.size === 0) return new Set(withCards);
+            return new Set([...feedFilter].filter(id => withCards.includes(id)));
+        }
+
+        function openFolderVisibilityModal() {
+            const modal = document.getElementById('folderVisibilityModal');
+            if (!modal) return;
+            buildFolderVisibilityList();
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+        }
+
+        function closeFolderVisibilityModal() {
+            const modal = document.getElementById('folderVisibilityModal');
+            if (!modal) return;
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+        }
+
+        function buildFolderVisibilityList() {
+            const list = document.getElementById('folderVisibilityList');
+            const subtitle = document.getElementById('folderVisibilitySubtitle');
+            if (!list) return;
+            const folders = foldersWithCards();
+            const visible = feedVisibleIds();
+            if (subtitle) subtitle.textContent = `${visible.size} of ${folders.length} showing · uncheck to hide`;
+
+            list.innerHTML = folders.map(f => {
+                const count = appData.cards.filter(c => c.folderId === f.id && !c.deletedAt).length;
+                const on = visible.has(f.id);
+                return `
+                <button onclick="toggleFolderVisibility('${f.id}')"
+                        class="w-full flex items-center justify-between gap-3 px-4 py-3 rounded-xl text-left transition-colors hover:bg-neutral-50 active:bg-neutral-100">
+                    <span class="flex items-center gap-3 min-w-0">
+                        <span class="fv-check ${on ? 'is-on' : ''}"><i class="ph-bold ph-check"></i></span>
+                        <span class="text-sm font-medium text-neutral-700 truncate">${f.name}</span>
+                    </span>
+                    <span class="text-xs font-medium text-neutral-400 shrink-0">${count}</span>
+                </button>`;
+            }).join('');
+        }
+
+        function toggleFolderVisibility(id) {
+            const withCards = foldersWithCards().map(f => f.id);
+            const visible = feedVisibleIds();
+            if (visible.has(id)) {
+                if (visible.size === 1) return; // keep at least one folder showing
+                visible.delete(id);
+            } else {
+                visible.add(id);
+            }
+            // Normalize: everything visible -> "all" (empty include-set)
+            if (withCards.every(x => visible.has(x))) feedFilter.clear();
+            else feedFilter = visible;
+            render();                    // re-render the feed live
+            buildFolderVisibilityList(); // refresh the checkboxes
+        }
+
+        function showAllFolders() {
+            feedFilter.clear();
+            render();
+            buildFolderVisibilityList();
+        }
+
+        function renderFeed(rIds) {
+            const wrapper = document.getElementById('folderWrapper');
+            const sideNav = document.getElementById('folderSideNav');
+            if (sideNav) sideNav.innerHTML = ''; // no per-folder nav in the feed
+            const bc = document.getElementById('mobileBreadcrumb');
+            if (bc) bc.classList.add('opacity-0'); // no folder-scroll breadcrumb in the feed
+
+            const mCols = localStorage.getItem('ssaved_cols') || 1;
+            const gridClass = `grid-cols-${mCols} md:grid-cols-2 lg:grid-cols-3`;
+
+            // Count live cards per folder for the filter list
+            const counts = {};
+            appData.cards.forEach(c => { if (!c.deletedAt) counts[c.folderId] = (counts[c.folderId] || 0) + 1; });
+
+            // Drop any filter selections that no longer have cards
+            [...feedFilter].forEach(id => { if (!counts[id]) feedFilter.delete(id); });
+
+            const filterFolders = appData.folders.filter(f => counts[f.id]);
+
+            // Visible cards: newest uploaded first, narrowed by the active filter
+            let cards = appData.cards.filter(c => !c.deletedAt);
+            if (feedFilter.size) cards = cards.filter(c => feedFilter.has(c.folderId));
+            cards.sort((a, b) => {
+                if (a.createdAt && b.createdAt) return new Date(b.createdAt) - new Date(a.createdAt);
+                return b.id - a.id;
+            });
+
+            const allActive = feedFilter.size === 0;
+            const chips = filterFolders.map(f => {
+                const active = feedFilter.has(f.id);
+                return `<button onclick="toggleFeedFilter('${f.id}')" class="feed-filter-chip ${active ? 'is-active' : ''}">
+                    <i class="ph-bold ${active ? 'ph-check-circle' : 'ph-circle'} text-sm"></i>
+                    <span>${f.name}</span>
+                    <span class="feed-filter-count">${counts[f.id]}</span>
+                </button>`;
+            }).join('');
+
+            const filterPanel = `
+            <aside class="feed-filter-panel">
+                <div class="feed-filter-head">
+                    <span class="text-xs font-semibold uppercase tracking-wider text-neutral-500">Filter</span>
+                    ${feedFilter.size ? `<button onclick="clearFeedFilter()" class="text-xs text-blue-500 hover:text-blue-600 font-medium">Clear</button>` : ''}
+                </div>
+                <div class="feed-filter-list">
+                    <button onclick="clearFeedFilter()" id="feedAllChip" class="feed-filter-chip feed-all-chip ${allActive ? 'is-active' : ''}" title="Tap to show all · long-press to choose folders">
+                        <i class="ph-bold ${allActive ? 'ph-check-circle' : 'ph-circle'} text-sm"></i>
+                        <span>All screenshots</span>
+                        <span class="feed-filter-count">${appData.cards.filter(c => !c.deletedAt).length}</span>
+                    </button>
+                    ${chips}
+                </div>
+            </aside>`;
+
+            const feedGrid = cards.length
+                ? `<div class="folder-grid-area grid ${gridClass} gap-5 md:gap-6 flex-1">${cards.map(c => generateCardHTML(c, rIds, true)).join('')}</div>`
+                : `<div class="flex-1 flex flex-col items-center justify-center text-neutral-400 py-20">
+                        <i class="ph-fill ph-funnel text-3xl mb-3 text-neutral-300"></i>
+                        <p class="text-sm">No screenshots in the selected folders</p>
+                   </div>`;
+
+            wrapper.innerHTML = `<div class="feed-layout flex flex-col md:flex-row gap-4 md:gap-8">${filterPanel}${feedGrid}</div>`;
+
+            requestAnimationFrame(() => { initAllNotesCollapsible(); });
+        }
+
+        function generateCardHTML(c, rIds, showFolderTag = false) {
             const isRestored = c.isRestored ? "is-restored" : "";
             const restoreAttr = c.isRestored ? `onmouseenter="clearRestoreStatus(${c.id})"` : "";
             const pulse = c.isScanning ? "animate-pulse-subtle" : "";
@@ -1111,7 +1370,11 @@
                 tooltip = `<div id="tooltip-${c.id}" class="tooltip-container absolute bottom-full left-0 w-full mb-3 z-50"><div class="tooltip-arrow relative">${content}</div></div>`;
             }
 
-            const dragAttrs = viewMode ? '' : `data-card-id="${c.id}"`;
+            const dragAttrs = (viewMode || showFolderTag) ? '' : `data-card-id="${c.id}"`;
+            const folderTag = showFolderTag ? `
+                    <div class="flex flex-wrap items-center gap-1.5 pt-0.5">
+                        <span class="folder-pill"><i class="ph-bold ph-folder-simple text-[10px]"></i><span>${getFolderName(c.folderId)}</span></span>
+                    </div>` : '';
             const isSelected = selectionMode && selectedCardIds.has(c.id);
             const selClass = isSelected ? 'is-selected' : '';
             const inSelectableFolder = selectionMode && c.folderId === selectionFolderId;
@@ -1166,6 +1429,7 @@
                             <i class="ph-bold ph-caret-down"></i>
                         </button>
                     </div>
+                    ${folderTag}
                 </div>
             </div>`;
         }
@@ -1386,6 +1650,11 @@
             if (e.target.id === 'tagOverview') closeTagOverview();
         });
 
+        // Close folder-visibility modal on backdrop click
+        document.getElementById('folderVisibilityModal')?.addEventListener('click', e => {
+            if (e.target.id === 'folderVisibilityModal') closeFolderVisibilityModal();
+        });
+
         // --- IMAGE PRELOADING ---
         // Warm the browser cache for every card image in the background so
         // that scrolling reveals them instantly instead of loading on demand.
@@ -1520,7 +1789,7 @@
         }
 
         function dragPointerDown(e) {
-            if (viewMode || dragState) return;
+            if (viewMode || dragState || layoutMode === 'feed') return;
             if (e.button != null && e.button !== 0) return; // primary button only
             const card = e.target.closest('.card');
             if (!card) return;
