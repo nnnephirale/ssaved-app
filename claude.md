@@ -1,5 +1,18 @@
 # SSaved App - Development Log
 
+## ✅ "Improved" UI Variant at /improved/ (Jul 25, 2026)
+
+**What:** A parallel UI-polish build at `improved/index.html` → https://nnnephirale.github.io/ssaved-app/improved/?c=... — same Supabase backend, so any existing `?c=` collection works in both versions. Original at the root URL is untouched. (Commit 431fb3f)
+
+**Reference sites distilled** (Josh Puckett pasito/bloom, Emil Kowalski's 7 animation tips + vaul + sonner, lab.moumen.dev, amicro):
+- **Sonner-style toasts** replace the status bar AND the header Undo button: stacked dark pills bottom-center (`#toastRoot`, `toast()/dismissToast()`), spinner toast for uploads, rose "Undo" action toast after deletes (15s, matches old timing). `showStatus()`/`updateUndoUI()` now route into toasts.
+- **Vaul-style bottom sheets on mobile:** shareModal, tagOverview, folderVisibilityModal slide up (`sheetIn`), have a drag handle (`.sheet-handle`), and drag-down-past-110px dismisses (`setupSheetDrag`). Desktop keeps centered modals with scale-from-0.95 + blur entrance.
+- **Emil's tips:** global `button:active { scale(0.97) !important }`, entrances from scale ≥0.93 (never 0), origin-aware suggestions tooltip (`transform-origin: bottom left` + blur-in), spinners sped to 0.7s (`!important` needed — Tailwind CDN injects styles after inline `<style>`).
+- **Pasito-style fluid tab indicator:** `#tabIndicator` slides+stretches under Folders/Latest tabs (transitions `left` and `width`; positioned in `updateLayoutToggleUI`/`render`/resize).
+- **Micro:** copy-link icon morphs to checkmark (`.icon-pop`), share Copy button morphs to "Copied ✓", per-file upload progress ("Uploading 2 of 5…"), OCR progress ("Reading usernames… 1 of 3").
+
+**Gotcha:** In-app Browser pane serves *stale snapshots* of `file://` pages — after editing, `navigate` (even with force) re-serves the old snapshot; open a NEW tab to test fresh file content.
+
 ## ✅ Pointer-Based Drag & Drop Rewrite (Jul 20, 2026)
 
 **Problem:** Reordering was glitchy — it used native HTML5 drag-and-drop, which (a) doesn't fire at all on mobile touch, and (b) only showed a fixed ±24px shift of in-between cards, never the actual landing position.
