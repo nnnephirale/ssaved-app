@@ -1,5 +1,22 @@
 # SSaved App - Development Log
 
+## ✅ "improved2" — the bold variant (Jul 25, 2026)
+
+**What:** `improved2/index.html` → https://nnnephirale.github.io/ssaved-app/improved2/?c=... — third parallel build (root = original, `/improved/` = restrained polish, `/improved2/` = bold). Same Supabase backend, so every existing `?c=` collection works in all three.
+
+**Brief:** Marilyn explicitly invoked the design-preferences wildcard escape hatch — "go bolder, true to your intent, because my restrained DNA was mapped on their taste anyway." So this build makes structural bets, not just polish.
+
+**The four bold moves:**
+1. **Real typography.** The app never used her stated signature fonts. Now: **IBM Plex Mono** (300/400/500) for all UI, **Instrument Serif** for the wordmark, modal titles, and empty state. `.microlabel` (0.625rem / 500 / uppercase / 0.16em tracking) is the workhorse for every structural label — folder names, view tabs, filter chips, tray states.
+   - **Gotcha:** had to remove `font-sans` from `<body>` — Tailwind's class (specificity 0,1,0) beats `body { font-family }` (0,0,1).
+2. **⌘K command palette** (`openCmdk`/`renderCmdk`/`buildCmdkItems`). Searches usernames + notes + folders, plus 5 actions. Sigil scoping from moumenlab's argument chips: `@` = usernames, `#` = folders, `>` = actions — promoted to a chip, Backspace drops it. Arrow/Enter/Esc nav, `<mark>` match highlighting, thumbnails in results, recents on empty query. `/` also opens it when not typing. `jumpToCard()` expands a collapsed folder, scrolls, and flashes a blue ring.
+3. **Upload staging tray** (moumenlab file-upload staging). `handleFiles` was a blocking serial loop that called `alert()` on failure and lost the batch. Now each file is an entry with its own visible state machine: queued → uploading → reading text → done | **failed + Retry**. Cards appear one-by-one as they land (uses plain `render([id])`, NOT `transitionRender`, to avoid stacking view transitions per file). Kept serial (proven-reliable on mobile per the old upload-hang bug); progress bars are indeterminate travelling bars, never fake percentages.
+4. **Flat folder headers.** Dropped the `clip-path: polygon()` skeuomorphic tab for a mono-caps label + chevron + count on a hairline. Kept `.folder-tab` / `.folder-header[data-folder-id]` classes intact — the drag engine and folder long-press depend on them.
+
+**Also:** skeleton card grid (shimmer) replaces the bare spinner on load; frosted gradient scroll edge (`#scrollEdge`) rides under the header; inherits everything from `/improved/` (toasts, bottom sheets, fluid tab indicator, press feedback, icon morphs).
+
+**Gotcha:** `.cmdk-foot span { display: inline-flex }` (0,1,1) beat Tailwind's `.hidden` (0,1,0), so mobile-hidden footer hints still showed — added an explicit `.cmdk-foot span.hidden { display: none }` plus an `md:` restore.
+
 ## ✅ "Improved" UI Variant at /improved/ (Jul 25, 2026)
 
 **What:** A parallel UI-polish build at `improved/index.html` → https://nnnephirale.github.io/ssaved-app/improved/?c=... — same Supabase backend, so any existing `?c=` collection works in both versions. Original at the root URL is untouched. (Commit 431fb3f)

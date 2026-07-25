@@ -1,0 +1,3617 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta http-equiv="Content-Security-Policy" content="script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.tailwindcss.com https://cdn.jsdelivr.net https://unpkg.com blob:; worker-src blob:; child-src blob:;">
+    <title>SSaved</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src='https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js'></script>
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        warm: {
+                            50: '#FAFAF8',
+                            100: '#F5F5F3',
+                            200: '#EEEDE9',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        /* --- TYPOGRAPHY: mono is the voice, serif is the signature --- */
+        :root {
+            --font-ui: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+            --font-display: 'Instrument Serif', Georgia, 'Times New Roman', serif;
+            --ease: cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        body {
+            background: linear-gradient(180deg, #FAFAF8 0%, #F7F6F3 100%);
+            min-height: 100vh;
+            font-family: var(--font-ui);
+            font-weight: 300;
+            letter-spacing: -0.005em;
+        }
+        input, textarea, button, kbd { font-family: var(--font-ui); }
+        .font-display { font-family: var(--font-display); font-weight: 400; letter-spacing: 0; }
+        /* Mono-caps micro-label — the workhorse for every structural label */
+        .microlabel {
+            font-size: 0.625rem;
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 0.16em;
+        }
+
+        /* --- FOLDER HEADERS (flat mono-caps; the clip-path tab is gone) --- */
+        .folder-tab {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.55rem;
+            padding: 0.25rem 0.6rem 0.25rem 0.15rem;
+            border-radius: 0.5rem;
+            background: transparent;
+            color: #a3a3a3;
+            transition: color 0.2s var(--ease), background-color 0.2s var(--ease);
+        }
+        .folder-tab:hover { color: #525252; }
+        .folder-tab .folder-count {
+            font-size: 0.625rem;
+            font-weight: 400;
+            letter-spacing: 0.05em;
+            color: #d4d4d4;
+        }
+        .folder-tab:hover .folder-count { color: #a3a3a3; }
+        .folder-drop-active .folder-tab {
+            background-color: #3b82f6 !important;
+            color: white !important;
+        }
+        .folder-drop-active .folder-tab .folder-count { color: rgba(255,255,255,0.7); }
+        .folder-drop-active .folder-grid-area {
+            background-color: rgba(59, 130, 246, 0.05);
+            border-radius: 1rem;
+            box-shadow: inset 0 0 0 2px rgba(59, 130, 246, 0.2);
+        }
+
+        /* --- CARD STYLING --- */
+        .card {
+            background: white;
+            border-radius: 1.25rem;
+            border: 1px solid rgba(0, 0, 0, 0.04);
+            overflow: hidden;
+            box-shadow: 
+                0 2px 4px -1px rgba(0, 0, 0, 0.02),
+                0 8px 24px -4px rgba(0, 0, 0, 0.06);
+            transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), 
+                        box-shadow 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        .card:hover {
+            transform: translateY(-3px);
+            box-shadow: 
+                0 4px 8px -2px rgba(0, 0, 0, 0.03),
+                0 16px 40px -8px rgba(0, 0, 0, 0.1);
+        }
+        .card.is-restored {
+            border-color: rgba(244, 63, 94, 0.25);
+            box-shadow: 
+                0 4px 8px -2px rgba(244, 63, 94, 0.08),
+                0 16px 48px -8px rgba(244, 63, 94, 0.2);
+        }
+        .card.is-selected {
+            box-shadow: 0 0 0 3px #3b82f6;
+            border-radius: 0.75rem;
+        }
+        .card.is-selected:hover { transform: none; }
+        .selection-check {
+            position: absolute;
+            top: 0.75rem;
+            left: 0.75rem;
+            width: 22px;
+            height: 22px;
+            background: #3b82f6;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 10;
+            box-shadow: 0 2px 8px rgba(59,130,246,0.3);
+            color: white;
+            font-size: 12px;
+        }
+
+        /* --- AUTO-GROW INPUTS --- */
+        .auto-grow {
+            field-sizing: content;
+            min-height: 24px;
+            resize: none;
+            overflow: hidden;
+        }
+
+        /* --- UTILITIES --- */
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        ::view-transition-group(root) { animation-duration: 0.35s; animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1); }
+        /* Keep the page hit-testable during view transitions (drags started mid-transition) */
+        ::view-transition { pointer-events: none; }
+        
+        /* --- ANIMATIONS --- */
+        @keyframes slideUp { 
+            from { opacity: 0; transform: translateY(20px) scale(0.96); } 
+            to { opacity: 1; transform: translateY(0) scale(1); } 
+        }
+        @keyframes subtlePulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+        .animate-restore { animation: slideUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards; opacity: 0; }
+        .folder-enter { animation: slideUp 0.45s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+        .animate-pulse-subtle { animation: subtlePulse 2s ease-in-out infinite; }
+
+        /* --- UI COMPONENTS --- */
+        .tooltip-arrow::after {
+            content: " "; position: absolute; top: 100%; left: 50%; margin-left: -6px;
+            border: 6px solid transparent; border-top-color: rgba(255,255,255,0.95); filter: drop-shadow(0 1px 2px rgb(0 0 0 / 0.08));
+        }
+        .tooltip-container {
+            transition: opacity 0.22s cubic-bezier(0.16, 1, 0.3, 1), transform 0.22s cubic-bezier(0.16, 1, 0.3, 1), filter 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+            opacity: 0;
+            pointer-events: none;
+            transform: translateY(6px) scale(0.93);
+            transform-origin: bottom left;
+            filter: blur(3px);
+        }
+        .tooltip-container.active { opacity: 1; pointer-events: auto; transform: translateY(0) scale(1); filter: blur(0); }
+
+        /* --- PRESS FEEDBACK (all buttons respond to the finger) --- */
+        button:not(:disabled):active { transform: scale(0.97) !important; }
+        button { transition: transform 0.15s cubic-bezier(0.16, 1, 0.3, 1); }
+
+        /* --- SPINNERS (faster = perceived-faster) --- */
+        .animate-spin { animation-duration: 0.7s !important; }
+
+        /* --- TOASTS (stacked pills, bottom center) --- */
+        #toastRoot {
+            position: fixed; bottom: 1.5rem; left: 50%; transform: translateX(-50%);
+            z-index: 60; display: flex; flex-direction: column; align-items: center;
+            gap: 0.5rem; pointer-events: none; width: max-content; max-width: calc(100vw - 2rem);
+        }
+        .toast {
+            pointer-events: auto;
+            display: flex; align-items: center; gap: 0.75rem;
+            background: rgba(23, 23, 23, 0.92);
+            backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+            color: #fff; padding: 0.65rem 1.15rem; border-radius: 9999px;
+            box-shadow: 0 12px 32px -8px rgba(0, 0, 0, 0.35);
+            font-size: 0.75rem; font-weight: 500; white-space: nowrap;
+            transition: opacity 0.25s cubic-bezier(0.16, 1, 0.3, 1), transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), filter 0.25s;
+        }
+        .toast-enter { animation: toastIn 0.35s cubic-bezier(0.16, 1, 0.3, 1); }
+        @keyframes toastIn {
+            from { opacity: 0; transform: translateY(14px) scale(0.95); filter: blur(3px); }
+            to   { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
+        }
+        .toast-exit { opacity: 0; transform: translateY(8px) scale(0.95); filter: blur(2px); }
+        .toast .toast-action {
+            color: #fda4af; font-weight: 600;
+            padding: 0.15rem 0.4rem; margin: -0.15rem -0.4rem; border-radius: 0.5rem;
+        }
+        .toast .toast-action:hover { color: #fecdd3; }
+
+        /* --- FLUID TAB INDICATOR (slides + stretches between tabs) --- */
+        #tabIndicator {
+            position: absolute; bottom: -1px; height: 2px;
+            background: #171717; border-radius: 1px; pointer-events: none;
+            transition: left 0.3s cubic-bezier(0.16, 1, 0.3, 1), width 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        /* --- MODAL / SHEET ENTRANCES --- */
+        @keyframes backdropIn { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes modalIn {
+            from { opacity: 0; transform: scale(0.95); filter: blur(4px); }
+            to   { opacity: 1; transform: scale(1); filter: blur(0); }
+        }
+        .modal-backdrop:not(.hidden) { animation: backdropIn 0.25s ease-out; }
+        .modal-backdrop:not(.hidden) .modal-content { animation: modalIn 0.28s cubic-bezier(0.16, 1, 0.3, 1); }
+        .modal-content .overflow-y-auto { overscroll-behavior: contain; }
+
+        /* Bottom sheets (mobile): slide up from the edge, drag handle to dismiss */
+        .sheet-handle { display: none; }
+        @media (max-width: 767px) {
+            @keyframes sheetIn { from { transform: translateY(100%); } to { transform: translateY(0); } }
+            .modal-backdrop:not(.hidden) .sheet-content { animation: sheetIn 0.42s cubic-bezier(0.16, 1, 0.3, 1); }
+            .sheet-content { transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
+            .sheet-handle {
+                display: flex; justify-content: center;
+                padding: 0.6rem 0 0.1rem; touch-action: none; cursor: grab;
+            }
+            .sheet-handle span {
+                width: 36px; height: 4px; border-radius: 2px;
+                background: rgba(0, 0, 0, 0.15);
+            }
+        }
+
+        /* --- ICON MORPH POP (copy → check) --- */
+        @keyframes iconPop {
+            from { transform: scale(0.5); filter: blur(2px); opacity: 0.4; }
+            to   { transform: scale(1); filter: blur(0); opacity: 1; }
+        }
+        .icon-pop { animation: iconPop 0.25s cubic-bezier(0.16, 1, 0.3, 1); display: inline-block; }
+
+        /* --- COMMAND PALETTE (⌘K) --- */
+        #cmdk { align-items: flex-start; justify-content: center; padding: 12vh 1rem 1rem; }
+        @media (max-width: 767px) { #cmdk { padding-top: 5vh; } }
+        .cmdk-panel {
+            width: 100%; max-width: 34rem;
+            display: flex; flex-direction: column;
+            max-height: min(30rem, 72vh);
+            background: rgba(255, 255, 255, 0.94);
+            backdrop-filter: blur(28px) saturate(1.5);
+            -webkit-backdrop-filter: blur(28px) saturate(1.5);
+            border: 1px solid rgba(0, 0, 0, 0.05);
+            border-radius: 1.25rem;
+            box-shadow: 0 40px 90px -24px rgba(0, 0, 0, 0.3), 0 2px 10px -4px rgba(0, 0, 0, 0.06);
+            overflow: hidden;
+            transform-origin: top center;
+            animation: cmdkIn 0.3s var(--ease);
+        }
+        @keyframes cmdkIn {
+            from { opacity: 0; transform: translateY(-10px) scale(0.955); filter: blur(6px); }
+            to   { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
+        }
+        .cmdk-input-row {
+            display: flex; align-items: center; gap: 0.6rem;
+            padding: 0.9rem 1rem;
+            border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+            flex-shrink: 0;
+        }
+        .cmdk-input-row > i { color: #a3a3a3; font-size: 1.05rem; }
+        #cmdkInput {
+            flex: 1; min-width: 0;
+            background: transparent; border: 0; outline: none;
+            font-size: 0.9rem; font-weight: 300; color: #171717;
+        }
+        #cmdkInput::placeholder { color: #c4c4c4; }
+        /* Argument chip — the active scope, backspace to drop it */
+        .cmdk-chip {
+            display: inline-flex; align-items: center; gap: 0.3rem;
+            padding: 0.2rem 0.5rem; border-radius: 0.45rem;
+            background: #171717; color: #fff;
+            font-size: 0.625rem; font-weight: 500;
+            text-transform: uppercase; letter-spacing: 0.1em;
+            white-space: nowrap; flex-shrink: 0;
+            animation: iconPop 0.22s var(--ease);
+        }
+        .cmdk-kbd {
+            padding: 0.15rem 0.4rem; border-radius: 0.35rem;
+            background: rgba(0,0,0,0.04); color: #a3a3a3;
+            font-size: 0.6rem; letter-spacing: 0.08em; flex-shrink: 0;
+        }
+        .cmdk-results { overflow-y: auto; overscroll-behavior: contain; padding: 0.4rem; }
+        .cmdk-results::-webkit-scrollbar { width: 0; }
+        .cmdk-group {
+            padding: 0.6rem 0.65rem 0.3rem;
+            color: #c4c4c4;
+        }
+        .cmdk-row {
+            display: flex; align-items: center; gap: 0.7rem;
+            width: 100%; padding: 0.55rem 0.65rem;
+            border-radius: 0.6rem; text-align: left;
+            color: #525252; font-size: 0.8rem; font-weight: 300;
+            transition: background-color 0.12s ease, color 0.12s ease;
+        }
+        .cmdk-row .cmdk-row-icon { color: #a3a3a3; font-size: 0.95rem; flex-shrink: 0; width: 1.1rem; }
+        .cmdk-row .cmdk-row-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .cmdk-row .cmdk-row-meta { color: #c4c4c4; font-size: 0.625rem; letter-spacing: 0.08em; text-transform: uppercase; flex-shrink: 0; }
+        .cmdk-row.is-active { background: rgba(0, 0, 0, 0.045); color: #171717; }
+        .cmdk-row.is-active .cmdk-row-icon { color: #171717; }
+        .cmdk-row mark { background: transparent; color: #171717; font-weight: 500; }
+        .cmdk-thumb {
+            width: 1.6rem; height: 1.6rem; border-radius: 0.35rem;
+            object-fit: cover; object-position: top; flex-shrink: 0;
+            background: #EEEDE9;
+        }
+        .cmdk-empty { padding: 2rem 1rem; text-align: center; color: #c4c4c4; font-size: 0.8rem; }
+        .cmdk-foot {
+            display: flex; align-items: center; gap: 1rem;
+            padding: 0.55rem 1rem;
+            border-top: 1px solid rgba(0, 0, 0, 0.05);
+            color: #c4c4c4; flex-shrink: 0;
+        }
+        .cmdk-foot span { display: inline-flex; align-items: center; gap: 0.3rem; }
+        /* Tailwind's .hidden loses to the rule above on specificity — restore it */
+        .cmdk-foot span.hidden { display: none; }
+        @media (min-width: 768px) { .cmdk-foot span.hidden.md\:inline-flex { display: inline-flex; } }
+
+        /* Header search trigger — morphs open into the palette */
+        .cmdk-trigger {
+            display: flex; align-items: center; gap: 0.5rem;
+            padding: 0.35rem 0.6rem 0.35rem 0.7rem;
+            border-radius: 0.625rem;
+            background: rgba(0, 0, 0, 0.03);
+            border: 1px solid rgba(0, 0, 0, 0.04);
+            color: #a3a3a3;
+            transition: background-color 0.2s var(--ease), color 0.2s var(--ease);
+        }
+        .cmdk-trigger:hover { background: rgba(0, 0, 0, 0.055); color: #525252; }
+
+        /* Flash the card the palette jumped to */
+        @keyframes cardFlash {
+            0%   { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); }
+            18%  { box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.5); }
+            100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); }
+        }
+        .card-flash { animation: cardFlash 1.5s var(--ease); }
+
+        /* --- UPLOAD STAGING TRAY --- */
+        #uploadTray {
+            position: fixed; z-index: 55;
+            right: 1.5rem; bottom: 1.5rem; width: 19rem;
+            background: rgba(255, 255, 255, 0.92);
+            backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(0, 0, 0, 0.05);
+            border-radius: 1.1rem;
+            box-shadow: 0 24px 60px -18px rgba(0, 0, 0, 0.25);
+            overflow: hidden;
+            animation: trayIn 0.35s var(--ease);
+        }
+        @keyframes trayIn {
+            from { opacity: 0; transform: translateY(16px) scale(0.97); filter: blur(4px); }
+            to   { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
+        }
+        @media (max-width: 767px) {
+            #uploadTray { right: 0.75rem; left: 0.75rem; bottom: 0.75rem; width: auto; }
+        }
+        .tray-head {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 0.7rem 0.9rem;
+            border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+            color: #737373;
+        }
+        .tray-list { max-height: 15rem; overflow-y: auto; overscroll-behavior: contain; padding: 0.35rem; }
+        .tray-list::-webkit-scrollbar { width: 0; }
+        .tray-item {
+            display: flex; align-items: center; gap: 0.65rem;
+            padding: 0.45rem 0.55rem; border-radius: 0.7rem;
+            transition: opacity 0.3s var(--ease), transform 0.3s var(--ease);
+        }
+        .tray-item.is-leaving { opacity: 0; transform: translateX(12px); }
+        .tray-thumb {
+            width: 2rem; height: 2rem; border-radius: 0.4rem; object-fit: cover;
+            object-position: top; background: #EEEDE9; flex-shrink: 0;
+        }
+        .tray-body { flex: 1; min-width: 0; }
+        .tray-state {
+            display: block; margin-top: 0.2rem;
+            font-size: 0.625rem; letter-spacing: 0.08em; text-transform: uppercase;
+            color: #a3a3a3;
+        }
+        .tray-item.is-failed .tray-state { color: #f43f5e; }
+        .tray-item.is-done .tray-state { color: #10b981; }
+        /* Indeterminate but honest: a travelling bar, never a fake percentage */
+        .tray-bar { position: relative; height: 2px; margin-top: 0.35rem; border-radius: 1px; background: rgba(0,0,0,0.06); overflow: hidden; }
+        .tray-bar::after {
+            content: ''; position: absolute; inset: 0; width: 40%;
+            border-radius: 1px; background: #171717;
+            animation: trayScan 1.1s var(--ease) infinite;
+        }
+        .tray-item.is-done .tray-bar, .tray-item.is-failed .tray-bar, .tray-item.is-queued .tray-bar { display: none; }
+        @keyframes trayScan {
+            0%   { transform: translateX(-100%); }
+            100% { transform: translateX(250%); }
+        }
+        .tray-retry { color: #f43f5e; font-size: 0.625rem; letter-spacing: 0.08em; text-transform: uppercase; flex-shrink: 0; }
+
+        /* --- SKELETON LOADING (perceived speed beats a lone spinner) --- */
+        .skeleton-grid {
+            display: grid; gap: 1.25rem; width: 100%;
+            max-width: 1390px; padding: 0 1.5rem;
+            grid-template-columns: 1fr;
+        }
+        @media (min-width: 768px) { .skeleton-grid { grid-template-columns: repeat(3, 1fr); gap: 1.5rem; } }
+        .skeleton-card {
+            border-radius: 1.25rem; overflow: hidden;
+            background: #fff; border: 1px solid rgba(0,0,0,0.04);
+            box-shadow: 0 2px 4px -1px rgba(0,0,0,0.02), 0 8px 24px -4px rgba(0,0,0,0.05);
+        }
+        .skeleton-card > div { background: #F0EFEC; }
+        .shimmer {
+            position: relative; overflow: hidden;
+            background: #F0EFEC;
+        }
+        .shimmer::after {
+            content: ''; position: absolute; inset: 0;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.75), transparent);
+            animation: shimmer 1.4s var(--ease) infinite;
+        }
+        @keyframes shimmer { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
+
+        /* --- FROSTED SCROLL EDGE under the fixed header --- */
+        #scrollEdge {
+            position: fixed; left: 0; right: 0; z-index: 33;
+            height: 2.25rem; pointer-events: none;
+            opacity: 0; transition: opacity 0.35s var(--ease);
+            -webkit-mask-image: linear-gradient(to bottom, #000 0%, transparent 100%);
+            mask-image: linear-gradient(to bottom, #000 0%, transparent 100%);
+            backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+        }
+        #scrollEdge.is-on { opacity: 1; }
+
+        /* --- DRAG & DROP --- */
+        body.global-dragging { cursor: grabbing; user-select: none; -webkit-user-select: none; }
+        body.global-dragging * { cursor: grabbing !important; }
+        /* cards don't intercept the pointer mid-drag → clean hit-testing, no hover jitter */
+        body.global-dragging .card { pointer-events: none; }
+        .card { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+        .card textarea, .card input { -webkit-user-select: text; user-select: text; }
+
+        /* The card being dragged stays in the grid as an invisible slot (defines the gap) */
+        .card-placeholder { opacity: 0; }
+        /* Extra selected cards collapse out of flow while their group is dragged */
+        .card-hidden { display: none; }
+        /* Momentary lift when a card is picked up */
+        .card-lifted {
+            transform: scale(1.03);
+            box-shadow: 0 14px 42px -10px rgba(0, 0, 0, 0.28);
+            transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+            z-index: 30;
+            position: relative;
+        }
+
+        /* Floating clone that follows the pointer */
+        .drag-ghost-live {
+            position: fixed;
+            top: 0;
+            left: 0;
+            margin: 0;
+            z-index: 1000;
+            pointer-events: none;
+            border-radius: 1.25rem;
+            opacity: 0.96;
+            box-shadow: 0 24px 60px -16px rgba(0, 0, 0, 0.38);
+            transform: translate(0, 0);
+            transform-origin: top left;
+            will-change: transform;
+        }
+        .drag-ghost-count {
+            position: absolute;
+            top: -10px;
+            right: -10px;
+            min-width: 26px;
+            height: 26px;
+            padding: 0 7px;
+            border-radius: 13px;
+            background: #3b82f6;
+            color: #fff;
+            font-size: 12px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 2px 8px rgba(59, 130, 246, 0.4);
+        }
+
+        /* --- SLIDER STYLING --- */
+        input[type=range] { -webkit-appearance: none; width: 100%; background: transparent; }
+        input[type=range]::-webkit-slider-thumb { 
+            -webkit-appearance: none; 
+            height: 16px; 
+            width: 16px; 
+            border-radius: 50%; 
+            background: white; 
+            border: 1px solid rgba(0,0,0,0.1); 
+            cursor: pointer; 
+            margin-top: -6px; 
+            box-shadow: 0 2px 6px rgba(0,0,0,0.1); 
+            transition: transform 0.15s ease, box-shadow 0.15s ease;
+        }
+        input[type=range]::-webkit-slider-thumb:hover {
+            transform: scale(1.1);
+            box-shadow: 0 3px 10px rgba(0,0,0,0.15);
+        }
+        input[type=range]::-webkit-slider-runnable-track { 
+            width: 100%; 
+            height: 4px; 
+            cursor: pointer; 
+            background: rgba(0,0,0,0.08); 
+            border-radius: 2px; 
+        }
+
+        /* --- HEADER --- */
+        .header-glass {
+            background: rgba(255, 255, 255, 0.7);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+        }
+
+        /* --- BUTTONS --- */
+        .btn-primary {
+            background: rgba(229, 229, 229, 0.8);
+            color: #737373;
+            border-radius: 0.625rem;
+            font-weight: 600;
+            transition: all 0.2s ease;
+        }
+        .btn-primary:hover {
+            background: rgba(212, 212, 212, 0.9);
+            color: #525252;
+        }
+        .btn-primary:active {
+            transform: scale(0.98);
+        }
+
+        .btn-secondary {
+            background: rgba(0,0,0,0.04);
+            color: #525252;
+            border-radius: 0.625rem;
+            font-weight: 600;
+            transition: all 0.2s ease;
+        }
+        .btn-secondary:hover {
+            background: rgba(0,0,0,0.08);
+            color: #1a1a1a;
+        }
+
+        /* --- EXTERNAL LINK BUTTON --- */
+        .external-link-btn {
+            position: absolute;
+            top: 0.75rem;
+            left: 0.75rem;
+            opacity: 0;
+            transform: scale(0.9);
+            transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        .group\/image:hover .external-link-btn {
+            opacity: 1;
+            transform: scale(1);
+        }
+
+        /* --- DELETE BUTTON --- */
+        .delete-btn {
+            position: absolute;
+            top: 0.75rem;
+            right: 0.75rem;
+            opacity: 0;
+            transform: scale(0.9);
+            transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        .group\/image:hover .delete-btn {
+            opacity: 1;
+            transform: scale(1);
+        }
+
+        /* --- FOCUS STATES --- */
+        textarea:focus {
+            outline: none;
+            border-color: rgba(0,0,0,0.2) !important;
+        }
+        .focus-ring:focus {
+            box-shadow: 0 0 0 3px rgba(244, 63, 94, 0.12);
+        }
+
+        /* --- COLLAPSIBLE NOTES (Mobile Only) --- */
+        @media (max-width: 767px) {
+            .notes-wrapper {
+                position: relative;
+            }
+            .notes-wrapper .notes-toggle {
+                display: none;
+            }
+            .notes-wrapper .notes-fade {
+                display: none;
+            }
+            .notes-wrapper.is-collapsible .notes-textarea {
+                max-height: 4.5em;
+                overflow: hidden;
+                transition: max-height 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+            }
+            .notes-wrapper.is-collapsible.is-expanded .notes-textarea {
+                max-height: 500px;
+            }
+            .notes-wrapper.is-collapsible .notes-fade {
+                display: block;
+                position: absolute;
+                bottom: 1.5rem;
+                left: 0;
+                right: 0;
+                height: 1.5em;
+                background: linear-gradient(to bottom, transparent, white);
+                pointer-events: none;
+                opacity: 1;
+                transition: opacity 0.2s ease;
+            }
+            .notes-wrapper.is-collapsible.is-expanded .notes-fade {
+                opacity: 0;
+            }
+            .notes-wrapper.is-collapsible .notes-toggle {
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                width: 100%;
+                padding: 0.25rem 0;
+                color: #a3a3a3;
+                transition: color 0.15s ease;
+            }
+            .notes-toggle:hover,
+            .notes-toggle:active {
+                color: #525252;
+            }
+            .notes-toggle i {
+                font-size: 0.875rem;
+                transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+            }
+            .notes-wrapper.is-expanded .notes-toggle i {
+                transform: rotate(180deg);
+            }
+        }
+        @media (min-width: 768px) {
+            .notes-toggle {
+                display: none !important;
+            }
+            .notes-fade {
+                display: none !important;
+            }
+        }
+
+        /* --- FOLDER SIDE NAV --- */
+        .side-nav-item {
+            padding: 0.25rem 0.75rem;
+            font-size: 0.65rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: rgba(0,0,0,0.2);
+            cursor: pointer;
+            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+            border-right: 2px solid transparent;
+            white-space: nowrap;
+        }
+        .side-nav-item:hover {
+            color: rgba(0,0,0,0.4);
+        }
+        .side-nav-item.is-active {
+            color: rgba(0,0,0,0.6);
+            border-right-color: rgba(0,0,0,0.4);
+            transform: translateX(-4px);
+        }
+
+        /* --- MOBILE BREADCRUMB --- */
+        .mobile-breadcrumb {
+            transition: opacity 0.2s ease;
+        }
+        #mobileBreadcrumb.is-visible {
+            opacity: 1;
+        }
+
+        /* --- DROP OVERLAY --- */
+        .drop-overlay-card {
+            background: rgba(255,255,255,0.9);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border-radius: 1.5rem;
+            box-shadow: 0 24px 80px -12px rgba(0,0,0,0.15);
+        }
+
+        /* --- IMAGE HOVER SCALE (Desktop only, non-touch) --- */
+        @media (hover: hover) and (pointer: fine) {
+            .group\/image:hover .img-hover-scale {
+                transform: scale(1.02);
+            }
+        }
+
+        /* --- SHARE URL MODAL --- */
+        .modal-backdrop {
+            background: rgba(0,0,0,0.4);
+            backdrop-filter: blur(4px);
+        }
+        .modal-content {
+            background: white;
+            border-radius: 1.25rem;
+            box-shadow: 0 24px 80px -12px rgba(0,0,0,0.25);
+        }
+
+        /* --- LOADING STATE --- */
+        .loading-screen {
+            position: fixed;
+            inset: 0;
+            background: linear-gradient(180deg, #FAFAF8 0%, #F7F6F3 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 100;
+            transition: opacity 0.3s ease;
+        }
+        .loading-screen.hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        /* --- VIEW MODE (read-only sharing) --- */
+        .view-mode .view-hide { display: none !important; }
+        .view-mode .card { cursor: default; }
+        .view-mode .card textarea { pointer-events: none; }
+        .view-mode .card textarea::placeholder { color: transparent; }
+        .view-mode .folder-name-display { cursor: default; }
+
+        /* --- FEED / LATEST VIEW --- */
+        .view-tab { display:inline-flex; align-items:center; gap:.45rem; padding:.5rem .25rem; margin-right:1.75rem; margin-bottom:-1px; font-size:.6875rem; font-weight:500; text-transform:uppercase; letter-spacing:.16em; color:#a3a3a3; background:transparent; border:0; border-bottom:2px solid transparent; cursor:pointer; transition:color .18s, border-color .18s; }
+        .view-tab:hover { color:#525252; }
+        .view-tab.is-active { color:#171717; }
+
+        .feed-filter-panel { flex-shrink:0; }
+        @media (min-width:768px){ .feed-filter-panel { width:13rem; position:sticky; top:7rem; align-self:flex-start; } }
+        .feed-filter-head { display:flex; align-items:center; justify-content:space-between; margin-bottom:.75rem; padding:0 .25rem; }
+        .feed-filter-list { display:flex; flex-direction:row; gap:.5rem; overflow-x:auto; padding-bottom:.25rem; -ms-overflow-style:none; scrollbar-width:none; }
+        @media (min-width:768px){ .feed-filter-list { flex-direction:column; overflow:visible; } }
+        .feed-filter-list::-webkit-scrollbar { display:none; }
+        .feed-filter-chip { display:flex; align-items:center; gap:.45rem; padding:.4rem .7rem; border-radius:.6rem; background:rgba(245,245,245,.8); border:1px solid rgba(0,0,0,.04); color:#737373; font-size:.6875rem; font-weight:400; letter-spacing:.06em; text-transform:uppercase; white-space:nowrap; transition:all .18s; cursor:pointer; flex-shrink:0; }
+        .feed-filter-chip:hover { background:#ececec; color:#404040; }
+        .feed-filter-chip.is-active { background:#171717; color:#fff; border-color:#171717; }
+        .feed-filter-chip .feed-filter-count { margin-left:auto; padding-left:.4rem; font-size:.7rem; opacity:.6; font-weight:400; }
+        @media (min-width:768px){ .feed-filter-chip { justify-content:flex-start; } }
+
+        .folder-pill { display:inline-flex; align-items:center; gap:.25rem; padding:.15rem .55rem; border-radius:9999px; background:rgba(245,245,245,.9); border:1px solid rgba(0,0,0,.05); color:#737373; font-size:.65rem; font-weight:600; text-transform:uppercase; letter-spacing:.03em; max-width:100%; }
+        .folder-pill span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+
+        .fv-check { width:1.25rem; height:1.25rem; border-radius:.4rem; border:1.5px solid #d4d4d4; display:inline-flex; align-items:center; justify-content:center; color:transparent; font-size:.75rem; transition:all .15s; shrink:0; }
+        .fv-check.is-on { background:#171717; border-color:#171717; color:#fff; }
+
+    </style>
+</head>
+<body class="text-neutral-900 antialiased selection:bg-rose-100 selection:text-rose-900 min-h-screen">
+
+    <!-- Loading Screen: a skeleton of the thing you're waiting for, not a spinner over nothing -->
+    <div id="loadingScreen" class="loading-screen !items-start pt-28">
+        <div class="w-full flex flex-col items-center gap-8">
+            <div class="skeleton-grid">
+                <div class="skeleton-card"><div class="aspect-[9/16] shimmer"></div><div class="p-4 flex flex-col gap-3"><div class="h-2.5 w-2/3 rounded-full shimmer"></div><div class="h-2 w-1/3 rounded-full shimmer"></div></div></div>
+                <div class="skeleton-card hidden md:block"><div class="aspect-[9/16] shimmer"></div><div class="p-4 flex flex-col gap-3"><div class="h-2.5 w-1/2 rounded-full shimmer"></div><div class="h-2 w-2/5 rounded-full shimmer"></div></div></div>
+                <div class="skeleton-card hidden md:block"><div class="aspect-[9/16] shimmer"></div><div class="p-4 flex flex-col gap-3"><div class="h-2.5 w-3/5 rounded-full shimmer"></div><div class="h-2 w-1/4 rounded-full shimmer"></div></div></div>
+            </div>
+            <p class="microlabel text-neutral-400 animate-pulse-subtle" id="loadingText">Loading your collection</p>
+        </div>
+    </div>
+
+    <!-- Frosted gradient edge: content dissolves under the header instead of colliding with it -->
+    <div id="scrollEdge"></div>
+
+    <header id="mainHeader" class="header-glass px-4 md:px-6 py-3 fixed top-0 w-full z-40 transition-transform duration-300 ease-in-out">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3 max-w-[1390px] mx-auto">
+            <!-- Mobile Header Row -->
+            <div class="flex items-center justify-between w-full md:w-auto">
+                <div class="flex items-center gap-2">
+                    <h1 class="font-display text-2xl leading-none text-neutral-900">SSaved <span id="headerCollectionName" class="microlabel align-middle text-neutral-300 ml-1"></span></h1>
+                    <!-- Mobile: search opens the palette -->
+                    <button onclick="openCmdk()" class="md:hidden w-8 h-8 flex items-center justify-center text-neutral-400 hover:text-neutral-900 rounded-md transition-all" title="Search (⌘K)">
+                        <i class="ph ph-magnifying-glass text-lg"></i>
+                    </button>
+                    <!-- Mobile: Link + Backup icons next to title -->
+                    <button onclick="showShareModal()" class="md:hidden w-8 h-8 flex items-center justify-center text-neutral-400 hover:text-neutral-900 rounded-md transition-all" title="Share Link">
+                        <i class="ph ph-link text-lg"></i>
+                    </button>
+                    <button onclick="manualBackupToGitHub()" id="backupBtnMobile" class="md:hidden w-8 h-8 flex items-center justify-center text-neutral-400 hover:text-neutral-900 rounded-md transition-all" title="Backup to GitHub">
+                        <i class="ph ph-cloud-arrow-up text-lg"></i>
+                    </button>
+                    <span id="saveIndicator" class="text-[10px] font-medium uppercase tracking-wider text-neutral-300 opacity-0 transition-opacity">Saved</span>
+                </div>
+                <!-- Mobile: Add buttons -->
+                <div class="md:hidden flex items-center gap-2 view-hide">
+                    <button onclick="triggerUpload()" class="btn-primary flex items-center gap-1.5 px-3 py-1.5 text-sm" title="Add Screenshot">
+                        <i class="ph-bold ph-plus text-sm"></i>
+                        <i class="ph-bold ph-image text-base"></i>
+                    </button>
+                    <button onclick="createNewFolder()" class="btn-primary flex items-center gap-1.5 px-3 py-1.5 text-sm" title="New Folder">
+                        <i class="ph-bold ph-plus text-sm"></i>
+                        <i class="ph-bold ph-folder-plus text-base"></i>
+                    </button>
+                </div>
+            </div>
+            
+            <!-- Desktop & Mobile Controls Row -->
+            <div class="flex items-center gap-2 md:gap-3 overflow-x-auto no-scrollbar w-full md:w-auto pb-1 md:pb-0">
+                <!-- Mobile: Column toggle -->
+                <div class="md:hidden flex bg-neutral-100/80 p-1 rounded-lg border border-neutral-200/50 shrink-0">
+                    <button onclick="setMobileCols(1)" id="col-btn-1" class="w-8 h-8 flex items-center justify-center rounded-md text-neutral-400 hover:text-neutral-900 transition-all"><i class="ph-bold ph-rectangle"></i></button>
+                    <button onclick="setMobileCols(2)" id="col-btn-2" class="w-8 h-8 flex items-center justify-center rounded-md text-neutral-400 hover:text-neutral-900 transition-all"><i class="ph-bold ph-columns"></i></button>
+                </div>
+
+                <!-- Desktop: Width slider -->
+                <div class="hidden md:flex items-center gap-2 bg-neutral-100/50 px-3 py-1.5 rounded-lg border border-neutral-200/50 shrink-0">
+                    <i class="ph ph-corners-in text-neutral-400 text-sm"></i>
+                    <input type="range" min="600" max="2400" value="1390" class="w-20 md:w-24" id="widthSlider" oninput="updateWidth(this.value)">
+                </div>
+
+                <!-- Desktop: command palette trigger -->
+                <button onclick="openCmdk()" class="cmdk-trigger hidden md:flex shrink-0" title="Search everything">
+                    <i class="ph ph-magnifying-glass text-sm"></i>
+                    <span class="microlabel">Search</span>
+                    <span class="cmdk-kbd">⌘K</span>
+                </button>
+
+                <!-- Desktop: Share + Backup buttons -->
+                <div class="hidden md:flex items-center gap-1 bg-neutral-100/50 p-1 rounded-lg border border-neutral-200/50 shrink-0">
+                    <button onclick="showShareModal()" class="w-8 h-8 flex items-center justify-center text-neutral-400 hover:text-neutral-900 hover:bg-white rounded-md transition-all" title="Share Link"><i class="ph ph-link text-lg"></i></button>
+                    <button onclick="manualBackupToGitHub()" id="backupBtnDesktop" class="w-8 h-8 flex items-center justify-center text-neutral-400 hover:text-neutral-900 hover:bg-white rounded-md transition-all" title="Backup to GitHub"><i class="ph ph-cloud-arrow-up text-lg"></i></button>
+                </div>
+                
+                <input type="file" id="fileInput" multiple accept="image/*" class="hidden view-hide" onchange="handleFiles(this.files)">
+            </div>
+            
+            <!-- Desktop: Add buttons -->
+            <div class="hidden md:flex items-center gap-2 shrink-0 view-hide">
+                <button onclick="triggerUpload()" class="btn-primary flex items-center gap-1.5 px-3 py-1.5 text-sm" title="Add Screenshot">
+                    <i class="ph-bold ph-plus text-sm"></i>
+                    <i class="ph-bold ph-image text-base"></i>
+                </button>
+                <button onclick="createNewFolder()" class="btn-primary flex items-center gap-1.5 px-3 py-1.5 text-sm" title="New Folder">
+                    <i class="ph-bold ph-plus text-sm"></i>
+                    <i class="ph-bold ph-folder-plus text-base"></i>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Mobile Folder Breadcrumb -->
+    <div id="mobileBreadcrumb" class="md:hidden fixed top-0 left-0 right-0 z-35 pointer-events-none opacity-0 transition-all duration-300" style="z-index: 35;">
+        <div class="px-4 pt-2 pb-1">
+            <span id="breadcrumbText" class="mobile-breadcrumb inline-block text-[10px] font-semibold uppercase tracking-wider text-neutral-400 bg-white/80 backdrop-blur-md px-3 py-1 rounded-full border border-neutral-100/80 shadow-sm"></span>
+        </div>
+    </div>
+
+    <main id="mainContainer" class="p-4 md:p-6 pt-36 md:pt-28 relative mx-auto min-h-screen transition-[max-width] duration-200 ease-out" style="max-width: 1390px;">
+        
+        <div id="emptyState" class="hidden min-h-[70vh] flex flex-col items-center justify-center text-neutral-400">
+            <div class="w-20 h-20 bg-neutral-100 rounded-2xl flex items-center justify-center mb-6 text-neutral-300"><i class="ph-fill ph-images text-4xl"></i></div>
+            <p class="font-display text-2xl text-neutral-600">Nothing saved yet</p>
+            <p class="microlabel text-neutral-400 mt-3">Drop screenshots anywhere on this page</p>
+        </div>
+
+        <!-- View tabs: Folders vs Latest (feed) -->
+        <div id="viewTabs" class="relative flex items-center mb-6 border-b border-neutral-200/60">
+            <button onclick="setLayoutMode('folders')" id="tab-folders" class="view-tab"><i class="ph-bold ph-squares-four text-sm"></i> Folders</button>
+            <button onclick="setLayoutMode('feed')" id="tab-feed" class="view-tab"><i class="ph-bold ph-rows text-sm"></i> Latest</button>
+            <span id="tabIndicator"></span>
+        </div>
+
+        <div id="folderWrapper" class="flex flex-col gap-12 pb-32"></div>
+
+    </main>
+
+    <!-- Folder Side Nav (Desktop only) -->
+    <nav id="folderSideNav" class="hidden md:flex fixed right-6 top-1/2 -translate-y-1/2 z-30 flex-col items-end gap-1" aria-label="Folder navigation">
+    </nav>
+
+    <!-- Share Modal -->
+    <div id="shareModal" class="fixed inset-0 z-50 hidden items-end md:items-center justify-center p-0 md:p-4 modal-backdrop">
+        <div class="modal-content sheet-content w-full max-w-md p-6 rounded-b-none md:rounded-[1.25rem]">
+            <div class="sheet-handle md:hidden -mt-3"><span></span></div>
+            <div class="flex items-center justify-between mb-4">
+                <h2 class="font-display text-2xl leading-tight">Share Your Collection</h2>
+                <button onclick="closeShareModal()" class="p-2 text-neutral-400 hover:text-neutral-900 rounded-lg transition-colors">
+                    <i class="ph-bold ph-x"></i>
+                </button>
+            </div>
+            <p class="text-sm text-neutral-500 mb-4">Anyone with this link can view and edit your collection. Bookmark it to return later.</p>
+            <div class="flex gap-2">
+                <div class="flex-1 px-3 py-2 bg-neutral-50 border border-neutral-200 rounded-lg text-sm text-neutral-700 font-mono overflow-x-auto whitespace-nowrap" id="shareUrlDisplay"></div>
+                <button onclick="copyShareUrl()" id="copyShareBtn" class="btn-primary px-4 py-2 flex items-center gap-2 shrink-0">
+                    <i class="ph-bold ph-copy"></i> Copy
+                </button>
+            </div>
+            <p id="copyConfirm" class="text-xs text-green-600 mt-2 opacity-0 transition-opacity">Copied to clipboard!</p>
+        </div>
+    </div>
+
+    <!-- Tag Overview (long-press a folder tab) -->
+    <div id="tagOverview" class="fixed inset-0 z-50 hidden items-end md:items-center justify-center modal-backdrop">
+        <div class="modal-content sheet-content w-full max-w-md rounded-b-none md:rounded-[1.25rem] max-h-[75vh] flex flex-col">
+            <div class="sheet-handle md:hidden shrink-0"><span></span></div>
+            <div class="flex items-center justify-between px-5 pt-2 md:pt-5 pb-3 shrink-0">
+                <div>
+                    <h2 class="font-display text-2xl leading-tight">Jump to folder</h2>
+                    <p class="text-xs text-neutral-400 mt-0.5" id="tagOverviewSubtitle"></p>
+                </div>
+                <button onclick="closeTagOverview()" class="p-2 text-neutral-400 hover:text-neutral-900 rounded-lg transition-colors">
+                    <i class="ph-bold ph-x"></i>
+                </button>
+            </div>
+            <div id="tagOverviewList" class="px-3 pb-5 overflow-y-auto flex flex-col gap-1 no-scrollbar"></div>
+        </div>
+    </div>
+
+    <!-- Folder Visibility (long-press "All screenshots" in the feed) -->
+    <div id="folderVisibilityModal" class="fixed inset-0 z-50 hidden items-end md:items-center justify-center modal-backdrop">
+        <div class="modal-content sheet-content w-full max-w-md rounded-b-none md:rounded-[1.25rem] max-h-[75vh] flex flex-col">
+            <div class="sheet-handle md:hidden shrink-0"><span></span></div>
+            <div class="flex items-center justify-between px-5 pt-2 md:pt-5 pb-3 shrink-0">
+                <div>
+                    <h2 class="font-display text-2xl leading-tight">Show folders</h2>
+                    <p class="text-xs text-neutral-400 mt-0.5" id="folderVisibilitySubtitle"></p>
+                </div>
+                <button onclick="closeFolderVisibilityModal()" class="p-2 text-neutral-400 hover:text-neutral-900 rounded-lg transition-colors">
+                    <i class="ph-bold ph-x"></i>
+                </button>
+            </div>
+            <div id="folderVisibilityList" class="px-3 pb-3 overflow-y-auto flex flex-col gap-1 no-scrollbar"></div>
+            <div class="px-5 py-3 border-t border-neutral-100 shrink-0 flex items-center justify-between">
+                <button onclick="showAllFolders()" class="text-sm font-medium text-blue-500 hover:text-blue-600">Show all</button>
+                <button onclick="closeFolderVisibilityModal()" class="btn-primary px-5 py-2 text-sm">Done</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Delete Folder Confirmation Modal -->
+    <div id="deleteFolderModal" class="fixed inset-0 z-50 hidden items-center justify-center p-4 modal-backdrop">
+        <div class="modal-content w-full max-w-sm p-6">
+            <p class="text-sm text-neutral-700">Delete <strong id="deleteFolderName"></strong>?</p>
+            <p class="text-xs text-neutral-400 mt-1">Cards inside will be moved to Inbox.</p>
+            <div class="flex gap-2 mt-5">
+                <button onclick="closeDeleteModal()" class="flex-1 px-4 py-2 text-sm font-medium text-neutral-500 bg-neutral-100 hover:bg-neutral-200 rounded-lg transition-colors">Cancel</button>
+                <button onclick="executeDeleteFolder()" class="flex-1 px-4 py-2 text-sm font-medium text-red-600 bg-red-50 hover:bg-red-100 border border-red-100 rounded-lg transition-colors">Delete</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Command Palette -->
+    <div id="cmdk" class="fixed inset-0 z-[60] hidden modal-backdrop">
+        <div class="cmdk-panel" role="dialog" aria-label="Search and commands">
+            <div class="cmdk-input-row">
+                <i class="ph ph-magnifying-glass"></i>
+                <span id="cmdkChip" class="cmdk-chip hidden"></span>
+                <input id="cmdkInput" type="text" autocomplete="off" spellcheck="false"
+                       placeholder="Search screenshots, notes, folders…"
+                       oninput="renderCmdk()" onkeydown="cmdkKeydown(event)">
+                <span class="cmdk-kbd">ESC</span>
+            </div>
+            <div id="cmdkResults" class="cmdk-results"></div>
+            <div class="cmdk-foot">
+                <span class="microlabel"><span class="cmdk-kbd">↑↓</span> Navigate</span>
+                <span class="microlabel"><span class="cmdk-kbd">↵</span> Open</span>
+                <span class="microlabel hidden md:inline-flex"><span class="cmdk-kbd">@</span> Users</span>
+                <span class="microlabel hidden md:inline-flex"><span class="cmdk-kbd">#</span> Folders</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Upload staging tray -->
+    <div id="uploadTray" class="hidden">
+        <div class="tray-head">
+            <span class="microlabel" id="trayTitle">Uploading</span>
+            <button onclick="clearFinishedUploads()" class="microlabel text-neutral-400 hover:text-neutral-700 transition-colors" id="trayClear">Clear</button>
+        </div>
+        <div class="tray-list" id="trayList"></div>
+    </div>
+
+    <div id="toastRoot"></div>
+
+    <div id="selectionToolbar" class="fixed bottom-6 left-1/2 -translate-x-1/2 bg-blue-600 backdrop-blur-md text-white pl-5 pr-3 py-2.5 rounded-full shadow-2xl flex items-center gap-3 hidden z-50">
+        <span id="selectionCount" class="text-xs font-medium">0 selected</span>
+        <button onclick="exitSelectionMode()" class="w-7 h-7 flex items-center justify-center hover:bg-blue-500 rounded-full transition-colors"><i class="ph-bold ph-x text-sm"></i></button>
+    </div>
+    
+    <div id="dragOverlay" class="fixed inset-0 bg-neutral-900/5 backdrop-blur-sm z-50 pointer-events-none opacity-0 flex items-center justify-center transition-opacity duration-200">
+        <div class="drop-overlay-card px-10 py-8 flex flex-col items-center gap-4">
+            <div class="p-4 bg-blue-50 text-blue-500 rounded-2xl"><i class="ph-fill ph-upload-simple text-3xl"></i></div>
+            <p class="text-lg font-semibold text-neutral-700">Drop images to import</p>
+        </div>
+    </div>
+
+    <script>
+        // --- SUPABASE CONFIG ---
+        const SUPABASE_URL = 'https://uauqqdaalnddedgjdgcg.supabase.co';
+        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVhdXFxZGFhbG5kZGVkZ2pkZ2NnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njc3OTQ2NDIsImV4cCI6MjA4MzM3MDY0Mn0.afUxr9uKdSamnbFQmOt7DDRvEJYLEz3-c8u5P3zZcnE';
+        const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+        // --- STATE ---
+        let appData = { cards: [], folders: [] };
+        let undoTimeout = null;
+        let selectionMode = false, selectedCardIds = new Set(), selectionFolderId = null;
+        let collectionId = null;
+        let layoutMode = localStorage.getItem('ssaved_layout') || 'folders'; // 'folders' | 'feed'
+        let feedFilter = new Set(); // folderIds to narrow the feed by; empty = show all
+        
+        function getInboxId() {
+            const inbox = appData.folders.find(f => f.name === 'Inbox');
+            return inbox ? inbox.id : `${collectionId}_inbox`;
+        }
+        const DELETION_GRACE_PERIOD = 10 * 60 * 1000; // 10 minutes in milliseconds
+        const deletionTimers = new Map(); // Track scheduled deletions
+
+        // --- INIT ---
+        window.addEventListener('DOMContentLoaded', async () => {
+            await initCollection();
+            if (collectionId) {
+                document.getElementById('headerCollectionName').textContent = `(${collectionId})`;
+            }
+            await cleanupOldDeletedCards();
+            autoBackupToGitHub();
+            setupGlobalDrag();
+            setupLongPress();
+            setupFolderLongPress();
+            setupFeedFilterLongPress();
+            setupSheetDrag('tagOverview', closeTagOverview);
+            setupSheetDrag('folderVisibilityModal', closeFolderVisibilityModal);
+            setupSheetDrag('shareModal', closeShareModal);
+            initScrollBehavior();
+            preloadImages();
+
+            // Prefs (local only)
+            const w = localStorage.getItem('ssaved_width');
+            if (w) { document.getElementById('widthSlider').value = w; updateWidth(w); }
+            updateLayoutToggleUI();
+            setMobileCols(localStorage.getItem('ssaved_cols') || 1);
+
+            // ESC to exit selection mode
+            document.addEventListener('keydown', e => {
+                if (e.key === 'Escape' && selectionMode) exitSelectionMode();
+            });
+        });
+
+        // --- VIEW MODE ---
+        const viewMode = new URLSearchParams(window.location.search).get('s') === '1';
+        if (viewMode) document.documentElement.classList.add('view-mode');
+
+        // --- COLLECTION MANAGEMENT ---
+        async function initCollection() {
+            try {
+                // Check URL for collection ID
+                const urlParams = new URLSearchParams(window.location.search);
+                let id = urlParams.get('c');
+                
+                if (id) {
+                    // Try to load existing collection
+                    collectionId = id;
+                    const exists = await loadCollection(id);
+                    if (!exists) {
+                        // Collection doesn't exist, create it
+                        await createCollection(id);
+                    }
+                } else {
+                    // No ID in URL - check localStorage for existing collection
+                    id = localStorage.getItem('ssaved_collection_id');
+                    if (id) {
+                        collectionId = id;
+                        const exists = await loadCollection(id);
+                        if (!exists) {
+                            // Stored ID is invalid, create new
+                            await createNewCollection();
+                        }
+                    } else {
+                        // First time user - create new collection
+                        await createNewCollection();
+                    }
+                }
+                
+                // Update URL without reload
+                updateUrl();
+                hideLoading();
+            } catch (error) {
+                console.error('Init error:', error);
+                setLoadingText('Error: ' + error.message);
+            }
+        }
+
+        // --- COLLECTION ID GENERATION ---
+        const ADJECTIVES = [
+            'autumn', 'hidden', 'bitter', 'misty', 'silent', 'empty', 'dry', 'dark',
+            'summer', 'icy', 'delicate', 'quiet', 'white', 'cool', 'spring', 'winter',
+            'patient', 'twilight', 'dawn', 'crimson', 'wispy', 'weathered', 'blue',
+            'billowing', 'broken', 'cold', 'damp', 'falling', 'frosty', 'green',
+            'long', 'late', 'lingering', 'bold', 'little', 'morning', 'muddy', 'old',
+            'red', 'rough', 'still', 'small', 'sparkling', 'throbbing', 'shy',
+            'wandering', 'withered', 'wild', 'black', 'young', 'holy', 'solitary',
+            'fragrant', 'aged', 'snowy', 'proud', 'floral', 'restless', 'divine',
+            'polished', 'ancient', 'purple', 'lively', 'nameless', 'lucky', 'odd',
+            'dazzling', 'upbeat', 'brave', 'calm', 'eager', 'jolly', 'kind'
+        ];
+
+        const NOUNS = [
+            'waterfall', 'river', 'breeze', 'moon', 'rain', 'wind', 'sea', 'morning',
+            'snow', 'lake', 'sunset', 'pine', 'shadow', 'leaf', 'dawn', 'glitter',
+            'forest', 'hill', 'cloud', 'meadow', 'sun', 'glade', 'bird', 'brook',
+            'butterfly', 'bush', 'dew', 'dust', 'field', 'fire', 'flower', 'firefly',
+            'feather', 'grass', 'haze', 'mountain', 'night', 'pond', 'darkness',
+            'snowflake', 'silence', 'sound', 'sky', 'shape', 'surf', 'thunder',
+            'violet', 'water', 'wildflower', 'wave', 'water', 'resonance', 'sun',
+            'wood', 'dream', 'cherry', 'tree', 'fog', 'frost', 'voice', 'paper',
+            'frog', 'smoke', 'star', 'mouse', 'ocean', 'galaxy', 'payne', 'liskov',
+            'lovelace', 'hopper', 'turing', 'shirley', 'hamilton', 'tesla'
+        ];
+
+        function generateCollectionId() {
+            const adj = ADJECTIVES[Math.floor(Math.random() * ADJECTIVES.length)];
+            const noun = NOUNS[Math.floor(Math.random() * NOUNS.length)];
+            return `${adj}-${noun}`;
+        }
+
+        async function createNewCollection() {
+            collectionId = generateCollectionId();
+            await createCollection(collectionId);
+            localStorage.setItem('ssaved_collection_id', collectionId);
+        }
+
+        async function createCollection(id) {
+            // Create collection record
+            await db.from('collections').insert({ id });
+
+            // Create default Inbox folder with collection-specific ID
+            const inboxId = `${id}_inbox`;
+            const inboxFolder = { id: inboxId, collection_id: id, name: 'Inbox', order: 0, is_collapsed: false };
+            await db.from('folders').insert(inboxFolder);
+
+            appData.folders = [{ id: inboxId, name: 'Inbox', order: 0, isCollapsed: false }];
+            appData.cards = [];
+            render();
+        }
+
+        async function loadCollection(id) {
+            setLoadingText('Loading your collection...');
+            
+            // Check if collection exists
+            const { data: collection } = await db
+                .from('collections')
+                .select('id')
+                .eq('id', id)
+                .single();
+            
+            if (!collection) return false;
+            
+            // Load folders
+            const { data: folders } = await db
+                .from('folders')
+                .select('*')
+                .eq('collection_id', id)
+                .order('order');
+            
+            appData.folders = (folders || []).map(f => ({
+                id: f.id,
+                name: f.name,
+                order: f.order,
+                isCollapsed: f.is_collapsed
+            }));
+
+            // Get the actual inbox folder ID (either old "inbox" or new "{collectionId}_inbox")
+            const inboxFolder = appData.folders.find(f => f.name === 'Inbox');
+            const actualInboxId = inboxFolder ? inboxFolder.id : `${id}_inbox`;
+
+            // Ensure Inbox exists
+            if (!inboxFolder) {
+                const newInbox = { id: actualInboxId, collection_id: id, name: 'Inbox', order: 0, is_collapsed: false };
+                await db.from('folders').insert(newInbox);
+                appData.folders.unshift({ id: actualInboxId, name: 'Inbox', order: 0, isCollapsed: false });
+            }
+            
+            // Load cards
+            const { data: cards, error: cardsError } = await db
+                .from('cards')
+                .select('*')
+                .eq('collection_id', id)
+                .order('order');
+
+            if (cardsError) {
+                console.error('Error loading cards:', cardsError);
+                alert('Error loading cards: ' + cardsError.message);
+                return false;
+            }
+
+            console.log('Loaded cards from DB:', cards?.length || 0);
+
+            appData.cards = (cards || []).map(c => ({
+                id: c.id,
+                username: c.username || '',
+                notes: c.notes || '',
+                link: c.link || '#',
+                imageUrl: getPublicImageUrl(c.image_path),
+                imagePath: c.image_path,
+                folderId: c.folder_id || actualInboxId,
+                order: c.order,
+                createdAt: c.created_at || null, // Backwards compatible
+                suggestions: c.suggestions || [],
+                deletedAt: c.deleted_at || null, // Load deleted_at timestamp
+                isScanning: false
+            }));
+
+            // Detect link mode for existing cards
+            appData.cards.forEach(card => {
+                card.linkMode = detectLinkMode(card);
+            });
+
+            // Schedule deletion for cards with deleted_at timestamp
+            appData.cards.forEach(card => {
+                if (card.deletedAt) {
+                    schedulePermanentDeletion(card.id, card.deletedAt);
+                }
+            });
+
+            render();
+            return true;
+        }
+
+        function updateUrl() {
+            const url = new URL(window.location);
+            url.searchParams.set('c', collectionId);
+            window.history.replaceState({}, '', url);
+        }
+
+        function getPublicImageUrl(path) {
+            if (!path) return '';
+            return `${SUPABASE_URL}/storage/v1/object/public/images/${path}`;
+        }
+
+        function setLoadingText(text) {
+            document.getElementById('loadingText').textContent = text;
+        }
+
+        function hideLoading() {
+            document.getElementById('loadingScreen').classList.add('hidden');
+        }
+
+        // --- SCROLL BEHAVIOR ---
+        function initScrollBehavior() {
+            const header = document.getElementById('mainHeader');
+            const breadcrumb = document.getElementById('mobileBreadcrumb');
+            const edge = document.getElementById('scrollEdge');
+            let lastScrollY = window.scrollY;
+
+            // The frosted edge sits flush under the header and rides with it
+            const placeEdge = () => {
+                if (!edge) return;
+                const hidden = header.classList.contains('-translate-y-full');
+                edge.style.top = hidden ? '0px' : header.offsetHeight + 'px';
+            };
+            placeEdge();
+            window.addEventListener('resize', placeEdge);
+
+            window.addEventListener('scroll', () => {
+                const currentScrollY = window.scrollY;
+                if (currentScrollY < 0) return;
+                if (edge) edge.classList.toggle('is-on', currentScrollY > 24);
+                if (Math.abs(currentScrollY - lastScrollY) < 10) return;
+                const scrollingDown = currentScrollY > lastScrollY && currentScrollY > 60;
+                if (scrollingDown) {
+                    header.classList.add('-translate-y-full');
+                    if (breadcrumb) breadcrumb.classList.add('is-visible');
+                } else {
+                    header.classList.remove('-translate-y-full');
+                    if (breadcrumb) breadcrumb.classList.remove('is-visible');
+                }
+                placeEdge();
+                lastScrollY = currentScrollY;
+            }, { passive: true });
+        }
+
+        // --- FOLDER NAV (Desktop side nav + Mobile breadcrumb) ---
+        let folderObserver = null;
+        let activeFolderName = '';
+
+        function buildFolderNav() {
+            // Desktop side nav
+            const nav = document.getElementById('folderSideNav');
+            if (nav && window.innerWidth >= 768) {
+                nav.innerHTML = appData.folders.map(f =>
+                    `<div class="side-nav-item" data-folder-id="${f.id}" onclick="scrollToFolder('${f.id}')">${f.name}</div>`
+                ).join('');
+            }
+
+            // Init observer for both desktop and mobile
+            initFolderObserver();
+        }
+
+        function scrollToFolder(folderId) {
+            const section = document.getElementById(`folder-${folderId}`);
+            if (section) {
+                const headerHeight = 120;
+                const y = section.getBoundingClientRect().top + window.scrollY - headerHeight;
+                window.scrollTo({ top: y, behavior: 'smooth' });
+            }
+        }
+
+        function initFolderObserver() {
+            if (folderObserver) folderObserver.disconnect();
+
+            folderObserver = new IntersectionObserver((entries) => {
+                entries.forEach(entry => {
+                    const folderId = entry.target.id.replace('folder-', '');
+                    const folder = appData.folders.find(f => f.id === folderId);
+
+                    // Desktop side nav
+                    const navItem = document.querySelector(`.side-nav-item[data-folder-id="${folderId}"]`);
+                    if (navItem) {
+                        if (entry.isIntersecting) navItem.classList.add('is-active');
+                        else navItem.classList.remove('is-active');
+                    }
+
+                    // Mobile breadcrumb — update to the topmost visible folder
+                    if (entry.isIntersecting && folder) {
+                        activeFolderName = folder.name;
+                        const breadcrumbText = document.getElementById('breadcrumbText');
+                        if (breadcrumbText) breadcrumbText.textContent = folder.name;
+                    }
+                });
+            }, {
+                rootMargin: '-20% 0px -70% 0px',
+                threshold: 0
+            });
+
+            appData.folders.forEach(f => {
+                const section = document.getElementById(`folder-${f.id}`);
+                if (section) folderObserver.observe(section);
+            });
+        }
+
+        // Hide side nav on mobile, show on desktop
+        window.addEventListener('resize', () => {
+            const nav = document.getElementById('folderSideNav');
+            if (!nav) return;
+            if (window.innerWidth < 768) {
+                nav.classList.add('hidden');
+            } else {
+                nav.classList.remove('hidden');
+                nav.classList.add('md:flex');
+            }
+        });
+
+        // --- DATABASE OPERATIONS ---
+        async function saveCardToDB(card) {
+            const dbCard = {
+                id: card.id,
+                collection_id: collectionId,
+                username: card.username,
+                notes: card.notes,
+                link: card.link,
+                image_path: card.imagePath,
+                folder_id: card.folderId,
+                order: card.order,
+                suggestions: card.suggestions
+            };
+
+            // Only include created_at if it exists (backwards compatible)
+            if (card.createdAt) {
+                dbCard.created_at = card.createdAt;
+            }
+
+            console.log('Saving card to DB:', dbCard);
+            const { error } = await db.from('cards').upsert(dbCard);
+            if (error) {
+                console.error('Card save error:', error);
+                alert('Failed to save card: ' + error.message);
+            } else {
+                console.log('Card saved successfully:', card.id);
+            }
+            showSaved();
+            return { error };
+        }
+
+        async function saveFolderToDB(folder) {
+            const dbFolder = {
+                id: folder.id,
+                collection_id: collectionId,
+                name: folder.name,
+                order: folder.order,
+                is_collapsed: folder.isCollapsed
+            };
+            await db.from('folders').upsert(dbFolder);
+        }
+
+        async function deleteCardFromDB(id) {
+            // Get the card to find its image path
+            const card = appData.cards.find(c => c.id === id);
+            if (card?.imagePath) {
+                // Delete image from storage
+                await db.storage.from('images').remove([card.imagePath]);
+            }
+            // Delete card record
+            await db.from('cards').delete().eq('id', id);
+        }
+
+        async function deleteFolderFromDB(id) {
+            await db.from('folders').delete().eq('id', id);
+        }
+
+        function reindexCards(folderId) {
+            const subset = appData.cards.filter(c => c.folderId === folderId).sort((a,b) => a.order - b.order);
+            subset.forEach((c, i) => { c.order = i; saveCardToDB(c); });
+        }
+
+        // --- RENDER ---
+        function render(restoreId = null) {
+            const wrapper = document.getElementById('folderWrapper');
+            const empty = document.getElementById('emptyState');
+            const rIds = Array.isArray(restoreId) ? restoreId : (restoreId ? [restoreId] : []);
+
+            const hasCards = appData.cards.length > 0;
+            const hasCustomFolders = appData.folders.length > 1;
+            const tabs = document.getElementById('viewTabs');
+
+            if (!hasCards && !hasCustomFolders) {
+                empty.classList.remove('hidden'); wrapper.innerHTML = '';
+                if (tabs) tabs.classList.add('hidden');
+                return;
+            }
+            empty.classList.add('hidden');
+            if (tabs) tabs.classList.remove('hidden');
+            wrapper.innerHTML = '';
+
+            if (layoutMode === 'feed') { renderFeed(rIds); return; }
+
+            const mCols = localStorage.getItem('ssaved_cols') || 1;
+            const gridClass = `grid-cols-${mCols} md:grid-cols-2 lg:grid-cols-3`;
+
+            appData.folders.forEach(folder => {
+                const fCards = appData.cards
+                    .filter(c => c.folderId === folder.id && !c.deletedAt)
+                    .sort((a,b) => {
+                        // If both have manual order (non-zero), use that
+                        if (a.order !== 0 || b.order !== 0) {
+                            return a.order - b.order;
+                        }
+                        // Otherwise sort by createdAt (newest first)
+                        if (a.createdAt && b.createdAt) {
+                            return new Date(b.createdAt) - new Date(a.createdAt);
+                        }
+                        // Fallback to ID (newer = larger)
+                        return b.id - a.id;
+                    });
+                const cardsHtml = fCards.map(c => generateCardHTML(c, rIds)).join('');
+                const chevron = folder.isCollapsed ? 'ph-caret-right' : 'ph-caret-down';
+                const gridState = folder.isCollapsed ? 'hidden' : '';
+                const opacity = folder.isCollapsed ? 'opacity-50' : 'opacity-100';
+
+                const addBtn = viewMode ? '' : `
+                <button onclick="event.stopPropagation(); triggerUpload('${folder.id}')"
+                        class="ml-auto flex items-center gap-1 px-2 py-1.5 text-neutral-400 active:text-blue-500 md:text-neutral-300 md:opacity-0 md:group-hover/folder:opacity-100 hover:text-blue-500 hover:bg-blue-50/60 transition-all rounded-md"
+                        title="Add screenshot to this folder">
+                    <i class="ph-bold ph-plus text-xs"></i>
+                    <i class="ph-bold ph-image text-sm"></i>
+                </button>`;
+
+                const deleteBtn = (viewMode || folder.id === getInboxId()) ? '' : `
+                <button onclick="event.stopPropagation(); confirmDeleteFolder('${folder.id}', '${folder.name.replace(/'/g, "\\'")}')"
+                        class="mr-4 ml-1 flex items-center p-1.5 text-neutral-400 active:text-red-500 md:text-neutral-300 md:opacity-0 md:group-hover/folder:opacity-100 hover:text-red-500 transition-colors rounded-md"
+                        title="Delete Folder">
+                    <i class="ph-bold ph-x text-sm"></i>
+                </button>`;
+
+                const section = `
+                <section id="folder-${folder.id}" class="folder-enter group/folder">
+                    <div class="folder-header mb-5 flex items-end relative pl-1"
+                         data-folder-id="${folder.id}">
+
+                        <div class="folder-tab microlabel select-none cursor-pointer ${opacity}"
+                             onclick="toggleFolder('${folder.id}')">
+                            <i class="ph-bold ${chevron} text-[0.6rem]"></i>
+                            <span class="folder-name-display" ${viewMode ? '' : `ondblclick="event.stopPropagation(); editFolderName('${folder.id}')"`}>${folder.name}</span>
+                            ${viewMode ? '' : `<input type="text" id="folder-name-input-${folder.id}" class="folder-name-input microlabel hidden bg-white/90 px-2 py-0.5 rounded border border-neutral-300 text-neutral-700"
+                                   value="${folder.name}"
+                                   onblur="saveFolderName('${folder.id}')"
+                                   onkeydown="if(event.key==='Enter') this.blur(); if(event.key==='Escape') cancelEditFolderName('${folder.id}')"
+                                   onclick="event.stopPropagation()">`}
+                            <span class="folder-count">${fCards.length}</span>
+                        </div>
+
+                        ${addBtn}
+                        ${deleteBtn}
+                        <div class="h-px bg-neutral-200/60 w-full mb-px absolute bottom-0 left-0 right-0 -z-10"></div>
+                    </div>
+
+                    <div class="folder-grid-area grid ${gridClass} gap-5 md:gap-6 min-h-[50px] transition-all duration-300 ${gridState}">
+                        ${cardsHtml}
+                    </div>
+                </section>`;
+                wrapper.insertAdjacentHTML('beforeend', section);
+            });
+
+            requestAnimationFrame(() => {
+                initAllNotesCollapsible();
+                buildFolderNav();
+                positionTabIndicator();
+            });
+        }
+
+        // --- FEED / LATEST VIEW ---
+        function getFolderName(id) {
+            const f = appData.folders.find(f => f.id === id);
+            return f ? f.name : 'Inbox';
+        }
+
+        function setLayoutMode(mode) {
+            if (mode !== 'feed' && mode !== 'folders') return;
+            layoutMode = mode;
+            localStorage.setItem('ssaved_layout', mode);
+            if (selectionMode) exitSelectionMode();
+            updateLayoutToggleUI();
+            render();
+        }
+
+        function updateLayoutToggleUI() {
+            ['folders','feed'].forEach(m => {
+                const tab = document.getElementById(`tab-${m}`);
+                if (tab) tab.className = `view-tab ${layoutMode === m ? 'is-active' : ''}`;
+            });
+            positionTabIndicator();
+        }
+
+        // Fluid indicator: slides + stretches to the active tab (pasito-style)
+        function positionTabIndicator() {
+            const indicator = document.getElementById('tabIndicator');
+            const active = document.querySelector('.view-tab.is-active');
+            if (!indicator || !active || !active.offsetWidth) return;
+            indicator.style.left = active.offsetLeft + 'px';
+            indicator.style.width = active.offsetWidth + 'px';
+        }
+        window.addEventListener('resize', positionTabIndicator);
+
+        function toggleFeedFilter(id) {
+            if (feedFilter.has(id)) feedFilter.delete(id); else feedFilter.add(id);
+            render();
+        }
+
+        function clearFeedFilter() { feedFilter.clear(); render(); }
+
+        // Long-press the "All screenshots" chip to open the folder-visibility picker
+        function setupFeedFilterLongPress() {
+            const wrapper = document.getElementById('folderWrapper');
+            if (!wrapper) return;
+            let pressTimer = null, startX = 0, startY = 0, fired = false;
+
+            wrapper.addEventListener('pointerdown', e => {
+                const chip = e.target.closest('.feed-all-chip');
+                if (!chip) return;
+                startX = e.clientX; startY = e.clientY; fired = false;
+                pressTimer = setTimeout(() => {
+                    pressTimer = null; fired = true;
+                    if (navigator.vibrate) navigator.vibrate(10);
+                    openFolderVisibilityModal();
+                }, 500);
+            });
+            wrapper.addEventListener('pointermove', e => {
+                if (!pressTimer) return;
+                if (Math.abs(e.clientX - startX) > 10 || Math.abs(e.clientY - startY) > 10) {
+                    clearTimeout(pressTimer); pressTimer = null;
+                }
+            });
+            const cancel = () => { if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; } };
+            wrapper.addEventListener('pointerup', cancel);
+            wrapper.addEventListener('pointercancel', cancel);
+            // Swallow the clearFeedFilter click that fires right after a long press
+            wrapper.addEventListener('click', e => {
+                if (fired && e.target.closest('.feed-all-chip')) { e.stopPropagation(); e.preventDefault(); fired = false; }
+            }, true);
+            wrapper.addEventListener('contextmenu', e => {
+                if (pressTimer && e.target.closest('.feed-all-chip')) e.preventDefault();
+            });
+        }
+
+        // Folders that currently hold at least one live card
+        function foldersWithCards() {
+            return appData.folders.filter(f => appData.cards.some(c => c.folderId === f.id && !c.deletedAt));
+        }
+
+        // Current visible set (feedFilter is an include-set; empty means "all")
+        function feedVisibleIds() {
+            const withCards = foldersWithCards().map(f => f.id);
+            if (feedFilter.size === 0) return new Set(withCards);
+            return new Set([...feedFilter].filter(id => withCards.includes(id)));
+        }
+
+        function openFolderVisibilityModal() {
+            const modal = document.getElementById('folderVisibilityModal');
+            if (!modal) return;
+            buildFolderVisibilityList();
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+        }
+
+        function closeFolderVisibilityModal() {
+            const modal = document.getElementById('folderVisibilityModal');
+            if (!modal) return;
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+        }
+
+        function buildFolderVisibilityList() {
+            const list = document.getElementById('folderVisibilityList');
+            const subtitle = document.getElementById('folderVisibilitySubtitle');
+            if (!list) return;
+            const folders = foldersWithCards();
+            const visible = feedVisibleIds();
+            if (subtitle) subtitle.textContent = `${visible.size} of ${folders.length} showing · uncheck to hide`;
+
+            list.innerHTML = folders.map(f => {
+                const count = appData.cards.filter(c => c.folderId === f.id && !c.deletedAt).length;
+                const on = visible.has(f.id);
+                return `
+                <button onclick="toggleFolderVisibility('${f.id}')"
+                        class="w-full flex items-center justify-between gap-3 px-4 py-3 rounded-xl text-left transition-colors hover:bg-neutral-50 active:bg-neutral-100">
+                    <span class="flex items-center gap-3 min-w-0">
+                        <span class="fv-check ${on ? 'is-on' : ''}"><i class="ph-bold ph-check"></i></span>
+                        <span class="text-sm font-medium text-neutral-700 truncate">${f.name}</span>
+                    </span>
+                    <span class="text-xs font-medium text-neutral-400 shrink-0">${count}</span>
+                </button>`;
+            }).join('');
+        }
+
+        function toggleFolderVisibility(id) {
+            const withCards = foldersWithCards().map(f => f.id);
+            const visible = feedVisibleIds();
+            if (visible.has(id)) {
+                if (visible.size === 1) return; // keep at least one folder showing
+                visible.delete(id);
+            } else {
+                visible.add(id);
+            }
+            // Normalize: everything visible -> "all" (empty include-set)
+            if (withCards.every(x => visible.has(x))) feedFilter.clear();
+            else feedFilter = visible;
+            render();                    // re-render the feed live
+            buildFolderVisibilityList(); // refresh the checkboxes
+        }
+
+        function showAllFolders() {
+            feedFilter.clear();
+            render();
+            buildFolderVisibilityList();
+        }
+
+        function renderFeed(rIds) {
+            const wrapper = document.getElementById('folderWrapper');
+            const sideNav = document.getElementById('folderSideNav');
+            if (sideNav) sideNav.innerHTML = ''; // no per-folder nav in the feed
+            const bc = document.getElementById('mobileBreadcrumb');
+            if (bc) bc.classList.add('opacity-0'); // no folder-scroll breadcrumb in the feed
+
+            const mCols = localStorage.getItem('ssaved_cols') || 1;
+            const gridClass = `grid-cols-${mCols} md:grid-cols-2 lg:grid-cols-3`;
+
+            // Count live cards per folder for the filter list
+            const counts = {};
+            appData.cards.forEach(c => { if (!c.deletedAt) counts[c.folderId] = (counts[c.folderId] || 0) + 1; });
+
+            // Drop any filter selections that no longer have cards
+            [...feedFilter].forEach(id => { if (!counts[id]) feedFilter.delete(id); });
+
+            const filterFolders = appData.folders.filter(f => counts[f.id]);
+
+            // Visible cards: newest uploaded first, narrowed by the active filter
+            let cards = appData.cards.filter(c => !c.deletedAt);
+            if (feedFilter.size) cards = cards.filter(c => feedFilter.has(c.folderId));
+            cards.sort((a, b) => {
+                if (a.createdAt && b.createdAt) return new Date(b.createdAt) - new Date(a.createdAt);
+                return b.id - a.id;
+            });
+
+            const allActive = feedFilter.size === 0;
+            const chips = filterFolders.map(f => {
+                const active = feedFilter.has(f.id);
+                return `<button onclick="toggleFeedFilter('${f.id}')" class="feed-filter-chip ${active ? 'is-active' : ''}">
+                    <i class="ph-bold ${active ? 'ph-check-circle' : 'ph-circle'} text-sm"></i>
+                    <span>${f.name}</span>
+                    <span class="feed-filter-count">${counts[f.id]}</span>
+                </button>`;
+            }).join('');
+
+            const filterPanel = `
+            <aside class="feed-filter-panel">
+                <div class="feed-filter-head">
+                    <span class="text-xs font-semibold uppercase tracking-wider text-neutral-500">Filter</span>
+                    ${feedFilter.size ? `<button onclick="clearFeedFilter()" class="text-xs text-blue-500 hover:text-blue-600 font-medium">Clear</button>` : ''}
+                </div>
+                <div class="feed-filter-list">
+                    <button onclick="clearFeedFilter()" id="feedAllChip" class="feed-filter-chip feed-all-chip ${allActive ? 'is-active' : ''}" title="Tap to show all · long-press to choose folders">
+                        <i class="ph-bold ${allActive ? 'ph-check-circle' : 'ph-circle'} text-sm"></i>
+                        <span>All screenshots</span>
+                        <span class="feed-filter-count">${appData.cards.filter(c => !c.deletedAt).length}</span>
+                    </button>
+                    ${chips}
+                </div>
+            </aside>`;
+
+            const feedGrid = cards.length
+                ? `<div class="folder-grid-area grid ${gridClass} gap-5 md:gap-6 flex-1">${cards.map(c => generateCardHTML(c, rIds, true)).join('')}</div>`
+                : `<div class="flex-1 flex flex-col items-center justify-center text-neutral-400 py-20">
+                        <i class="ph-fill ph-funnel text-3xl mb-3 text-neutral-300"></i>
+                        <p class="text-sm">No screenshots in the selected folders</p>
+                   </div>`;
+
+            wrapper.innerHTML = `<div class="feed-layout flex flex-col md:flex-row gap-4 md:gap-8">${filterPanel}${feedGrid}</div>`;
+
+            requestAnimationFrame(() => { initAllNotesCollapsible(); positionTabIndicator(); });
+        }
+
+        function generateCardHTML(c, rIds, showFolderTag = false) {
+            const isRestored = c.isRestored ? "is-restored" : "";
+            const restoreAttr = c.isRestored ? `onmouseenter="clearRestoreStatus(${c.id})"` : "";
+            const pulse = c.isScanning ? "animate-pulse-subtle" : "";
+            const enter = rIds.includes(c.id) ? 'animate-restore' : '';
+            
+            const linkMode = isLinkMode(c);
+            const hasSuggestions = !c.isScanning && c.suggestions && c.suggestions.length !== 1;
+            let tooltip = "";
+            if (hasSuggestions) {
+                const content = c.suggestions.length === 0 
+                    ? `<div class="bg-white/95 backdrop-blur-md rounded-xl p-3 shadow-xl border border-neutral-100 text-xs text-neutral-500 text-center">No valid text found.</div>`
+                    : `<div class="bg-white/95 backdrop-blur-md rounded-xl p-3 shadow-xl border border-neutral-100"><div class="flex flex-wrap gap-2">${c.suggestions.map(w => `<button onmousedown="event.preventDefault(); applySuggestion(${c.id}, '${cleanString(w)}')" class="px-2.5 py-1.5 bg-neutral-50 hover:bg-neutral-100 border border-neutral-200 text-neutral-600 text-xs font-medium rounded-lg transition-all">${w}</button>`).join('')}</div></div>`;
+                tooltip = `<div id="tooltip-${c.id}" class="tooltip-container absolute bottom-full left-0 w-full mb-3 z-50"><div class="tooltip-arrow relative">${content}</div></div>`;
+            }
+
+            const dragAttrs = (viewMode || showFolderTag) ? '' : `data-card-id="${c.id}"`;
+            const folderTag = showFolderTag ? `
+                    <div class="flex flex-wrap items-center gap-1.5 pt-0.5">
+                        <span class="folder-pill"><i class="ph-bold ph-folder-simple text-[10px]"></i><span>${getFolderName(c.folderId)}</span></span>
+                    </div>` : '';
+            const isSelected = selectionMode && selectedCardIds.has(c.id);
+            const selClass = isSelected ? 'is-selected' : '';
+            const inSelectableFolder = selectionMode && c.folderId === selectionFolderId;
+
+            return `
+            <div id="card-${c.id}" ${dragAttrs}
+                 ${restoreAttr}
+                 style="view-transition-name: card-${c.id}"
+                 class="card group flex flex-col ${selClass} ${isRestored} ${pulse} ${enter}">
+
+                <div class="aspect-[9/16] bg-neutral-100 relative overflow-hidden group/image shrink-0 cursor-pointer" onclick="handleImageClick(event, ${c.id})">
+                    <img src="${c.imageUrl}" class="w-full h-full object-cover object-top pointer-events-none transition-transform duration-500 img-hover-scale" loading="lazy">
+
+                    ${isSelected ? '<div class="selection-check"><i class="ph-bold ph-check"></i></div>' : ''}
+
+                    ${selectionMode ? '' : `<button onclick="event.stopPropagation(); openProfile(${c.id})" class="external-link-btn p-2 bg-white/80 hover:bg-white backdrop-blur-md border border-white/50 text-neutral-600 hover:text-neutral-900 rounded-lg shadow-lg transition-all">
+                        <i class="ph-bold ph-arrow-up-right text-base"></i>
+                    </button>`}
+
+                    ${(viewMode || selectionMode) ? '' : `<button onclick="event.stopPropagation(); deleteCard(${c.id})" class="delete-btn p-2 bg-white/80 hover:bg-red-50 backdrop-blur-md border border-white/50 text-neutral-600 hover:text-red-500 rounded-lg shadow-lg transition-all">
+                        <i class="ph-bold ph-x text-base"></i>
+                    </button>`}
+                </div>
+
+                <div class="p-4 flex flex-col gap-3 flex-1">
+                    <div class="relative username-wrapper z-10">
+                        ${tooltip}
+                        <div class="relative group/input">
+                            <div class="absolute inset-y-0 left-0 pl-1 flex items-center ${viewMode ? 'pointer-events-none' : 'cursor-pointer'} z-10" style="touch-action: manipulation; user-select: none;" ${viewMode ? '' : `onclick="handleTagTap(${c.id})" title="${linkMode ? 'Double-tap to switch to username' : hasSuggestions ? 'Tap for suggestions · double-tap for link' : 'Double-tap to switch to link'}"`}>
+                                ${linkMode
+                                    ? `<i class="ph-bold ph-link text-neutral-400 text-sm"></i>`
+                                    : `<span class="${hasSuggestions ? 'text-neutral-400' : 'text-neutral-200'} font-medium">@</span>`}
+                            </div>
+                            <textarea
+                                oninput="${linkMode ? '' : 'autoResize(this); '}updateCard(${c.id}, 'username', this.value)"
+                                onfocus="${linkMode ? 'expandLinkField(this)' : 'autoResize(this)'}"
+                                onblur="${linkMode ? 'collapseLinkField(this)' : ''}"
+                                class="${linkMode ? 'link-field w-full pl-6 pr-10 py-1 bg-transparent border-0 border-b border-neutral-100 focus:border-neutral-300 outline-none text-sm font-normal text-neutral-500 group-hover/input:text-neutral-700 focus:text-neutral-900 transition-colors placeholder:text-neutral-300 overflow-hidden whitespace-nowrap resize-none' : 'auto-grow w-full pl-6 pr-2 py-1 bg-transparent border-0 border-b border-neutral-100 focus:border-neutral-300 outline-none text-sm font-semibold text-neutral-400 group-hover/input:text-neutral-700 focus:text-neutral-900 transition-colors placeholder:text-neutral-300'}"
+                                style="${linkMode ? 'height: 24px; transition: height 0.2s ease, white-space 0.2s ease;' : ''}"
+                                placeholder="${linkMode ? 'Paste link...' : 'Username'}" rows="1">${linkMode ? c.link : c.username}</textarea>
+                            ${linkMode && c.link ? `<button onclick="event.stopPropagation(); copyCardLink(${c.id})" class="copy-link-btn absolute inset-y-0 right-0 pl-4 pr-1 flex items-center text-neutral-300 hover:text-neutral-600 transition-colors bg-gradient-to-l from-white from-60% to-transparent" title="Copy link"><i class="ph-bold ph-copy text-xs"></i></button>` : ''}
+                        </div>
+                    </div>
+                    <div class="notes-wrapper" id="notes-wrapper-${c.id}">
+                        <div class="notes-fade"></div>
+                        <textarea 
+                            oninput="autoResize(this); updateCard(${c.id}, 'notes', this.value); checkNotesCollapsible(${c.id})" 
+                            onfocus="autoResize(this)"
+                            class="notes-textarea auto-grow w-full text-xs text-neutral-500 bg-transparent border-0 border-b border-neutral-50 focus:border-neutral-200 outline-none resize-none p-1 placeholder:text-neutral-300" 
+                            rows="1" placeholder="Add notes...">${c.notes}</textarea>
+                        <button class="notes-toggle" onclick="toggleNotes(${c.id})" aria-label="Expand notes">
+                            <i class="ph-bold ph-caret-down"></i>
+                        </button>
+                    </div>
+                    ${folderTag}
+                </div>
+            </div>`;
+        }
+
+        // --- JS UTILS FOR AUTO-GROW ---
+        function autoResize(el) {
+            el.style.height = 'auto'; 
+            el.style.height = el.scrollHeight + 'px';
+        }
+
+        // --- COLLAPSIBLE NOTES (Mobile) ---
+        const LINE_HEIGHT = 18;
+        const MAX_LINES = 3;
+        const DWELL_DELAY = 1500;
+        let dwellTimers = new Map();
+        let notesObserver = null;
+
+        function checkNotesCollapsible(id) {
+            if (window.innerWidth >= 768) return;
+            
+            const wrapper = document.getElementById(`notes-wrapper-${id}`);
+            const textarea = wrapper?.querySelector('.notes-textarea');
+            if (!wrapper || !textarea) return;
+
+            wrapper.classList.remove('is-collapsible', 'is-expanded');
+            textarea.style.maxHeight = 'none';
+            
+            const fullHeight = textarea.scrollHeight;
+            const threshold = LINE_HEIGHT * MAX_LINES;
+            
+            if (fullHeight > threshold) {
+                wrapper.classList.add('is-collapsible');
+                textarea.style.maxHeight = '';
+            } else {
+                textarea.style.maxHeight = '';
+            }
+        }
+
+        function toggleNotes(id) {
+            const wrapper = document.getElementById(`notes-wrapper-${id}`);
+            if (wrapper?.classList.contains('is-collapsible')) {
+                wrapper.classList.toggle('is-expanded');
+            }
+        }
+
+        function expandNotes(id) {
+            const wrapper = document.getElementById(`notes-wrapper-${id}`);
+            if (wrapper?.classList.contains('is-collapsible') && !wrapper.classList.contains('is-expanded')) {
+                wrapper.classList.add('is-expanded');
+            }
+        }
+
+        function initNotesObserver() {
+            if (window.innerWidth >= 768) return;
+            
+            if (notesObserver) notesObserver.disconnect();
+
+            notesObserver = new IntersectionObserver((entries) => {
+                entries.forEach(entry => {
+                    const card = entry.target;
+                    const id = parseInt(card.id.replace('card-', ''));
+                    
+                    if (entry.isIntersecting && entry.intersectionRatio >= 0.6) {
+                        if (!dwellTimers.has(id)) {
+                            dwellTimers.set(id, setTimeout(() => {
+                                expandNotes(id);
+                                dwellTimers.delete(id);
+                            }, DWELL_DELAY));
+                        }
+                    } else {
+                        if (dwellTimers.has(id)) {
+                            clearTimeout(dwellTimers.get(id));
+                            dwellTimers.delete(id);
+                        }
+                    }
+                });
+            }, {
+                threshold: [0, 0.6],
+                rootMargin: '-20% 0px -20% 0px'
+            });
+
+            document.querySelectorAll('[id^="card-"]').forEach(card => {
+                notesObserver.observe(card);
+            });
+        }
+
+        function initAllNotesCollapsible() {
+            if (window.innerWidth >= 768) return;
+            
+            document.querySelectorAll('.notes-textarea').forEach(textarea => {
+                autoResize(textarea);
+            });
+            
+            appData.cards.forEach(c => {
+                checkNotesCollapsible(c.id);
+            });
+            
+            initNotesObserver();
+        }
+
+        let lastWasMobile = window.innerWidth < 768;
+        window.addEventListener('resize', () => {
+            const isMobile = window.innerWidth < 768;
+            if (isMobile !== lastWasMobile) {
+                lastWasMobile = isMobile;
+                if (isMobile) {
+                    initAllNotesCollapsible();
+                } else {
+                    document.querySelectorAll('.notes-wrapper').forEach(w => {
+                        w.classList.remove('is-collapsible', 'is-expanded');
+                    });
+                    if (notesObserver) notesObserver.disconnect();
+                }
+            }
+        });
+
+        // --- MULTI-SELECT ---
+        // Selection is entered via the pointer-drag engine's long-press "pick up"
+        // (see setupLongPress in the POINTER DRAG section). Tapping additional cards
+        // while parked in selection mode adds them via toggleCardSelection().
+
+        // --- FOLDER LONG-PRESS → TAG OVERVIEW ---
+        function setupFolderLongPress() {
+            const wrapper = document.getElementById('folderWrapper');
+            let pressTimer = null, startX = 0, startY = 0, fired = false, targetFolderId = null;
+
+            wrapper.addEventListener('pointerdown', e => {
+                if (selectionMode) return;
+                const tab = e.target.closest('.folder-tab');
+                if (!tab) return;
+                const header = tab.closest('.folder-header');
+                if (!header) return;
+                startX = e.clientX; startY = e.clientY;
+                fired = false;
+                targetFolderId = header.dataset.folderId;
+                pressTimer = setTimeout(() => {
+                    pressTimer = null;
+                    fired = true;
+                    if (navigator.vibrate) navigator.vibrate(10);
+                    showTagOverview(targetFolderId);
+                }, 500);
+            });
+
+            wrapper.addEventListener('pointermove', e => {
+                if (!pressTimer) return;
+                if (Math.abs(e.clientX - startX) > 10 || Math.abs(e.clientY - startY) > 10) {
+                    clearTimeout(pressTimer); pressTimer = null;
+                }
+            });
+
+            const cancel = () => { if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; } };
+            wrapper.addEventListener('pointerup', cancel);
+            wrapper.addEventListener('pointercancel', cancel);
+
+            // Swallow the toggle-folder click that fires right after a long press
+            wrapper.addEventListener('click', e => {
+                if (fired && e.target.closest('.folder-tab')) {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    fired = false;
+                }
+            }, true);
+
+            // Prevent the browser context menu during a long press on a folder tab
+            wrapper.addEventListener('contextmenu', e => {
+                if (pressTimer && e.target.closest('.folder-tab')) e.preventDefault();
+            });
+        }
+
+        function showTagOverview(activeFolderId = null) {
+            const modal = document.getElementById('tagOverview');
+            const list = document.getElementById('tagOverviewList');
+            const subtitle = document.getElementById('tagOverviewSubtitle');
+            if (!modal || !list) return;
+
+            const total = appData.cards.filter(c => !c.deletedAt).length;
+            if (subtitle) subtitle.textContent = `${appData.folders.length} folder${appData.folders.length === 1 ? '' : 's'} · ${total} item${total === 1 ? '' : 's'}`;
+
+            list.innerHTML = appData.folders.map(f => {
+                const count = appData.cards.filter(c => c.folderId === f.id && !c.deletedAt).length;
+                const isActive = f.id === activeFolderId;
+                return `
+                <button onclick="jumpToFolderFromOverview('${f.id}')"
+                        class="w-full flex items-center justify-between gap-3 px-4 py-3 rounded-xl text-left transition-colors ${isActive ? 'bg-neutral-100' : 'hover:bg-neutral-50 active:bg-neutral-100'}">
+                    <span class="flex items-center gap-2.5 min-w-0">
+                        <i class="ph-bold ph-folder text-neutral-400 shrink-0"></i>
+                        <span class="text-sm font-medium text-neutral-700 truncate">${f.name}</span>
+                    </span>
+                    <span class="text-xs font-medium text-neutral-400 shrink-0">${count}</span>
+                </button>`;
+            }).join('');
+
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+        }
+
+        function closeTagOverview() {
+            const modal = document.getElementById('tagOverview');
+            if (!modal) return;
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+        }
+
+        function jumpToFolderFromOverview(folderId) {
+            closeTagOverview();
+            const f = appData.folders.find(x => x.id === folderId);
+            // Expand the folder if collapsed so the jump reveals its contents
+            if (f && f.isCollapsed) {
+                f.isCollapsed = false;
+                saveFolderToDB(f);
+                render();
+            }
+            requestAnimationFrame(() => scrollToFolder(folderId));
+        }
+
+        // --- BOTTOM SHEET DRAG-TO-DISMISS (mobile, vaul-style) ---
+        // Grab the handle, pull down past the threshold to close; below it, the
+        // sheet springs back with the house easing.
+        function setupSheetDrag(modalId, closeFn) {
+            const modal = document.getElementById(modalId);
+            const content = modal?.querySelector('.sheet-content');
+            const handle = modal?.querySelector('.sheet-handle');
+            if (!content || !handle) return;
+
+            let startY = null;
+            handle.addEventListener('pointerdown', e => {
+                startY = e.clientY;
+                content.style.transition = 'none';
+                try { handle.setPointerCapture(e.pointerId); } catch (err) {}
+            });
+            handle.addEventListener('pointermove', e => {
+                if (startY == null) return;
+                const dy = Math.max(0, e.clientY - startY);
+                content.style.transform = `translateY(${dy}px)`;
+            });
+            const release = e => {
+                if (startY == null) return;
+                const dy = Math.max(0, e.clientY - startY);
+                startY = null;
+                content.style.transition = '';
+                if (dy > 110) {
+                    content.style.transform = 'translateY(110%)';
+                    setTimeout(() => { closeFn(); content.style.transform = ''; }, 200);
+                } else {
+                    content.style.transform = '';
+                }
+            };
+            handle.addEventListener('pointerup', release);
+            handle.addEventListener('pointercancel', release);
+        }
+
+        // Close tag overview on backdrop click
+        document.getElementById('tagOverview')?.addEventListener('click', e => {
+            if (e.target.id === 'tagOverview') closeTagOverview();
+        });
+
+        // Close folder-visibility modal on backdrop click
+        document.getElementById('folderVisibilityModal')?.addEventListener('click', e => {
+            if (e.target.id === 'folderVisibilityModal') closeFolderVisibilityModal();
+        });
+
+        // --- COMMAND PALETTE (⌘K) ---
+        // One surface for the three things you actually do: find a screenshot,
+        // jump to a folder, run an action. Sigils scope the search: @ usernames,
+        // # folders, > actions — shown as a chip, backspace drops it.
+        let cmdkOpen = false;
+        let cmdkScope = null;         // null | 'user' | 'folder' | 'action'
+        let cmdkItems = [];
+        let cmdkIndex = 0;
+
+        const SCOPES = {
+            '@': { key: 'user',   label: 'Usernames' },
+            '#': { key: 'folder', label: 'Folders' },
+            '>': { key: 'action', label: 'Actions' }
+        };
+
+        function openCmdk() {
+            const modal = document.getElementById('cmdk');
+            if (!modal) return;
+            cmdkOpen = true;
+            cmdkScope = null;
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+            const input = document.getElementById('cmdkInput');
+            input.value = '';
+            updateCmdkChip();
+            renderCmdk();
+            // Defer focus so the entrance animation isn't interrupted by the keyboard
+            requestAnimationFrame(() => input.focus());
+        }
+
+        function closeCmdk() {
+            const modal = document.getElementById('cmdk');
+            if (!modal) return;
+            cmdkOpen = false;
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+        }
+
+        function updateCmdkChip() {
+            const chip = document.getElementById('cmdkChip');
+            const input = document.getElementById('cmdkInput');
+            if (!chip) return;
+            if (cmdkScope) {
+                const entry = Object.values(SCOPES).find(s => s.key === cmdkScope);
+                chip.textContent = entry ? entry.label : cmdkScope;
+                chip.classList.remove('hidden');
+                input.placeholder = 'Filter…';
+            } else {
+                chip.classList.add('hidden');
+                input.placeholder = 'Search screenshots, notes, folders…';
+            }
+        }
+
+        function cmdkActions() {
+            const actions = [
+                { icon: 'ph-image', label: 'Add screenshot', meta: 'Upload', run: () => triggerUpload() },
+                { icon: 'ph-folder-plus', label: 'New folder', meta: 'Create', run: () => createNewFolder() },
+                { icon: layoutMode === 'feed' ? 'ph-squares-four' : 'ph-rows',
+                  label: layoutMode === 'feed' ? 'Switch to Folders' : 'Switch to Latest',
+                  meta: 'View', run: () => setLayoutMode(layoutMode === 'feed' ? 'folders' : 'feed') },
+                { icon: 'ph-link', label: 'Share link', meta: 'Share', run: () => showShareModal() },
+                { icon: 'ph-cloud-arrow-up', label: 'Backup to GitHub', meta: 'Backup', run: () => manualBackupToGitHub() }
+            ];
+            return viewMode ? actions.filter(a => a.meta === 'Share' || a.meta === 'View') : actions;
+        }
+
+        function buildCmdkItems(query) {
+            const q = query.trim().toLowerCase();
+            const items = [];
+
+            // Actions
+            if (!cmdkScope || cmdkScope === 'action') {
+                cmdkActions()
+                    .filter(a => !q || a.label.toLowerCase().includes(q))
+                    .forEach(a => items.push({ group: 'Actions', ...a }));
+            }
+
+            // Folders
+            if (!cmdkScope || cmdkScope === 'folder') {
+                appData.folders
+                    .filter(f => !q || f.name.toLowerCase().includes(q))
+                    .forEach(f => {
+                        const count = appData.cards.filter(c => c.folderId === f.id && !c.deletedAt).length;
+                        items.push({
+                            group: 'Folders', icon: 'ph-folder', label: f.name,
+                            meta: `${count}`, highlight: q,
+                            run: () => jumpToFolderFromOverview(f.id)
+                        });
+                    });
+            }
+
+            // Screenshots — match username or notes
+            if (!cmdkScope || cmdkScope === 'user') {
+                const cards = appData.cards.filter(c => {
+                    if (c.deletedAt) return false;
+                    if (!q) return false; // don't dump the whole library on an empty query
+                    return (c.username || '').toLowerCase().includes(q)
+                        || (cmdkScope === 'user' ? false : (c.notes || '').toLowerCase().includes(q));
+                }).slice(0, 12);
+                cards.forEach(c => items.push({
+                    group: 'Screenshots',
+                    thumb: c.imageUrl,
+                    label: c.username || '(no username)',
+                    sub: c.notes || '',
+                    meta: getFolderName(c.folderId),
+                    highlight: q,
+                    run: () => jumpToCard(c.id)
+                }));
+            }
+
+            // With an empty query and no scope, surface recent screenshots as a starting point
+            if (!q && !cmdkScope) {
+                appData.cards.filter(c => !c.deletedAt)
+                    .sort((a, b) => (b.createdAt && a.createdAt) ? new Date(b.createdAt) - new Date(a.createdAt) : b.id - a.id)
+                    .slice(0, 5)
+                    .forEach(c => items.push({
+                        group: 'Recent',
+                        thumb: c.imageUrl,
+                        label: c.username || '(no username)',
+                        meta: getFolderName(c.folderId),
+                        run: () => jumpToCard(c.id)
+                    }));
+            }
+
+            return items;
+        }
+
+        function markMatch(text, q) {
+            const safe = escapeHtml(text);
+            if (!q) return safe;
+            const i = text.toLowerCase().indexOf(q.toLowerCase());
+            if (i < 0) return safe;
+            return escapeHtml(text.slice(0, i)) + '<mark>' + escapeHtml(text.slice(i, i + q.length)) + '</mark>' + escapeHtml(text.slice(i + q.length));
+        }
+
+        function renderCmdk() {
+            const input = document.getElementById('cmdkInput');
+            const results = document.getElementById('cmdkResults');
+            if (!input || !results) return;
+
+            // A leading sigil promotes to a scope chip
+            const raw = input.value;
+            if (!cmdkScope && raw.length === 1 && SCOPES[raw]) {
+                cmdkScope = SCOPES[raw].key;
+                input.value = '';
+                updateCmdkChip();
+            }
+
+            cmdkItems = buildCmdkItems(input.value);
+            cmdkIndex = Math.min(cmdkIndex, Math.max(0, cmdkItems.length - 1));
+
+            if (!cmdkItems.length) {
+                results.innerHTML = `<div class="cmdk-empty">No matches</div>`;
+                return;
+            }
+
+            let html = '', lastGroup = null;
+            cmdkItems.forEach((item, i) => {
+                if (item.group !== lastGroup) {
+                    html += `<div class="cmdk-group microlabel">${item.group}</div>`;
+                    lastGroup = item.group;
+                }
+                const visual = item.thumb
+                    ? `<img src="${item.thumb}" class="cmdk-thumb" alt="">`
+                    : `<i class="ph-bold ${item.icon} cmdk-row-icon"></i>`;
+                const sub = item.sub ? ` <span class="text-neutral-300">— ${escapeHtml(item.sub.slice(0, 48))}</span>` : '';
+                html += `
+                <button class="cmdk-row ${i === cmdkIndex ? 'is-active' : ''}" data-idx="${i}"
+                        onmousemove="setCmdkIndex(${i})" onclick="runCmdkItem(${i})">
+                    ${visual}
+                    <span class="cmdk-row-label">${markMatch(item.label, item.highlight)}${sub}</span>
+                    <span class="cmdk-row-meta">${escapeHtml(item.meta || '')}</span>
+                </button>`;
+            });
+            results.innerHTML = html;
+        }
+
+        function setCmdkIndex(i) {
+            if (i === cmdkIndex) return;
+            cmdkIndex = i;
+            document.querySelectorAll('.cmdk-row').forEach(r => r.classList.toggle('is-active', +r.dataset.idx === i));
+        }
+
+        function moveCmdk(delta) {
+            if (!cmdkItems.length) return;
+            cmdkIndex = (cmdkIndex + delta + cmdkItems.length) % cmdkItems.length;
+            document.querySelectorAll('.cmdk-row').forEach(r => r.classList.toggle('is-active', +r.dataset.idx === cmdkIndex));
+            document.querySelector('.cmdk-row.is-active')?.scrollIntoView({ block: 'nearest' });
+        }
+
+        function runCmdkItem(i) {
+            const item = cmdkItems[i];
+            if (!item) return;
+            closeCmdk();
+            requestAnimationFrame(() => item.run());
+        }
+
+        function cmdkKeydown(e) {
+            if (e.key === 'ArrowDown') { e.preventDefault(); moveCmdk(1); }
+            else if (e.key === 'ArrowUp') { e.preventDefault(); moveCmdk(-1); }
+            else if (e.key === 'Enter') { e.preventDefault(); runCmdkItem(cmdkIndex); }
+            else if (e.key === 'Escape') { e.preventDefault(); closeCmdk(); }
+            else if (e.key === 'Backspace' && !e.target.value && cmdkScope) {
+                e.preventDefault(); cmdkScope = null; updateCmdkChip(); renderCmdk();
+            }
+        }
+
+        // Jump to a card from anywhere: expand its folder, scroll it in, flash it
+        function jumpToCard(id) {
+            const card = appData.cards.find(c => c.id === id);
+            if (!card) return;
+            const folder = appData.folders.find(f => f.id === card.folderId);
+            if (layoutMode === 'folders' && folder && folder.isCollapsed) {
+                folder.isCollapsed = false;
+                saveFolderToDB(folder);
+                render();
+            }
+            requestAnimationFrame(() => {
+                const el = document.getElementById(`card-${id}`);
+                if (!el) return;
+                const y = el.getBoundingClientRect().top + window.scrollY - 140;
+                window.scrollTo({ top: y, behavior: 'smooth' });
+                el.classList.remove('card-flash');
+                void el.offsetWidth; // restart the animation
+                el.classList.add('card-flash');
+                setTimeout(() => el.classList.remove('card-flash'), 1600);
+            });
+        }
+
+        // Global shortcuts: ⌘K / Ctrl+K anywhere, "/" when not typing
+        document.addEventListener('keydown', e => {
+            if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+                e.preventDefault();
+                cmdkOpen ? closeCmdk() : openCmdk();
+                return;
+            }
+            if (e.key === '/' && !cmdkOpen && !/^(INPUT|TEXTAREA)$/.test(document.activeElement?.tagName || '')) {
+                e.preventDefault(); openCmdk();
+            }
+        });
+
+        document.getElementById('cmdk')?.addEventListener('click', e => {
+            if (e.target.id === 'cmdk') closeCmdk();
+        });
+
+        // --- IMAGE PRELOADING ---
+        // Warm the browser cache for every card image in the background so
+        // that scrolling reveals them instantly instead of loading on demand.
+        let preloadedImageUrls = new Set();
+        function preloadImages() {
+            const urls = appData.cards
+                .filter(c => !c.deletedAt && c.imageUrl)
+                .map(c => c.imageUrl)
+                .filter(url => !preloadedImageUrls.has(url));
+
+            if (!urls.length) return;
+            urls.forEach(url => preloadedImageUrls.add(url));
+
+            const CONCURRENCY = 6;
+            let idx = 0;
+            const loadNext = () => {
+                if (idx >= urls.length) return;
+                const url = urls[idx++];
+                const img = new Image();
+                img.decoding = 'async';
+                const done = () => loadNext();
+                img.onload = done;
+                img.onerror = done;
+                img.src = url;
+            };
+
+            const start = () => {
+                for (let i = 0; i < Math.min(CONCURRENCY, urls.length); i++) loadNext();
+            };
+            if (window.requestIdleCallback) {
+                requestIdleCallback(start, { timeout: 1500 });
+            } else {
+                setTimeout(start, 200);
+            }
+        }
+
+        function exitSelectionMode() {
+            selectionMode = false;
+            selectedCardIds.clear();
+            selectionFolderId = null;
+            document.getElementById('selectionToolbar').classList.add('hidden');
+            transitionRender();
+        }
+
+        function toggleCardSelection(id) {
+            const card = appData.cards.find(c => c.id === id);
+            if (!card || card.folderId !== selectionFolderId) return;
+
+            if (selectedCardIds.has(id)) {
+                selectedCardIds.delete(id);
+                if (selectedCardIds.size === 0) { exitSelectionMode(); return; }
+            } else {
+                selectedCardIds.add(id);
+            }
+
+            // Update DOM directly for responsiveness (no full re-render)
+            const el = document.getElementById(`card-${id}`);
+            if (el) {
+                el.classList.toggle('is-selected', selectedCardIds.has(id));
+                const check = el.querySelector('.selection-check');
+                if (selectedCardIds.has(id) && !check) {
+                    el.querySelector('.group\\/image')?.insertAdjacentHTML('afterbegin', '<div class="selection-check"><i class="ph-bold ph-check"></i></div>');
+                } else if (!selectedCardIds.has(id) && check) {
+                    check.remove();
+                }
+            }
+            updateSelectionToolbar();
+        }
+
+        function updateSelectionToolbar() {
+            const toolbar = document.getElementById('selectionToolbar');
+            const count = document.getElementById('selectionCount');
+            if (selectionMode) {
+                toolbar.classList.remove('hidden');
+                count.textContent = `${selectedCardIds.size} selected`;
+            } else {
+                toolbar.classList.add('hidden');
+            }
+        }
+
+        async function handleFolderDropMultiple(targetFolderId) {
+            const cardsToMove = appData.cards.filter(c => selectedCardIds.has(c.id));
+            const sourceFolderIds = new Set();
+
+            cardsToMove.forEach(c => {
+                sourceFolderIds.add(c.folderId);
+                c.folderId = targetFolderId;
+                c.order = 0;
+            });
+
+            // Batch DB update
+            const ids = cardsToMove.map(c => c.id);
+            await db.from('cards')
+                .update({ folder_id: targetFolderId, order: 0 })
+                .in('id', ids);
+
+            // Reindex affected folders
+            reindexCards(targetFolderId);
+            sourceFolderIds.forEach(fid => reindexCards(fid));
+
+            exitSelectionMode();
+        }
+
+        // --- POINTER DRAG + REORDER ENGINE ---
+        // Unified for mouse + touch. Mouse: press & move starts a drag immediately.
+        // Touch: long-press (450ms held still) "picks up" the card, then moving drags it.
+        // Live FLIP preview shows exactly where the card lands before release.
+        let pressInfo = null;   // pending press (pre-drag)
+        let dragState = null;   // active drag session
+        let justDragged = false; // swallow the click that follows a drop
+        const PICKUP_MS = 450;
+
+        function setupLongPress() {
+            if (viewMode) return;
+            const wrapper = document.getElementById('folderWrapper');
+            wrapper.addEventListener('pointerdown', dragPointerDown);
+            wrapper.addEventListener('pointermove', dragPointerMove, { passive: false });
+            wrapper.addEventListener('pointerup', dragPointerUp);
+            wrapper.addEventListener('pointercancel', dragPointerUp);
+            // pointermove preventDefault doesn't stop touch panning — block touchmove
+            // while a card is picked up so the browser never hijacks the drag via pointercancel
+            wrapper.addEventListener('touchmove', e => {
+                if (dragState || (pressInfo && pressInfo.pickedUp)) e.preventDefault();
+            }, { passive: false });
+            wrapper.addEventListener('contextmenu', e => {
+                if ((pressInfo || dragState || selectionMode) && e.target.closest('.card')) e.preventDefault();
+            });
+            // Eat the click that fires right after a drag so it doesn't open/edit the card
+            wrapper.addEventListener('click', e => {
+                if (justDragged) { e.stopPropagation(); e.preventDefault(); }
+            }, true);
+        }
+
+        function dragPointerDown(e) {
+            if (viewMode || dragState || layoutMode === 'feed') return;
+            if (e.button != null && e.button !== 0) return; // primary button only
+            const card = e.target.closest('.card');
+            if (!card) return;
+            if (e.target.closest('button, textarea, input, a, .notes-toggle')) return; // let controls work
+            const id = parseInt(card.id.replace('card-', ''));
+            if (!id) return;
+
+            pressInfo = {
+                id, startX: e.clientX, startY: e.clientY, x: e.clientX, y: e.clientY,
+                pointerType: e.pointerType, pointerId: e.pointerId, pickedUp: false, timer: null
+            };
+            pressInfo.timer = setTimeout(() => {
+                if (!pressInfo) return;
+                pressInfo.timer = null;
+                pickUp(); // long-press: lift the card (touch + mouse-hold both enter select-capable state)
+            }, PICKUP_MS);
+        }
+
+        function pickUp() {
+            if (!pressInfo || dragState) return;
+            pressInfo.pickedUp = true;
+            pressInfo.selectOnPickup = true; // came from a hold → selection-capable
+            if (navigator.vibrate) navigator.vibrate(12);
+            if (!selectionMode) {
+                enterSelectionInPlace(pressInfo.id);
+            } else if (!selectedCardIds.has(pressInfo.id)) {
+                reanchorSelectionInPlace(pressInfo.id);
+            }
+            document.getElementById(`card-${pressInfo.id}`)?.classList.add('card-lifted');
+        }
+
+        function dragPointerMove(e) {
+            if (dragState) {
+                e.preventDefault();
+                dragState.x = e.clientX; dragState.y = e.clientY;
+                positionGhost(e.clientX, e.clientY);
+                autoScroll(e.clientY);
+                if (!dragState.rafPending) {
+                    dragState.rafPending = true;
+                    requestAnimationFrame(reorderPreview);
+                }
+                return;
+            }
+            if (!pressInfo) return;
+            pressInfo.x = e.clientX; pressInfo.y = e.clientY;
+            const dist = Math.hypot(e.clientX - pressInfo.startX, e.clientY - pressInfo.startY);
+            if (pressInfo.pickedUp) {
+                if (dist > 4) { e.preventDefault(); beginDrag(); }
+                return;
+            }
+            if (pressInfo.pointerType === 'mouse') {
+                if (dist > 6) { // mouse: drag immediately on move, no selection forced
+                    clearTimeout(pressInfo.timer); pressInfo.timer = null;
+                    pressInfo.pickedUp = true; pressInfo.selectOnPickup = false;
+                    beginDrag();
+                }
+            } else if (dist > 10) {
+                // touch moved before pickup → treat as a scroll, abandon the press
+                clearTimeout(pressInfo.timer); pressInfo.timer = null; pressInfo = null;
+            }
+        }
+
+        function dragPointerUp() {
+            if (dragState) { endDrag(); pressInfo = null; return; }
+            if (!pressInfo) return;
+            if (pressInfo.timer) clearTimeout(pressInfo.timer);
+            if (pressInfo.pickedUp) {
+                // picked up but never dragged → park in selection mode (multi-select entry)
+                document.getElementById(`card-${pressInfo.id}`)?.classList.remove('card-lifted');
+                if (selectionMode) transitionRender();
+            }
+            pressInfo = null;
+        }
+
+        // Enter selection mode without a full re-render (so the drag can continue on the live DOM)
+        function enterSelectionInPlace(id) {
+            const card = appData.cards.find(c => c.id === id);
+            if (!card) return;
+            selectionMode = true;
+            selectionFolderId = card.folderId;
+            selectedCardIds.clear();
+            selectedCardIds.add(id);
+            updateSelectionToolbar();
+            markSelectedInPlace(id, true);
+        }
+        function reanchorSelectionInPlace(id) {
+            const card = appData.cards.find(c => c.id === id);
+            if (!card) return;
+            selectedCardIds.forEach(sid => markSelectedInPlace(sid, false));
+            selectionFolderId = card.folderId;
+            selectedCardIds.clear();
+            selectedCardIds.add(id);
+            updateSelectionToolbar();
+            markSelectedInPlace(id, true);
+        }
+        function markSelectedInPlace(id, on) {
+            const el = document.getElementById(`card-${id}`);
+            if (!el) return;
+            el.classList.toggle('is-selected', on);
+            const check = el.querySelector('.selection-check');
+            if (on && !check) {
+                el.querySelector('.group\\/image')?.insertAdjacentHTML('afterbegin', '<div class="selection-check"><i class="ph-bold ph-check"></i></div>');
+            } else if (!on && check) {
+                check.remove();
+            }
+        }
+
+        function beginDrag() {
+            const anchorId = pressInfo.id;
+            const anchorCard = appData.cards.find(c => c.id === anchorId);
+            const anchorEl = document.getElementById(`card-${anchorId}`);
+            if (!anchorCard || !anchorEl) { pressInfo = null; return; }
+
+            const multi = selectionMode && selectedCardIds.has(anchorId) && selectedCardIds.size > 1;
+            const ids = multi ? [...selectedCardIds] : [anchorId];
+            const rect = anchorEl.getBoundingClientRect();
+
+            const ghost = anchorEl.cloneNode(true);
+            ghost.removeAttribute('id');
+            ghost.classList.remove('card-lifted', 'is-selected', 'card-placeholder');
+            ghost.classList.add('drag-ghost-live');
+            ghost.style.viewTransitionName = 'none'; // avoid duplicate-name clash with the real card
+            ghost.style.width = rect.width + 'px';
+            ghost.style.height = rect.height + 'px';
+            if (multi) {
+                const badge = document.createElement('div');
+                badge.className = 'drag-ghost-count';
+                badge.textContent = ids.length;
+                ghost.appendChild(badge);
+            }
+            document.body.appendChild(ghost);
+
+            dragState = {
+                anchorId, ids, multi, srcFolderId: anchorCard.folderId,
+                ghost, pointerId: pressInfo.pointerId,
+                offsetX: pressInfo.x - rect.left, offsetY: pressInfo.y - rect.top,
+                x: pressInfo.x, y: pressInfo.y, curFolderId: anchorCard.folderId,
+                scale: Math.min(1, 220 / rect.width), // shrink big ghosts so the drop gap stays visible
+                lastKey: null, rafPending: false, expanded: []
+            };
+            pressInfo = null;
+
+            anchorEl.classList.add('card-placeholder');
+            if (multi) ids.filter(x => x !== anchorId).forEach(x => document.getElementById(`card-${x}`)?.classList.add('card-hidden'));
+
+            document.body.classList.add('global-dragging');
+            const wrapper = document.getElementById('folderWrapper');
+            try { wrapper.setPointerCapture(dragState.pointerId); } catch (err) {}
+
+            positionGhost(dragState.x, dragState.y);
+        }
+
+        function positionGhost(x, y) {
+            if (!dragState) return;
+            const s = dragState.scale;
+            // keep the original grab point under the finger as the ghost shrinks
+            dragState.ghost.style.transform = `translate(${x - dragState.offsetX * s}px, ${y - dragState.offsetY * s}px) scale(${s})`;
+        }
+
+        function autoScroll(y) {
+            const margin = 90, speed = 14;
+            if (y < margin) window.scrollBy(0, -speed);
+            else if (y > window.innerHeight - margin) window.scrollBy(0, speed);
+        }
+
+        function reorderPreview() {
+            if (!dragState) return;
+            dragState.rafPending = false;
+            const { x, y } = dragState;
+            const el = document.elementFromPoint(x, y);
+            const section = el && el.closest('section[id^="folder-"]');
+            if (!section) return;
+            const targetFolderId = section.id.replace('folder-', '');
+            const grid = section.querySelector('.folder-grid-area');
+            if (!grid) return;
+
+            // Live-expand a collapsed folder we hover over (persisted on drop)
+            const folder = appData.folders.find(f => f.id === targetFolderId);
+            if (folder && folder.isCollapsed) {
+                folder.isCollapsed = false;
+                grid.classList.remove('hidden');
+                section.querySelector('.folder-tab i')?.classList.replace('ph-caret-right', 'ph-caret-down');
+                if (!dragState.expanded.includes(targetFolderId)) dragState.expanded.push(targetFolderId);
+            }
+
+            // Multi-select: no fine reorder, just retarget the destination folder
+            if (dragState.multi) {
+                if (dragState.curFolderId !== targetFolderId) {
+                    highlightFolder(targetFolderId);
+                    dragState.curFolderId = targetFolderId;
+                }
+                return;
+            }
+
+            const anchorEl = document.getElementById(`card-${dragState.anchorId}`);
+            const ref = computeInsertRef(grid, x, y, anchorEl);
+            const key = targetFolderId + '::' + (ref ? ref.id : 'END');
+            if (key === dragState.lastKey) return;
+            dragState.lastKey = key;
+            dragState.curFolderId = targetFolderId;
+
+            flipMove(() => {
+                if (ref) grid.insertBefore(anchorEl, ref);
+                else grid.appendChild(anchorEl);
+            });
+        }
+
+        function computeInsertRef(grid, x, y, anchorEl) {
+            const cards = [...grid.querySelectorAll('.card')].filter(c => c !== anchorEl && !c.classList.contains('card-hidden'));
+            if (!cards.length) return null; // empty grid → append
+            let best = null, bestDist = Infinity, bestRect = null;
+            for (const c of cards) {
+                const r = c.getBoundingClientRect();
+                const d = (x - (r.left + r.width / 2)) ** 2 + (y - (r.top + r.height / 2)) ** 2;
+                if (d < bestDist) { bestDist = d; best = c; bestRect = r; }
+            }
+            const r = bestRect;
+            const relY = y - (r.top + r.height / 2);
+            const cols = getComputedStyle(grid).gridTemplateColumns.split(' ').length;
+            let after;
+            if (cols === 1) after = relY > 0; // vertical list: top half → before, bottom half → after
+            else if (relY > r.height / 2) after = true;
+            else if (relY < -r.height / 2) after = false;
+            else after = x > r.left + r.width / 2;
+            if (!after) return best;
+            let n = best.nextElementSibling;
+            while (n && (n === anchorEl || !n.classList.contains('card') || n.classList.contains('card-hidden'))) n = n.nextElementSibling;
+            return n; // null → append
+        }
+
+        // FLIP: animate every visible card from its old position to its new one
+        function flipMove(mutate) {
+            const els = [...document.querySelectorAll('.folder-grid-area .card')].filter(el => !el.classList.contains('card-hidden'));
+            const first = new Map();
+            els.forEach(el => first.set(el, el.getBoundingClientRect()));
+            mutate();
+            els.forEach(el => {
+                const f = first.get(el);
+                if (!f) return;
+                const l = el.getBoundingClientRect();
+                const dx = f.left - l.left, dy = f.top - l.top;
+                if (!dx && !dy) return;
+                el.style.transition = 'none';
+                el.style.transform = `translate(${dx}px, ${dy}px)`;
+                requestAnimationFrame(() => {
+                    el.style.transition = 'transform 0.28s cubic-bezier(0.16, 1, 0.3, 1)';
+                    el.style.transform = '';
+                });
+            });
+        }
+
+        function highlightFolder(folderId) {
+            clearFolderHighlights();
+            document.getElementById(`folder-${folderId}`)?.classList.add('folder-drop-active');
+        }
+        function clearFolderHighlights() {
+            document.querySelectorAll('.folder-drop-active').forEach(el => el.classList.remove('folder-drop-active'));
+        }
+
+        function endDrag() {
+            const ds = dragState;
+            dragState = null;
+            ds.ghost.remove();
+            document.body.classList.remove('global-dragging');
+            clearFolderHighlights();
+            try { document.getElementById('folderWrapper').releasePointerCapture(ds.pointerId); } catch (err) {}
+
+            const anchorEl = document.getElementById(`card-${ds.anchorId}`);
+            anchorEl?.classList.remove('card-placeholder', 'card-lifted');
+            ds.ids.forEach(x => document.getElementById(`card-${x}`)?.classList.remove('card-hidden'));
+
+            // Swallow the trailing click
+            justDragged = true;
+            setTimeout(() => { justDragged = false; }, 80);
+
+            // Persist any folders we auto-expanded during the drag
+            ds.expanded.forEach(fid => {
+                const f = appData.folders.find(x => x.id === fid);
+                if (f) saveFolderToDB(f);
+            });
+
+            if (ds.multi) {
+                if (ds.curFolderId && ds.curFolderId !== ds.srcFolderId) handleFolderDropMultiple(ds.curFolderId);
+                else exitSelectionMode();
+                return;
+            }
+
+            // Single card: commit order (and folder) from its live DOM position
+            const grid = anchorEl ? anchorEl.closest('.folder-grid-area') : null;
+            const section = anchorEl ? anchorEl.closest('section[id^="folder-"]') : null;
+            const newFolderId = section ? section.id.replace('folder-', '') : ds.srcFolderId;
+            const anchorCard = appData.cards.find(c => c.id === ds.anchorId);
+            const folderChanged = newFolderId !== ds.srcFolderId;
+            if (anchorCard && folderChanged) anchorCard.folderId = newFolderId;
+
+            if (grid) {
+                const domCards = [...grid.querySelectorAll('.card')].filter(el => !el.classList.contains('card-hidden'));
+                domCards.forEach((el, i) => {
+                    const cid = parseInt(el.id.replace('card-', ''));
+                    const c = appData.cards.find(x => x.id === cid);
+                    if (c) { c.order = i; saveCardToDB(c); }
+                });
+            }
+            if (folderChanged) reindexCards(ds.srcFolderId);
+
+            if (selectionMode) exitSelectionMode(); // re-renders cleanly
+            else transitionRender();
+            showSaved();
+        }
+
+        // --- ACTIONS ---
+        async function createNewFolder() {
+            const name = prompt("Folder Name:");
+            if (name) {
+                const id = 'folder-' + Date.now();
+                const newFolder = { id, name, order: appData.folders.length, isCollapsed: false };
+                appData.folders.push(newFolder);
+                await saveFolderToDB(newFolder);
+                render();
+            }
+        }
+        
+        async function toggleFolder(id) {
+            const f = appData.folders.find(x => x.id === id);
+            if (f) {
+                f.isCollapsed = !f.isCollapsed;
+                await saveFolderToDB(f);
+                render();
+            }
+        }
+
+        let pendingDeleteFolderId = null;
+
+        function confirmDeleteFolder(id, name) {
+            if (id === getInboxId()) return;
+            pendingDeleteFolderId = id;
+            document.getElementById('deleteFolderName').textContent = name;
+            const modal = document.getElementById('deleteFolderModal');
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+        }
+
+        function closeDeleteModal() {
+            pendingDeleteFolderId = null;
+            const modal = document.getElementById('deleteFolderModal');
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+        }
+
+        async function executeDeleteFolder() {
+            const id = pendingDeleteFolderId;
+            if (!id) return;
+            closeDeleteModal();
+
+            const cardsToMove = appData.cards.filter(c => c.folderId === id);
+            for (const c of cardsToMove) {
+                c.folderId = getInboxId();
+                await saveCardToDB(c);
+            }
+
+            const idx = appData.folders.findIndex(f => f.id === id);
+            if(idx > -1) {
+                appData.folders.splice(idx, 1);
+                await deleteFolderFromDB(id);
+            }
+            reindexCards(getInboxId());
+            render();
+        }
+
+        // --- EDIT FOLDER NAME ---
+        function editFolderName(folderId) {
+            const input = document.getElementById(`folder-name-input-${folderId}`);
+            const display = input?.previousElementSibling;
+            if (!input || !display) return;
+
+            display.classList.add('hidden');
+            input.classList.remove('hidden');
+            input.focus();
+            input.select();
+        }
+
+        function cancelEditFolderName(folderId) {
+            const input = document.getElementById(`folder-name-input-${folderId}`);
+            const display = input?.previousElementSibling;
+            const folder = appData.folders.find(f => f.id === folderId);
+            if (!input || !display || !folder) return;
+
+            input.value = folder.name; // Reset to original
+            input.classList.add('hidden');
+            display.classList.remove('hidden');
+        }
+
+        async function saveFolderName(folderId) {
+            const input = document.getElementById(`folder-name-input-${folderId}`);
+            const display = input?.previousElementSibling;
+            const folder = appData.folders.find(f => f.id === folderId);
+            if (!input || !display || !folder) return;
+
+            const newName = input.value.trim();
+            if (!newName || newName === folder.name) {
+                cancelEditFolderName(folderId);
+                return;
+            }
+
+            folder.name = newName;
+            await db.from('folders').update({ name: newName }).eq('id', folderId);
+
+            input.classList.add('hidden');
+            display.textContent = newName;
+            display.classList.remove('hidden');
+        }
+
+        // --- FILE & OCR ---
+        function simpleCrop(url) {
+            return new Promise((resolve) => {
+                const img = new Image(); 
+                img.crossOrigin = 'anonymous';
+                img.onload = () => {
+                    const c = document.createElement('canvas'); 
+                    const ctx = c.getContext('2d');
+                    const h = img.height * 0.2; 
+                    c.width = img.width; 
+                    c.height = h;
+                    ctx.drawImage(img, 0, 0, img.width, h, 0, 0, img.width, h);
+                    c.toBlob(resolve);
+                }; 
+                img.src = url;
+            });
+        }
+
+        // --- UPLOAD STAGING TRAY ---
+        // Each file runs its own visible state machine (queued → uploading →
+        // reading → done | failed-with-retry) instead of one blocking loop that
+        // died on an alert(). Serial by design: the proven-reliable path on
+        // mobile, and it keeps the pipeline legible.
+        let uploadEntries = [];
+        let uploadRunning = false;
+        let uploadUid = 0;
+
+        const TRAY_STATES = {
+            queued:    { label: 'Queued',        cls: 'is-queued' },
+            uploading: { label: 'Uploading',     cls: 'is-uploading' },
+            reading:   { label: 'Reading text',  cls: 'is-reading' },
+            done:      { label: 'Saved',         cls: 'is-done' },
+            failed:    { label: 'Failed',        cls: 'is-failed' }
+        };
+
+        function handleFiles(files) {
+            if (!files || !files.length) return;
+
+            // Resolve destination folder: the per-folder add button sets a
+            // target; otherwise fall back to Inbox. Reset immediately so a
+            // later global upload isn't misrouted.
+            const inboxFolder = appData.folders.find(f => f.name === 'Inbox');
+            const actualInboxId = inboxFolder ? inboxFolder.id : `${collectionId}_inbox`;
+            const destFolderId = (uploadTargetFolderId && appData.folders.some(f => f.id === uploadTargetFolderId))
+                ? uploadTargetFolderId : actualInboxId;
+            uploadTargetFolderId = null;
+
+            // Expand the destination folder if it's collapsed so the new
+            // cards are visible after upload.
+            const destFolder = appData.folders.find(f => f.id === destFolderId);
+            if (destFolder && destFolder.isCollapsed) {
+                destFolder.isCollapsed = false;
+                saveFolderToDB(destFolder);
+            }
+
+            for (const file of [...files]) {
+                uploadEntries.push({
+                    uid: ++uploadUid,
+                    file,
+                    name: file.name || 'screenshot.png',
+                    thumb: URL.createObjectURL(file),
+                    destFolderId,
+                    state: 'queued',
+                    cardId: null
+                });
+            }
+            renderTray();
+            runUploadQueue();
+        }
+
+        async function runUploadQueue() {
+            if (uploadRunning) return;
+            uploadRunning = true;
+            let entry;
+            while ((entry = uploadEntries.find(e => e.state === 'queued'))) {
+                await processUploadEntry(entry);
+            }
+            uploadRunning = false;
+            renderTray();
+            // Auto-clear once everything has landed cleanly
+            if (uploadEntries.length && uploadEntries.every(e => e.state === 'done')) {
+                setTimeout(() => { if (uploadEntries.every(e => e.state === 'done')) clearFinishedUploads(); }, 2200);
+            }
+        }
+
+        async function processUploadEntry(entry) {
+            const setState = s => { entry.state = s; renderTray(); };
+            setState('uploading');
+
+            const id = Date.now() + entry.uid;
+            const imagePath = `${collectionId}/${id}.png`;
+
+            try {
+                const { error: uploadError } = await db.storage
+                    .from('images')
+                    .upload(imagePath, entry.file, { contentType: entry.file.type });
+                if (uploadError) throw uploadError;
+
+                const card = {
+                    id,
+                    username: '',
+                    notes: '',
+                    link: '#',
+                    imageUrl: getPublicImageUrl(imagePath),
+                    imagePath,
+                    folderId: entry.destFolderId,
+                    order: 0, // auto-sorted by created_at timestamp
+                    createdAt: new Date().toISOString(),
+                    suggestions: [],
+                    isScanning: true,
+                    linkMode: false
+                };
+
+                const { error: dbError } = await saveCardToDB(card);
+                if (dbError) throw dbError;
+
+                entry.cardId = id;
+                appData.cards.unshift(card);
+                render([id]); // plain render: avoids stacking view transitions per file
+                preloadImages();
+
+                // OCR this card while the next file waits its turn
+                setState('reading');
+                await ocrCard(card);
+                setState('done');
+            } catch (e) {
+                console.error('Upload failed:', e);
+                entry.error = e.message || String(e);
+                setState('failed');
+            }
+        }
+
+        async function ocrCard(card) {
+            try {
+                const blob = await simpleCrop(card.imageUrl);
+                const { data: { words } } = await Tesseract.recognize(blob, 'eng');
+                const banned = ['follow', 'followers', 'following', 'posts'];
+                const valid = words.map(w => w.text.trim())
+                    .filter(w => w.length > 4 && !/[:;,]/.test(w) && !banned.includes(w.toLowerCase()))
+                    .sort((a, b) => b.length - a.length);
+                const best = valid[0] ? cleanString(valid[0]) : '';
+
+                const actual = appData.cards.find(x => x.id === card.id);
+                if (!actual) return;
+                Object.assign(actual, {
+                    username: best,
+                    link: `https://instagram.com/${best}`,
+                    suggestions: valid,
+                    isScanning: false
+                });
+                await saveCardToDB(actual);
+
+                const el = document.getElementById(`card-${actual.id}`);
+                if (el) {
+                    const txt = el.querySelector('textarea[placeholder="Username"]');
+                    if (txt && document.activeElement !== txt) { txt.value = best; autoResize(txt); }
+                    el.classList.remove('animate-pulse-subtle');
+                }
+            } catch (e) {
+                console.error('OCR failed:', e);
+                const actual = appData.cards.find(x => x.id === card.id);
+                if (actual) { actual.isScanning = false; document.getElementById(`card-${actual.id}`)?.classList.remove('animate-pulse-subtle'); }
+            }
+        }
+
+        function retryUpload(uid) {
+            const entry = uploadEntries.find(e => e.uid === uid);
+            if (!entry || entry.state !== 'failed') return;
+            entry.state = 'queued';
+            entry.error = null;
+            renderTray();
+            runUploadQueue();
+        }
+
+        function clearFinishedUploads() {
+            uploadEntries.filter(e => e.state === 'done').forEach(e => URL.revokeObjectURL(e.thumb));
+            uploadEntries = uploadEntries.filter(e => e.state !== 'done');
+            renderTray();
+        }
+
+        function renderTray() {
+            const tray = document.getElementById('uploadTray');
+            const list = document.getElementById('trayList');
+            const title = document.getElementById('trayTitle');
+            const clearBtn = document.getElementById('trayClear');
+            if (!tray || !list) return;
+
+            if (!uploadEntries.length) {
+                tray.classList.add('hidden');
+                list.innerHTML = '';
+                return;
+            }
+            tray.classList.remove('hidden');
+
+            const pending = uploadEntries.filter(e => e.state !== 'done' && e.state !== 'failed').length;
+            const failed = uploadEntries.filter(e => e.state === 'failed').length;
+            const done = uploadEntries.filter(e => e.state === 'done').length;
+            title.textContent = pending ? `Adding ${pending} of ${uploadEntries.length}`
+                              : failed  ? `${failed} failed`
+                                        : `${done} added`;
+            clearBtn.classList.toggle('hidden', !done);
+
+            list.innerHTML = uploadEntries.map(e => {
+                const st = TRAY_STATES[e.state];
+                return `
+                <div class="tray-item ${st.cls}">
+                    <img src="${e.thumb}" class="tray-thumb" alt="">
+                    <div class="tray-body">
+                        <div class="text-[0.7rem] text-neutral-600 truncate">${escapeHtml(e.name)}</div>
+                        <span class="tray-state">${st.label}</span>
+                        <div class="tray-bar"></div>
+                    </div>
+                    ${e.state === 'failed' ? `<button class="tray-retry" onclick="retryUpload(${e.uid})">Retry</button>` : ''}
+                    ${e.state === 'done' ? '<i class="ph-bold ph-check text-emerald-500 text-xs icon-pop"></i>' : ''}
+                </div>`;
+            }).join('');
+        }
+
+        function escapeHtml(s) {
+            return String(s).replace(/[&<>"']/g, ch => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[ch]));
+        }
+
+        // --- UTILS ---
+        function transitionRender(ids) { 
+            document.startViewTransition ? document.startViewTransition(() => render(ids)) : render(ids); 
+        }
+        function showSaved() { 
+            const el = document.getElementById('saveIndicator'); 
+            el.classList.remove('opacity-0'); 
+            setTimeout(() => el.classList.add('opacity-0'), 2000); 
+        }
+        // --- TOASTS (sonner-style stacked pills) ---
+        const activeToasts = new Map();
+        let toastSeq = 0;
+        const TOAST_SPINNER = '<div class="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin shrink-0"></div>';
+
+        function toast(msg, opts = {}) {
+            const { id, spinner = false, action = null, actionLabel = 'Undo', duration = 3200 } = opts;
+            const root = document.getElementById('toastRoot');
+            const key = id || 't' + (++toastSeq);
+            let el = activeToasts.get(key);
+            if (!el) {
+                el = document.createElement('div');
+                el.className = 'toast toast-enter';
+                root.appendChild(el);
+                activeToasts.set(key, el);
+            }
+            el.innerHTML = (spinner ? TOAST_SPINNER : '') + `<span>${msg}</span>`;
+            if (action) {
+                const btn = document.createElement('button');
+                btn.className = 'toast-action';
+                btn.textContent = actionLabel;
+                btn.onclick = () => action();
+                el.appendChild(btn);
+            }
+            clearTimeout(el._hideTimer);
+            if (duration !== Infinity) el._hideTimer = setTimeout(() => dismissToast(key), duration);
+            return key;
+        }
+
+        function dismissToast(key) {
+            const el = activeToasts.get(key);
+            if (!el) return;
+            activeToasts.delete(key);
+            clearTimeout(el._hideTimer);
+            el.classList.remove('toast-enter');
+            el.classList.add('toast-exit');
+            setTimeout(() => el.remove(), 250);
+        }
+
+        function showStatus(show, txt) {
+            if (show) toast(txt || 'Processing…', { id: 'status', spinner: true, duration: Infinity });
+            else dismissToast('status');
+        }
+        function cleanString(s) { 
+            return s.replace(/[^a-zA-Z0-9_.]/g, '').toLowerCase(); 
+        }
+        // Folder to drop uploads into (null = default Inbox). Set by the
+        // per-folder add button so images can go straight into a tag.
+        let uploadTargetFolderId = null;
+        function triggerUpload(folderId = null) {
+            uploadTargetFolderId = folderId;
+            document.getElementById('fileInput').click();
+        }
+        
+        function handleImageClick(e, id) {
+            if (e.target.closest('button')) return;
+            if (selectionMode) { toggleCardSelection(id); return; }
+        }
+        
+        function openProfile(id) {
+            const c = appData.cards.find(x => x.id === id);
+            if(c && c.link !== '#') window.open(c.link, '_blank');
+        }
+
+        window.addEventListener('click', (e) => { 
+            if (!e.target.closest('.username-wrapper')) closeAllTooltips(); 
+        });
+        window.addEventListener('keydown', (e) => { 
+            if (e.key === 'Escape') {
+                closeAllTooltips();
+                closeShareModal();
+                closeTagOverview();
+            }
+        });
+        
+        function triggerTooltip(id) { 
+            closeAllTooltips(); 
+            document.getElementById(`tooltip-${id}`)?.classList.add('active'); 
+        }
+        function closeAllTooltips() { 
+            document.querySelectorAll('.tooltip-container').forEach(e => e.classList.remove('active')); 
+        }
+        
+        async function applySuggestion(id, w) { 
+            const c = appData.cards.find(x => x.id === id); 
+            if(c) { 
+                c.username = w; 
+                c.link = `https://instagram.com/${w}`; 
+                await saveCardToDB(c); 
+                const el = document.getElementById(`card-${id}`).querySelector('textarea[placeholder="Username"]');
+                if(el) { el.value = w; autoResize(el); }
+                closeAllTooltips(); 
+            } 
+        }
+        
+        function expandLinkField(el) {
+            el.style.whiteSpace = 'normal';
+            el.style.overflow = 'hidden';
+            el.style.height = 'auto';
+            el.style.height = el.scrollHeight + 'px';
+        }
+
+        function collapseLinkField(el) {
+            el.style.whiteSpace = 'nowrap';
+            el.style.overflow = 'hidden';
+            el.style.height = '24px';
+        }
+
+        function copyCardLink(id) {
+            const c = appData.cards.find(x => x.id === id);
+            if (c?.link) {
+                navigator.clipboard.writeText(c.link);
+                showSaved();
+                // Icon morphs copy → check, then back
+                const icon = document.querySelector(`#card-${id} .copy-link-btn i`);
+                if (icon) {
+                    icon.className = 'ph-bold ph-check text-xs icon-pop';
+                    icon.closest('button').classList.add('text-emerald-500');
+                    setTimeout(() => {
+                        icon.className = 'ph-bold ph-copy text-xs icon-pop';
+                        icon.closest('button')?.classList.remove('text-emerald-500');
+                    }, 1200);
+                }
+            }
+        }
+
+        function isLinkMode(card) {
+            return card.linkMode === true;
+        }
+
+        function detectLinkMode(card) {
+            // Auto-detect on load: if link exists and doesn't match the IG username pattern, it's link mode
+            if (!card.link || card.link === '#' || !card.username) return false;
+            const expectedIgLink = `https://instagram.com/${card.username}`;
+            return card.link !== expectedIgLink;
+        }
+
+        function toggleLinkMode(id) {
+            const c = appData.cards.find(x => x.id === id);
+            if (!c) return;
+
+            if (c.linkMode) {
+                // Switch to username mode
+                c.linkMode = false;
+                c.username = '';
+                c.link = '#';
+            } else {
+                // Switch to link mode
+                c.linkMode = true;
+                c.username = '';
+                c.link = '';
+            }
+            saveCardToDB(c);
+            transitionRender();
+        }
+
+        // Tap the @ / link icon: a single tap shows OCR suggestions (when the card has
+        // any), a double tap toggles URL (link) mode. The timer lets us tell them apart
+        // so the two actions never conflict on the same hotspot.
+        const tagTapTimers = {};
+        function handleTagTap(id) {
+            if (tagTapTimers[id]) {
+                // Second tap inside the window → double tap → switch to/from URL mode.
+                clearTimeout(tagTapTimers[id]);
+                delete tagTapTimers[id];
+                closeAllTooltips();
+                toggleLinkMode(id);
+                return;
+            }
+            tagTapTimers[id] = setTimeout(() => {
+                delete tagTapTimers[id];
+                // Single tap → show suggestions if this card has any to offer.
+                const c = appData.cards.find(x => x.id === id);
+                if (c && !isLinkMode(c) && !c.isScanning && c.suggestions && c.suggestions.length !== 1) {
+                    triggerTooltip(id);
+                }
+            }, 260);
+        }
+
+        async function updateCard(id, f, v) {
+            const c = appData.cards.find(x => x.id === id);
+            if(c) {
+                c[f] = v;
+                if(f === 'username') {
+                    if (c.linkMode) {
+                        // In link mode, the input field IS the link
+                        c.link = v;
+                        c.username = v;
+                    } else {
+                        c.link = `https://instagram.com/${v}`;
+                    }
+                }
+                await saveCardToDB(c);
+            }
+        }
+
+        async function deleteCard(id) {
+            const card = appData.cards.find(c => c.id === id);
+            if (!card) return;
+
+            // Soft-delete: set timestamp instead of removing
+            card.deletedAt = new Date().toISOString();
+
+            // Save to Supabase with deleted_at timestamp
+            await db.from('cards').update({ deleted_at: card.deletedAt }).eq('id', id);
+
+            // Schedule permanent deletion after grace period
+            schedulePermanentDeletion(id, card.deletedAt);
+
+            // Remove from UI
+            transitionRender();
+            updateUndoUI();
+        }
+
+        function schedulePermanentDeletion(cardId, deletedAt) {
+            const deletionTime = new Date(deletedAt).getTime() + DELETION_GRACE_PERIOD;
+            const now = Date.now();
+            const delay = deletionTime - now;
+
+            if (delay <= 0) {
+                // Already past grace period, delete immediately
+                permanentlyDeleteCard(cardId);
+            } else {
+                // Schedule deletion
+                const timerId = setTimeout(() => {
+                    permanentlyDeleteCard(cardId);
+                    deletionTimers.delete(cardId);
+                }, delay);
+                deletionTimers.set(cardId, timerId);
+            }
+        }
+
+        function cancelPermanentDeletion(cardId) {
+            if (deletionTimers.has(cardId)) {
+                clearTimeout(deletionTimers.get(cardId));
+                deletionTimers.delete(cardId);
+            }
+        }
+
+        async function permanentlyDeleteCard(cardId) {
+            console.log('Permanently deleting card:', cardId);
+
+            // Get the card to find its image path
+            const { data: card } = await db
+                .from('cards')
+                .select('image_path')
+                .eq('id', cardId)
+                .single();
+
+            if (card?.image_path) {
+                // Delete image from Supabase Storage
+                await db.storage.from('images').remove([card.image_path]);
+            }
+
+            // Delete card record from Supabase database
+            await db.from('cards').delete().eq('id', cardId);
+
+            // Remove from local appData if still present
+            const idx = appData.cards.findIndex(c => c.id === cardId);
+            if (idx > -1) {
+                appData.cards.splice(idx, 1);
+                transitionRender();
+            }
+        }
+
+        async function cleanupOldDeletedCards() {
+            if (!collectionId) return;
+
+            const cutoff = new Date(Date.now() - DELETION_GRACE_PERIOD).toISOString();
+
+            // Find cards past grace period
+            const { data: expiredCards } = await db
+                .from('cards')
+                .select('id, image_path')
+                .eq('collection_id', collectionId)
+                .not('deleted_at', 'is', null)
+                .lt('deleted_at', cutoff);
+
+            if (!expiredCards || expiredCards.length === 0) return;
+
+            // Permanently delete each expired card
+            for (const card of expiredCards) {
+                await permanentlyDeleteCard(card.id);
+            }
+
+            console.log(`Cleaned up ${expiredCards.length} expired cards`);
+        }
+
+        async function triggerUndo() {
+            // Find the most recently deleted card
+            const deletedCard = appData.cards
+                .filter(c => c.deletedAt)
+                .sort((a, b) => new Date(b.deletedAt) - new Date(a.deletedAt))[0];
+
+            if (!deletedCard) return;
+
+            // Cancel permanent deletion timer
+            cancelPermanentDeletion(deletedCard.id);
+
+            // Clear deleted_at timestamp
+            deletedCard.deletedAt = null;
+
+            // Update in Supabase
+            await db.from('cards').update({ deleted_at: null }).eq('id', deletedCard.id);
+
+            // Re-render to show card again
+            transitionRender();
+            updateUndoUI();
+        }
+
+        function clearRestoreStatus(id) {
+            const c = appData.cards.find(x => x.id === id);
+            if (c?.isRestored) { 
+                c.isRestored = false; 
+                saveCardToDB(c); 
+                document.getElementById(`card-${id}`)?.classList.remove('is-restored'); 
+            }
+        }
+        
+        function updateUndoUI() {
+            const deletedCount = appData.cards.filter(c => c.deletedAt).length;
+            if (deletedCount > 0) {
+                toast(deletedCount === 1 ? 'Screenshot deleted' : `${deletedCount} screenshots deleted`, {
+                    id: 'undo',
+                    action: () => triggerUndo(),
+                    actionLabel: 'Undo',
+                    duration: 15000
+                });
+            } else {
+                dismissToast('undo');
+            }
+        }
+
+        function setupGlobalDrag() {
+            if (viewMode) return;
+            const ov = document.getElementById('dragOverlay');
+            let c = 0;
+            ['dragenter','dragleave','dragover','drop'].forEach(evt => window.addEventListener(evt, e => {
+                e.preventDefault();
+                if (evt === 'dragenter' && e.dataTransfer.types.includes('Files')) { 
+                    c++; 
+                    ov.classList.remove('opacity-0'); 
+                }
+                if (evt === 'dragleave') { 
+                    c--; 
+                    if(c === 0) ov.classList.add('opacity-0'); 
+                }
+                if (evt === 'drop') { 
+                    c = 0; 
+                    ov.classList.add('opacity-0'); 
+                    if(e.dataTransfer.files.length) handleFiles(e.dataTransfer.files); 
+                }
+            }));
+        }
+
+        function updateWidth(val) { 
+            document.getElementById('mainContainer').style.maxWidth = val > 2350 ? '100%' : `${val}px`; 
+            localStorage.setItem('ssaved_width', val); 
+        }
+        
+        function setMobileCols(n) {
+            localStorage.setItem('ssaved_cols', n);
+            [1,2].forEach(i => {
+                const btn = document.getElementById(`col-btn-${i}`);
+                if(btn) btn.className = `w-8 h-8 flex items-center justify-center rounded-md transition-all ${i==n ? 'bg-white text-neutral-900 shadow-sm font-bold' : 'text-neutral-400'}`;
+            });
+            render();
+        }
+
+        // --- SHARE MODAL ---
+        function showShareModal() {
+            const modal = document.getElementById('shareModal');
+            document.getElementById('shareUrlDisplay').textContent = window.location.href;
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+        }
+
+        function closeShareModal() {
+            const modal = document.getElementById('shareModal');
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+            document.getElementById('copyConfirm').classList.add('opacity-0');
+        }
+
+        function copyShareUrl() {
+            navigator.clipboard.writeText(document.getElementById('shareUrlDisplay').textContent);
+            document.getElementById('copyConfirm').classList.remove('opacity-0');
+            // Button morphs Copy → Copied ✓, then back
+            const btn = document.getElementById('copyShareBtn');
+            if (btn) {
+                btn.innerHTML = '<i class="ph-bold ph-check icon-pop"></i> Copied';
+                setTimeout(() => { btn.innerHTML = '<i class="ph-bold ph-copy icon-pop"></i> Copy'; }, 1600);
+            }
+            setTimeout(() => {
+                document.getElementById('copyConfirm').classList.add('opacity-0');
+            }, 2000);
+        }
+
+        // Close modal on backdrop click
+        document.getElementById('shareModal')?.addEventListener('click', (e) => {
+            if (e.target.id === 'shareModal') closeShareModal();
+        });
+
+        // --- GITHUB BACKUP ---
+        const GH_TOKEN_KEY = 'ssaved_gh_token';
+        const GH_REPO_KEY = 'ssaved_gh_repo';
+
+        function getGitHubConfig() {
+            return {
+                token: localStorage.getItem(GH_TOKEN_KEY),
+                repo: localStorage.getItem(GH_REPO_KEY)
+            };
+        }
+
+        function promptGitHubSetup() {
+            const token = prompt('GitHub Personal Access Token:\n(Create one at github.com/settings/tokens with "repo" scope)');
+            if (!token) return null;
+            const repo = prompt('Private repo name:', 'nnnephirale/ssaved-backups');
+            if (!repo) return null;
+            localStorage.setItem(GH_TOKEN_KEY, token.trim());
+            localStorage.setItem(GH_REPO_KEY, repo.trim());
+            return { token: token.trim(), repo: repo.trim() };
+        }
+
+        function buildBackupJSON() {
+            return JSON.stringify({
+                collectionId,
+                exportedAt: new Date().toISOString(),
+                folders: appData.folders,
+                cards: appData.cards.map(c => ({
+                    id: c.id,
+                    username: c.username,
+                    notes: c.notes,
+                    link: c.link,
+                    imagePath: c.imagePath,
+                    folderId: c.folderId,
+                    order: c.order,
+                    createdAt: c.createdAt,
+                    suggestions: c.suggestions,
+                    deletedAt: c.deletedAt
+                }))
+            }, null, 2);
+        }
+
+        async function backupToGitHub(config, silent = false) {
+            if (!collectionId || appData.cards.length === 0) return;
+
+            const { token, repo } = config;
+            const date = new Date().toISOString().slice(0, 10);
+            const path = `${collectionId}/${date}.json`;
+            const content = btoa(unescape(encodeURIComponent(buildBackupJSON())));
+
+            try {
+                // Check if file already exists (to get its SHA for update)
+                let sha = null;
+                const getRes = await fetch(`https://api.github.com/repos/${repo}/contents/${path}`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                if (getRes.ok) {
+                    const existing = await getRes.json();
+                    sha = existing.sha;
+                }
+
+                const body = {
+                    message: `backup ${collectionId} — ${date}`,
+                    content
+                };
+                if (sha) body.sha = sha;
+
+                const putRes = await fetch(`https://api.github.com/repos/${repo}/contents/${path}`, {
+                    method: 'PUT',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(body)
+                });
+
+                if (!putRes.ok) {
+                    const err = await putRes.json();
+                    throw new Error(err.message || putRes.statusText);
+                }
+
+                if (!silent) flashBackupStatus('Backed up');
+                console.log('GitHub backup saved:', path);
+            } catch (e) {
+                console.error('GitHub backup failed:', e);
+                if (!silent) flashBackupStatus('Backup failed', true);
+            }
+        }
+
+        function flashBackupStatus(text, isError = false) {
+            const indicator = document.getElementById('saveIndicator');
+            const original = indicator.textContent;
+            indicator.textContent = text;
+            indicator.style.color = isError ? '#ef4444' : '#22c55e';
+            indicator.style.opacity = '1';
+            setTimeout(() => {
+                indicator.style.opacity = '0';
+                setTimeout(() => {
+                    indicator.textContent = original;
+                    indicator.style.color = '';
+                }, 300);
+            }, 2000);
+        }
+
+        async function manualBackupToGitHub() {
+            let config = getGitHubConfig();
+            if (!config.token || !config.repo) {
+                config = promptGitHubSetup();
+                if (!config) return;
+            }
+            flashBackupStatus('Backing up...');
+            await backupToGitHub(config);
+        }
+
+        async function autoBackupToGitHub() {
+            const config = getGitHubConfig();
+            if (!config.token || !config.repo) return; // skip if not configured
+            await backupToGitHub(config, true);
+        }
+    </script>
+</body>
+</html>
