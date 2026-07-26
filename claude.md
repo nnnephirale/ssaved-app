@@ -11,9 +11,14 @@ https://nnnephirale.github.io/ssaved-app/?c=... now serves the bold build.
 - Function-inventory diff (`grep -oE '^\s*(async )?function \w+'`, sorted, `comm -23`)
   showed **zero** root functions missing from improved2 — a clean superset, 116 → 146.
 
-The old root remains in history at **2c55039**; `/improved/` and `/improved2/` are still
-published for comparison. Root and `/improved2/` are now byte-identical — when editing,
-change one and copy, or the two will drift.
+The old root remains in history at **2c55039**.
+
+**`improved2/` was deleted right after** (commit b588c82) — once promoted it was
+byte-identical to `index.html`, and two copies of a 3,872-line file invite silent drift.
+Git history is the backup. It's still recoverable: `git checkout 7877832 -- improved2/`.
+
+**Current published surfaces: just two** — `/` (bold build) and `/improved/` (the
+restrained polish variant, kept as the alternative).
 
 Same Supabase backend throughout, so every existing `?c=` collection was unaffected by
 the swap.
