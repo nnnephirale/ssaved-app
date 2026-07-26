@@ -6,10 +6,15 @@
     <meta http-equiv="Content-Security-Policy" content="script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.tailwindcss.com https://cdn.jsdelivr.net https://unpkg.com blob:; worker-src blob:; child-src blob:;">
     <title>SSaved</title>
 
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+
     <script src="https://cdn.tailwindcss.com"></script>
     <script src='https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js'></script>
     <script src="https://unpkg.com/@phosphor-icons/web"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="https://unpkg.com/lenis@1.1.14/dist/lenis.min.js"></script>
 
     <script>
         tailwind.config = {
@@ -28,23 +33,53 @@
     </script>
 
     <style>
-        /* --- BASE & WARM BACKGROUND --- */
+        /* --- TYPOGRAPHY: mono is the voice, serif is the signature --- */
+        :root {
+            --font-ui: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+            --ease: cubic-bezier(0.16, 1, 0.3, 1);
+        }
         body {
             background: linear-gradient(180deg, #FAFAF8 0%, #F7F6F3 100%);
             min-height: 100vh;
+            font-family: var(--font-ui);
+            font-weight: 300;
+            letter-spacing: -0.005em;
+        }
+        input, textarea, button, kbd { font-family: var(--font-ui); }
+        /* Display = the same mono, just heavier and tighter. One typeface, two registers. */
+        .font-display { font-weight: 500; letter-spacing: -0.03em; }
+        /* Mono-caps micro-label — the workhorse for every structural label */
+        .microlabel {
+            font-size: 0.625rem;
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 0.16em;
         }
 
-        /* --- FOLDER TABS --- */
+        /* --- FOLDER HEADERS (flat mono-caps; the clip-path tab is gone) --- */
         .folder-tab {
-            clip-path: polygon(0 0, 85% 0, 100% 100%, 0% 100%);
-            padding-left: 1.5rem;
-            padding-right: 2.5rem;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.55rem;
+            padding: 0.25rem 0.6rem 0.25rem 0.15rem;
+            border-radius: 0.5rem;
+            background: transparent;
+            color: #a3a3a3;
+            transition: color 0.2s var(--ease), background-color 0.2s var(--ease);
         }
-        .folder-drop-active .folder-tab { 
-            background-color: #3b82f6 !important; 
-            color: white !important; 
-            transition: background-color 0.2s;
+        .folder-tab:hover { color: #525252; }
+        .folder-tab .folder-count {
+            font-size: 0.625rem;
+            font-weight: 400;
+            letter-spacing: 0.05em;
+            color: #d4d4d4;
         }
+        .folder-tab:hover .folder-count { color: #a3a3a3; }
+        .folder-drop-active .folder-tab {
+            background-color: #3b82f6 !important;
+            color: white !important;
+        }
+        .folder-drop-active .folder-tab .folder-count { color: rgba(255,255,255,0.7); }
         .folder-drop-active .folder-grid-area {
             background-color: rgba(59, 130, 246, 0.05);
             border-radius: 1rem;
@@ -122,7 +157,7 @@
             50% { opacity: 0.7; }
         }
         .animate-restore { animation: slideUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards; opacity: 0; }
-        .folder-enter { animation: slideUp 0.5s ease-out forwards; }
+        .folder-enter { animation: slideUp 0.45s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
         .animate-pulse-subtle { animation: subtlePulse 2s ease-in-out infinite; }
 
         /* --- UI COMPONENTS --- */
@@ -130,20 +165,362 @@
             content: " "; position: absolute; top: 100%; left: 50%; margin-left: -6px;
             border: 6px solid transparent; border-top-color: rgba(255,255,255,0.95); filter: drop-shadow(0 1px 2px rgb(0 0 0 / 0.08));
         }
-        .tooltip-container { 
-            transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1); 
-            opacity: 0; 
-            pointer-events: none; 
-            transform: translateY(8px) scale(0.95); 
+        .tooltip-container {
+            transition: opacity 0.22s cubic-bezier(0.16, 1, 0.3, 1), transform 0.22s cubic-bezier(0.16, 1, 0.3, 1), filter 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+            opacity: 0;
+            pointer-events: none;
+            transform: translateY(6px) scale(0.93);
+            transform-origin: bottom left;
+            filter: blur(3px);
         }
-        .tooltip-container.active { opacity: 1; pointer-events: auto; transform: translateY(0) scale(1); }
+        .tooltip-container.active { opacity: 1; pointer-events: auto; transform: translateY(0) scale(1); filter: blur(0); }
 
-        /* --- UNDO BUTTON --- */
-        #undoBtn.hidden-btn { opacity: 0; transform: translateX(-10px); pointer-events: none; width: 0; padding: 0; margin: 0; border: 0; }
-        #undoBtn { 
-            transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1); 
-            box-shadow: 0 2px 8px -2px rgba(244, 63, 94, 0.3);
+        /* --- PRESS FEEDBACK (all buttons respond to the finger) --- */
+        button:not(:disabled):active { transform: scale(0.97) !important; }
+        button { transition: transform 0.15s cubic-bezier(0.16, 1, 0.3, 1); }
+
+        /* --- SPINNERS (faster = perceived-faster) --- */
+        .animate-spin { animation-duration: 0.7s !important; }
+
+        /* --- TOASTS (stacked pills, bottom center) --- */
+        #toastRoot {
+            position: fixed; bottom: 1.5rem; left: 50%; transform: translateX(-50%);
+            z-index: 60; display: flex; flex-direction: column; align-items: center;
+            gap: 0.5rem; pointer-events: none; width: max-content; max-width: calc(100vw - 2rem);
         }
+        .toast {
+            pointer-events: auto;
+            display: flex; align-items: center; gap: 0.75rem;
+            background: rgba(23, 23, 23, 0.92);
+            backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+            color: #fff; padding: 0.65rem 1.15rem; border-radius: 9999px;
+            box-shadow: 0 12px 32px -8px rgba(0, 0, 0, 0.35);
+            font-size: 0.75rem; font-weight: 500; white-space: nowrap;
+            transition: opacity 0.25s cubic-bezier(0.16, 1, 0.3, 1), transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), filter 0.25s;
+        }
+        .toast-enter { animation: toastIn 0.35s cubic-bezier(0.16, 1, 0.3, 1); }
+        @keyframes toastIn {
+            from { opacity: 0; transform: translateY(14px) scale(0.95); filter: blur(3px); }
+            to   { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
+        }
+        .toast-exit { opacity: 0; transform: translateY(8px) scale(0.95); filter: blur(2px); }
+        .toast .toast-action {
+            color: #fda4af; font-weight: 600;
+            padding: 0.15rem 0.4rem; margin: -0.15rem -0.4rem; border-radius: 0.5rem;
+        }
+        .toast .toast-action:hover { color: #fecdd3; }
+
+        /* --- FLUID TAB INDICATOR (slides + stretches between tabs) ---
+           Animated with transform ONLY. Transitioning left/width relayouts every
+           frame on the main thread, which is what made this stutter on mobile
+           while render() rebuilt the grid. translate+scaleX runs on the
+           compositor and is immune to that work. Base width is a fixed 100px;
+           scaleX maps it onto the active tab. */
+        #tabIndicator {
+            position: absolute; bottom: -1px; left: 0;
+            width: 100px; height: 2px;
+            background: #171717; border-radius: 1px; pointer-events: none;
+            transform-origin: left center;
+            transform: translate3d(0, 0, 0) scaleX(0);
+            transition: transform 0.34s var(--ease);
+            will-change: transform;
+        }
+
+        /* --- DENSITY TOGGLE (mobile) — a surface that slides, not a line that stretches --- */
+        #densityToggle {
+            padding: 3px;
+            border-radius: 11px;
+            background: rgba(0, 0, 0, 0.035);
+            border: 1px solid rgba(0, 0, 0, 0.04);
+        }
+        .density-cell {
+            position: relative; z-index: 1;
+            width: 44px; height: 40px;
+            display: flex; align-items: center; justify-content: center;
+            border-radius: 8px; background: transparent;
+            color: #a3a3a3;
+            transition: color 0.22s var(--ease);
+            touch-action: manipulation;
+        }
+        .density-cell.is-active { color: #171717; }
+        .density-thumb {
+            position: absolute; top: 3px; left: 3px;
+            width: 44px; height: 40px; border-radius: 8px;
+            background: #fff;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05), 0 0 0 1px rgba(0, 0, 0, 0.03);
+            transition: transform 0.22s var(--ease);
+            will-change: transform;
+        }
+
+        /* --- MODAL / SHEET ENTRANCES --- */
+        @keyframes backdropIn { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes modalIn {
+            from { opacity: 0; transform: scale(0.95); filter: blur(4px); }
+            to   { opacity: 1; transform: scale(1); filter: blur(0); }
+        }
+        .modal-backdrop:not(.hidden) { animation: backdropIn 0.25s ease-out; }
+        .modal-backdrop:not(.hidden) .modal-content { animation: modalIn 0.28s cubic-bezier(0.16, 1, 0.3, 1); }
+        .modal-content .overflow-y-auto { overscroll-behavior: contain; }
+
+        /* Bottom sheets (mobile): slide up from the edge, drag handle to dismiss */
+        .sheet-handle { display: none; }
+        @media (max-width: 767px) {
+            @keyframes sheetIn { from { transform: translateY(100%); } to { transform: translateY(0); } }
+            .modal-backdrop:not(.hidden) .sheet-content { animation: sheetIn 0.42s cubic-bezier(0.16, 1, 0.3, 1); }
+            .sheet-content { transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
+            .sheet-handle {
+                display: flex; justify-content: center;
+                padding: 0.6rem 0 0.1rem; touch-action: none; cursor: grab;
+            }
+            .sheet-handle span {
+                width: 36px; height: 4px; border-radius: 2px;
+                background: rgba(0, 0, 0, 0.15);
+            }
+        }
+
+        /* --- ICON MORPH POP (copy → check) --- */
+        @keyframes iconPop {
+            from { transform: scale(0.5); filter: blur(2px); opacity: 0.4; }
+            to   { transform: scale(1); filter: blur(0); opacity: 1; }
+        }
+        .icon-pop { animation: iconPop 0.25s cubic-bezier(0.16, 1, 0.3, 1); display: inline-block; }
+
+        /* --- LENIS SMOOTH SCROLL --- */
+        html.lenis, html.lenis body { height: auto; }
+        .lenis.lenis-smooth { scroll-behavior: auto !important; }
+        .lenis.lenis-stopped { overflow: clip; }
+
+        /* --- CARD ACTION MENU (Bloom-style morph from the trigger) --- */
+        #cardMenu {
+            position: fixed;
+            min-width: 11rem;
+            padding: 0.3rem;
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(20px) saturate(1.4);
+            -webkit-backdrop-filter: blur(20px) saturate(1.4);
+            border: 1px solid rgba(0, 0, 0, 0.05);
+            border-radius: 0.85rem;
+            box-shadow: 0 24px 60px -16px rgba(0, 0, 0, 0.28), 0 2px 8px -3px rgba(0, 0, 0, 0.06);
+            /* transform-origin is set per-open so it grows out of the button corner */
+            animation: cardMenuIn 0.26s var(--ease);
+        }
+        @keyframes cardMenuIn {
+            from { opacity: 0; transform: scale(0.86); filter: blur(5px); }
+            to   { opacity: 1; transform: scale(1); filter: blur(0); }
+        }
+        .card-menu-item {
+            display: flex; align-items: center; gap: 0.6rem;
+            width: 100%; padding: 0.5rem 0.6rem;
+            border-radius: 0.55rem; text-align: left;
+            font-size: 0.75rem; font-weight: 300; color: #525252;
+            transition: background-color 0.12s ease, color 0.12s ease;
+        }
+        .card-menu-item i { font-size: 0.9rem; color: #a3a3a3; width: 1rem; }
+        .card-menu-item:hover { background: rgba(0, 0, 0, 0.045); color: #171717; }
+        .card-menu-item:hover i { color: #171717; }
+        .card-menu-item.is-danger { color: #f43f5e; }
+        .card-menu-item.is-danger i { color: #f43f5e; }
+        .card-menu-item.is-danger:hover { background: rgba(244, 63, 94, 0.07); color: #e11d48; }
+        .card-menu-sep { height: 1px; margin: 0.25rem 0.3rem; background: rgba(0, 0, 0, 0.05); }
+
+        /* --- COMMAND PALETTE (⌘K) --- */
+        #cmdk { align-items: flex-start; justify-content: center; padding: 12vh 1rem 1rem; }
+        @media (max-width: 767px) { #cmdk { padding-top: 5vh; } }
+        .cmdk-panel {
+            width: 100%; max-width: 34rem;
+            display: flex; flex-direction: column;
+            max-height: min(30rem, 72vh);
+            background: rgba(255, 255, 255, 0.94);
+            backdrop-filter: blur(28px) saturate(1.5);
+            -webkit-backdrop-filter: blur(28px) saturate(1.5);
+            border: 1px solid rgba(0, 0, 0, 0.05);
+            border-radius: 1.25rem;
+            box-shadow: 0 40px 90px -24px rgba(0, 0, 0, 0.3), 0 2px 10px -4px rgba(0, 0, 0, 0.06);
+            overflow: hidden;
+            transform-origin: top center;
+            animation: cmdkIn 0.3s var(--ease);
+        }
+        @keyframes cmdkIn {
+            from { opacity: 0; transform: translateY(-10px) scale(0.955); filter: blur(6px); }
+            to   { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
+        }
+        .cmdk-input-row {
+            display: flex; align-items: center; gap: 0.6rem;
+            padding: 0.9rem 1rem;
+            border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+            flex-shrink: 0;
+        }
+        .cmdk-input-row > i { color: #a3a3a3; font-size: 1.05rem; }
+        #cmdkInput {
+            flex: 1; min-width: 0;
+            background: transparent; border: 0; outline: none;
+            font-size: 0.9rem; font-weight: 300; color: #171717;
+        }
+        #cmdkInput::placeholder { color: #c4c4c4; }
+        /* Argument chip — the active scope, backspace to drop it */
+        .cmdk-chip {
+            display: inline-flex; align-items: center; gap: 0.3rem;
+            padding: 0.2rem 0.5rem; border-radius: 0.45rem;
+            background: #171717; color: #fff;
+            font-size: 0.625rem; font-weight: 500;
+            text-transform: uppercase; letter-spacing: 0.1em;
+            white-space: nowrap; flex-shrink: 0;
+            animation: iconPop 0.22s var(--ease);
+        }
+        .cmdk-kbd {
+            padding: 0.15rem 0.4rem; border-radius: 0.35rem;
+            background: rgba(0,0,0,0.04); color: #a3a3a3;
+            font-size: 0.6rem; letter-spacing: 0.08em; flex-shrink: 0;
+        }
+        .cmdk-results { overflow-y: auto; overscroll-behavior: contain; padding: 0.4rem; }
+        .cmdk-results::-webkit-scrollbar { width: 0; }
+        .cmdk-group {
+            padding: 0.6rem 0.65rem 0.3rem;
+            color: #c4c4c4;
+        }
+        .cmdk-row {
+            display: flex; align-items: center; gap: 0.7rem;
+            width: 100%; padding: 0.55rem 0.65rem;
+            border-radius: 0.6rem; text-align: left;
+            color: #525252; font-size: 0.8rem; font-weight: 300;
+            transition: background-color 0.12s ease, color 0.12s ease;
+        }
+        .cmdk-row .cmdk-row-icon { color: #a3a3a3; font-size: 0.95rem; flex-shrink: 0; width: 1.1rem; }
+        .cmdk-row .cmdk-row-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .cmdk-row .cmdk-row-meta { color: #c4c4c4; font-size: 0.625rem; letter-spacing: 0.08em; text-transform: uppercase; flex-shrink: 0; }
+        .cmdk-row.is-active { background: rgba(0, 0, 0, 0.045); color: #171717; }
+        .cmdk-row.is-active .cmdk-row-icon { color: #171717; }
+        .cmdk-row mark { background: transparent; color: #171717; font-weight: 500; }
+        .cmdk-thumb {
+            width: 1.6rem; height: 1.6rem; border-radius: 0.35rem;
+            object-fit: cover; object-position: top; flex-shrink: 0;
+            background: #EEEDE9;
+        }
+        .cmdk-empty { padding: 2rem 1rem; text-align: center; color: #c4c4c4; font-size: 0.8rem; }
+        .cmdk-foot {
+            display: flex; align-items: center; gap: 1rem;
+            padding: 0.55rem 1rem;
+            border-top: 1px solid rgba(0, 0, 0, 0.05);
+            color: #c4c4c4; flex-shrink: 0;
+        }
+        .cmdk-foot span { display: inline-flex; align-items: center; gap: 0.3rem; }
+        /* Tailwind's .hidden loses to the rule above on specificity — restore it */
+        .cmdk-foot span.hidden { display: none; }
+        @media (min-width: 768px) { .cmdk-foot span.hidden.md\:inline-flex { display: inline-flex; } }
+
+        /* Header search trigger — morphs open into the palette */
+        .cmdk-trigger {
+            display: flex; align-items: center; gap: 0.5rem;
+            padding: 0.35rem 0.6rem 0.35rem 0.7rem;
+            border-radius: 0.625rem;
+            background: rgba(0, 0, 0, 0.03);
+            border: 1px solid rgba(0, 0, 0, 0.04);
+            color: #a3a3a3;
+            transition: background-color 0.2s var(--ease), color 0.2s var(--ease);
+        }
+        .cmdk-trigger:hover { background: rgba(0, 0, 0, 0.055); color: #525252; }
+
+        /* Flash the card the palette jumped to */
+        @keyframes cardFlash {
+            0%   { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); }
+            18%  { box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.5); }
+            100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); }
+        }
+        .card-flash { animation: cardFlash 1.5s var(--ease); }
+
+        /* --- UPLOAD STAGING TRAY --- */
+        #uploadTray {
+            position: fixed; z-index: 55;
+            right: 1.5rem; bottom: 1.5rem; width: 19rem;
+            background: rgba(255, 255, 255, 0.92);
+            backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(0, 0, 0, 0.05);
+            border-radius: 1.1rem;
+            box-shadow: 0 24px 60px -18px rgba(0, 0, 0, 0.25);
+            overflow: hidden;
+            animation: trayIn 0.35s var(--ease);
+        }
+        @keyframes trayIn {
+            from { opacity: 0; transform: translateY(16px) scale(0.97); filter: blur(4px); }
+            to   { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
+        }
+        @media (max-width: 767px) {
+            #uploadTray { right: 0.75rem; left: 0.75rem; bottom: 0.75rem; width: auto; }
+        }
+        .tray-head {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 0.7rem 0.9rem;
+            border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+            color: #737373;
+        }
+        .tray-list { max-height: 15rem; overflow-y: auto; overscroll-behavior: contain; padding: 0.35rem; }
+        .tray-list::-webkit-scrollbar { width: 0; }
+        .tray-item {
+            display: flex; align-items: center; gap: 0.65rem;
+            padding: 0.45rem 0.55rem; border-radius: 0.7rem;
+            transition: opacity 0.3s var(--ease), transform 0.3s var(--ease);
+        }
+        .tray-item.is-leaving { opacity: 0; transform: translateX(12px); }
+        .tray-thumb {
+            width: 2rem; height: 2rem; border-radius: 0.4rem; object-fit: cover;
+            object-position: top; background: #EEEDE9; flex-shrink: 0;
+        }
+        .tray-body { flex: 1; min-width: 0; }
+        .tray-state {
+            display: block; margin-top: 0.2rem;
+            font-size: 0.625rem; letter-spacing: 0.08em; text-transform: uppercase;
+            color: #a3a3a3;
+        }
+        .tray-item.is-failed .tray-state { color: #f43f5e; }
+        .tray-item.is-done .tray-state { color: #10b981; }
+        /* Indeterminate but honest: a travelling bar, never a fake percentage */
+        .tray-bar { position: relative; height: 2px; margin-top: 0.35rem; border-radius: 1px; background: rgba(0,0,0,0.06); overflow: hidden; }
+        .tray-bar::after {
+            content: ''; position: absolute; inset: 0; width: 40%;
+            border-radius: 1px; background: #171717;
+            animation: trayScan 1.1s var(--ease) infinite;
+        }
+        .tray-item.is-done .tray-bar, .tray-item.is-failed .tray-bar, .tray-item.is-queued .tray-bar { display: none; }
+        @keyframes trayScan {
+            0%   { transform: translateX(-100%); }
+            100% { transform: translateX(250%); }
+        }
+        .tray-retry { color: #f43f5e; font-size: 0.625rem; letter-spacing: 0.08em; text-transform: uppercase; flex-shrink: 0; }
+
+        /* --- SKELETON LOADING (perceived speed beats a lone spinner) --- */
+        .skeleton-grid {
+            display: grid; gap: 1.25rem; width: 100%;
+            max-width: 1390px; padding: 0 1.5rem;
+            grid-template-columns: 1fr;
+        }
+        @media (min-width: 768px) { .skeleton-grid { grid-template-columns: repeat(3, 1fr); gap: 1.5rem; } }
+        .skeleton-card {
+            border-radius: 1.25rem; overflow: hidden;
+            background: #fff; border: 1px solid rgba(0,0,0,0.04);
+            box-shadow: 0 2px 4px -1px rgba(0,0,0,0.02), 0 8px 24px -4px rgba(0,0,0,0.05);
+        }
+        .skeleton-card > div { background: #F0EFEC; }
+        .shimmer {
+            position: relative; overflow: hidden;
+            background: #F0EFEC;
+        }
+        .shimmer::after {
+            content: ''; position: absolute; inset: 0;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.75), transparent);
+            animation: shimmer 1.4s var(--ease) infinite;
+        }
+        @keyframes shimmer { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
+
+        /* --- FROSTED SCROLL EDGE under the fixed header --- */
+        #scrollEdge {
+            position: fixed; left: 0; right: 0; z-index: 33;
+            height: 2.25rem; pointer-events: none;
+            opacity: 0; transition: opacity 0.35s var(--ease);
+            -webkit-mask-image: linear-gradient(to bottom, #000 0%, transparent 100%);
+            mask-image: linear-gradient(to bottom, #000 0%, transparent 100%);
+            backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+        }
+        #scrollEdge.is-on { opacity: 1; }
 
         /* --- DRAG & DROP --- */
         body.global-dragging { cursor: grabbing; user-select: none; -webkit-user-select: none; }
@@ -443,9 +820,10 @@
         .view-mode .folder-name-display { cursor: default; }
 
         /* --- FEED / LATEST VIEW --- */
-        .view-tab { display:inline-flex; align-items:center; gap:.4rem; padding:.5rem .25rem; margin-right:1.5rem; margin-bottom:-1px; font-size:.9rem; font-weight:500; color:#a3a3a3; background:transparent; border:0; border-bottom:2px solid transparent; cursor:pointer; transition:color .18s, border-color .18s; }
+        .view-tab { display:inline-flex; align-items:center; gap:.45rem; padding:.65rem .25rem; margin-right:1.25rem; margin-bottom:-1px; font-size:.6875rem; font-weight:500; text-transform:uppercase; letter-spacing:.16em; color:#a3a3a3; background:transparent; border:0; border-bottom:2px solid transparent; cursor:pointer; transition:color .18s; touch-action:manipulation; }
+        @media (min-width:768px){ .view-tab { margin-right:1.75rem; padding:.5rem .25rem; } }
         .view-tab:hover { color:#525252; }
-        .view-tab.is-active { color:#171717; border-bottom-color:#171717; }
+        .view-tab.is-active { color:#171717; }
 
         .feed-filter-panel { flex-shrink:0; }
         @media (min-width:768px){ .feed-filter-panel { width:13rem; position:sticky; top:7rem; align-self:flex-start; } }
@@ -453,7 +831,7 @@
         .feed-filter-list { display:flex; flex-direction:row; gap:.5rem; overflow-x:auto; padding-bottom:.25rem; -ms-overflow-style:none; scrollbar-width:none; }
         @media (min-width:768px){ .feed-filter-list { flex-direction:column; overflow:visible; } }
         .feed-filter-list::-webkit-scrollbar { display:none; }
-        .feed-filter-chip { display:flex; align-items:center; gap:.4rem; padding:.4rem .7rem; border-radius:.6rem; background:rgba(245,245,245,.8); border:1px solid rgba(0,0,0,.04); color:#737373; font-size:.8rem; font-weight:500; white-space:nowrap; transition:all .18s; cursor:pointer; flex-shrink:0; }
+        .feed-filter-chip { display:flex; align-items:center; gap:.45rem; padding:.4rem .7rem; border-radius:.6rem; background:rgba(245,245,245,.8); border:1px solid rgba(0,0,0,.04); color:#737373; font-size:.6875rem; font-weight:400; letter-spacing:.06em; text-transform:uppercase; white-space:nowrap; transition:all .18s; cursor:pointer; flex-shrink:0; }
         .feed-filter-chip:hover { background:#ececec; color:#404040; }
         .feed-filter-chip.is-active { background:#171717; color:#fff; border-color:#171717; }
         .feed-filter-chip .feed-filter-count { margin-left:auto; padding-left:.4rem; font-size:.7rem; opacity:.6; font-weight:400; }
@@ -467,22 +845,33 @@
 
     </style>
 </head>
-<body class="text-neutral-900 font-sans antialiased selection:bg-rose-100 selection:text-rose-900 min-h-screen">
+<body class="text-neutral-900 antialiased selection:bg-rose-100 selection:text-rose-900 min-h-screen">
 
-    <!-- Loading Screen -->
-    <div id="loadingScreen" class="loading-screen">
-        <div class="flex flex-col items-center gap-4">
-            <div class="w-8 h-8 border-2 border-neutral-200 border-t-neutral-600 rounded-full animate-spin"></div>
-            <p class="text-sm text-neutral-500" id="loadingText">Loading your collection...</p>
+    <!-- Loading Screen: a skeleton of the thing you're waiting for, not a spinner over nothing -->
+    <div id="loadingScreen" class="loading-screen !items-start pt-28">
+        <div class="w-full flex flex-col items-center gap-8">
+            <div class="skeleton-grid">
+                <div class="skeleton-card"><div class="aspect-[9/16] shimmer"></div><div class="p-4 flex flex-col gap-3"><div class="h-2.5 w-2/3 rounded-full shimmer"></div><div class="h-2 w-1/3 rounded-full shimmer"></div></div></div>
+                <div class="skeleton-card hidden md:block"><div class="aspect-[9/16] shimmer"></div><div class="p-4 flex flex-col gap-3"><div class="h-2.5 w-1/2 rounded-full shimmer"></div><div class="h-2 w-2/5 rounded-full shimmer"></div></div></div>
+                <div class="skeleton-card hidden md:block"><div class="aspect-[9/16] shimmer"></div><div class="p-4 flex flex-col gap-3"><div class="h-2.5 w-3/5 rounded-full shimmer"></div><div class="h-2 w-1/4 rounded-full shimmer"></div></div></div>
+            </div>
+            <p class="microlabel text-neutral-400 animate-pulse-subtle" id="loadingText">Loading your collection</p>
         </div>
     </div>
+
+    <!-- Frosted gradient edge: content dissolves under the header instead of colliding with it -->
+    <div id="scrollEdge"></div>
 
     <header id="mainHeader" class="header-glass px-4 md:px-6 py-3 fixed top-0 w-full z-40 transition-transform duration-300 ease-in-out">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3 max-w-[1390px] mx-auto">
             <!-- Mobile Header Row -->
             <div class="flex items-center justify-between w-full md:w-auto">
                 <div class="flex items-center gap-2">
-                    <h1 class="text-lg font-semibold tracking-tight text-neutral-800">SSaved <span id="headerCollectionName" class="text-neutral-300 font-normal"></span></h1>
+                    <h1 class="font-display text-lg leading-none text-neutral-900">SSaved <span id="headerCollectionName" class="microlabel align-middle text-neutral-300 ml-1"></span></h1>
+                    <!-- Mobile: search opens the palette -->
+                    <button onclick="openCmdk()" class="md:hidden w-8 h-8 flex items-center justify-center text-neutral-400 hover:text-neutral-900 rounded-md transition-all" title="Search (⌘K)">
+                        <i class="ph ph-magnifying-glass text-lg"></i>
+                    </button>
                     <!-- Mobile: Link + Backup icons next to title -->
                     <button onclick="showShareModal()" class="md:hidden w-8 h-8 flex items-center justify-center text-neutral-400 hover:text-neutral-900 rounded-md transition-all" title="Share Link">
                         <i class="ph ph-link text-lg"></i>
@@ -505,23 +894,22 @@
                 </div>
             </div>
             
-            <!-- Desktop & Mobile Controls Row -->
-            <div class="flex items-center gap-2 md:gap-3 overflow-x-auto no-scrollbar w-full md:w-auto pb-1 md:pb-0">
-                <button id="undoBtn" onclick="triggerUndo()" class="hidden-btn view-hide flex items-center gap-2 px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-100 rounded-lg text-sm font-medium whitespace-nowrap shrink-0">
-                    <i class="ph-bold ph-arrow-u-up-left"></i> <span id="undoText">Undo</span>
-                </button>
-
-                <!-- Mobile: Column toggle -->
-                <div class="md:hidden flex bg-neutral-100/80 p-1 rounded-lg border border-neutral-200/50 shrink-0">
-                    <button onclick="setMobileCols(1)" id="col-btn-1" class="w-8 h-8 flex items-center justify-center rounded-md text-neutral-400 hover:text-neutral-900 transition-all"><i class="ph-bold ph-rectangle"></i></button>
-                    <button onclick="setMobileCols(2)" id="col-btn-2" class="w-8 h-8 flex items-center justify-center rounded-md text-neutral-400 hover:text-neutral-900 transition-all"><i class="ph-bold ph-columns"></i></button>
-                </div>
-
+            <!-- Desktop controls. Density moved out to the view row (mobile), so on
+                 phones this row is empty chrome — hide it and reclaim the viewport.
+                 #fileInput stays in the DOM: .click() works fine inside display:none. -->
+            <div class="hidden md:flex items-center gap-2 md:gap-3 overflow-x-auto no-scrollbar w-full md:w-auto pb-1 md:pb-0">
                 <!-- Desktop: Width slider -->
                 <div class="hidden md:flex items-center gap-2 bg-neutral-100/50 px-3 py-1.5 rounded-lg border border-neutral-200/50 shrink-0">
                     <i class="ph ph-corners-in text-neutral-400 text-sm"></i>
                     <input type="range" min="600" max="2400" value="1390" class="w-20 md:w-24" id="widthSlider" oninput="updateWidth(this.value)">
                 </div>
+
+                <!-- Desktop: command palette trigger -->
+                <button onclick="openCmdk()" class="cmdk-trigger hidden md:flex shrink-0" title="Search everything">
+                    <i class="ph ph-magnifying-glass text-sm"></i>
+                    <span class="microlabel">Search</span>
+                    <span class="cmdk-kbd">⌘K</span>
+                </button>
 
                 <!-- Desktop: Share + Backup buttons -->
                 <div class="hidden md:flex items-center gap-1 bg-neutral-100/50 p-1 rounded-lg border border-neutral-200/50 shrink-0">
@@ -553,18 +941,30 @@
         </div>
     </div>
 
-    <main id="mainContainer" class="p-4 md:p-6 pt-36 md:pt-28 relative mx-auto min-h-screen transition-[max-width] duration-200 ease-out" style="max-width: 1390px;">
+    <main id="mainContainer" class="p-4 md:p-6 pt-24 md:pt-28 relative mx-auto min-h-screen transition-[max-width] duration-200 ease-out" style="max-width: 1390px;">
         
         <div id="emptyState" class="hidden min-h-[70vh] flex flex-col items-center justify-center text-neutral-400">
-            <div class="w-20 h-20 bg-neutral-100 rounded-2xl flex items-center justify-center mb-5 text-neutral-300"><i class="ph-fill ph-images text-4xl"></i></div>
-            <p class="text-base font-medium text-neutral-500">No screenshots yet</p>
-            <p class="text-sm text-neutral-400 mt-1">Tap the add buttons to start</p>
+            <div class="w-20 h-20 bg-neutral-100 rounded-2xl flex items-center justify-center mb-6 text-neutral-300"><i class="ph-fill ph-images text-4xl"></i></div>
+            <p class="font-display text-base text-neutral-600">Nothing saved yet</p>
+            <p class="microlabel text-neutral-400 mt-3">Drop screenshots anywhere on this page</p>
         </div>
 
         <!-- View tabs: Folders vs Latest (feed) -->
-        <div id="viewTabs" class="flex items-center mb-6 border-b border-neutral-200/60">
-            <button onclick="setLayoutMode('folders')" id="tab-folders" class="view-tab"><i class="ph-bold ph-squares-four text-sm"></i> Folders</button>
-            <button onclick="setLayoutMode('feed')" id="tab-feed" class="view-tab"><i class="ph-bold ph-rows text-sm"></i> Latest</button>
+        <!-- One row, two categories: view mode (tabs on the rule) vs density
+             (enclosed pill above it). The form difference does the grouping —
+             no divider needed. -->
+        <div id="viewTabs" class="flex items-end justify-between mb-6 border-b border-neutral-200/60">
+            <div class="tab-group relative flex items-end">
+                <button onclick="setLayoutMode('folders')" id="tab-folders" class="view-tab"><i class="ph-bold ph-folders text-sm"></i> Folders</button>
+                <button onclick="setLayoutMode('feed')" id="tab-feed" class="view-tab"><i class="ph-bold ph-clock-counter-clockwise text-sm"></i> Latest</button>
+                <span id="tabIndicator"></span>
+            </div>
+
+            <div id="densityToggle" class="md:hidden relative inline-flex mb-1.5 view-hide">
+                <span class="density-thumb"></span>
+                <button onclick="setMobileCols(1)" id="col-btn-1" class="density-cell" aria-label="One column" title="One column"><i class="ph-bold ph-rows text-base"></i></button>
+                <button onclick="setMobileCols(2)" id="col-btn-2" class="density-cell" aria-label="Two columns" title="Two columns"><i class="ph-bold ph-squares-four text-base"></i></button>
+            </div>
         </div>
 
         <div id="folderWrapper" class="flex flex-col gap-12 pb-32"></div>
@@ -576,10 +976,11 @@
     </nav>
 
     <!-- Share Modal -->
-    <div id="shareModal" class="fixed inset-0 z-50 hidden items-center justify-center p-4 modal-backdrop">
-        <div class="modal-content w-full max-w-md p-6">
+    <div id="shareModal" class="fixed inset-0 z-50 hidden items-end md:items-center justify-center p-0 md:p-4 modal-backdrop">
+        <div class="modal-content sheet-content w-full max-w-md p-6 rounded-b-none md:rounded-[1.25rem]">
+            <div class="sheet-handle md:hidden -mt-3"><span></span></div>
             <div class="flex items-center justify-between mb-4">
-                <h2 class="text-lg font-semibold">Share Your Collection</h2>
+                <h2 class="font-display text-base">Share Your Collection</h2>
                 <button onclick="closeShareModal()" class="p-2 text-neutral-400 hover:text-neutral-900 rounded-lg transition-colors">
                     <i class="ph-bold ph-x"></i>
                 </button>
@@ -587,7 +988,7 @@
             <p class="text-sm text-neutral-500 mb-4">Anyone with this link can view and edit your collection. Bookmark it to return later.</p>
             <div class="flex gap-2">
                 <div class="flex-1 px-3 py-2 bg-neutral-50 border border-neutral-200 rounded-lg text-sm text-neutral-700 font-mono overflow-x-auto whitespace-nowrap" id="shareUrlDisplay"></div>
-                <button onclick="copyShareUrl()" class="btn-primary px-4 py-2 flex items-center gap-2 shrink-0">
+                <button onclick="copyShareUrl()" id="copyShareBtn" class="btn-primary px-4 py-2 flex items-center gap-2 shrink-0">
                     <i class="ph-bold ph-copy"></i> Copy
                 </button>
             </div>
@@ -597,33 +998,35 @@
 
     <!-- Tag Overview (long-press a folder tab) -->
     <div id="tagOverview" class="fixed inset-0 z-50 hidden items-end md:items-center justify-center modal-backdrop">
-        <div class="modal-content w-full max-w-md rounded-b-none md:rounded-[1.25rem] max-h-[75vh] flex flex-col">
-            <div class="flex items-center justify-between px-5 pt-5 pb-3 shrink-0">
+        <div class="modal-content sheet-content w-full max-w-md rounded-b-none md:rounded-[1.25rem] max-h-[75vh] flex flex-col">
+            <div class="sheet-handle md:hidden shrink-0"><span></span></div>
+            <div class="flex items-center justify-between px-5 pt-2 md:pt-5 pb-3 shrink-0">
                 <div>
-                    <h2 class="text-lg font-semibold">Jump to folder</h2>
+                    <h2 class="font-display text-base">Jump to folder</h2>
                     <p class="text-xs text-neutral-400 mt-0.5" id="tagOverviewSubtitle"></p>
                 </div>
                 <button onclick="closeTagOverview()" class="p-2 text-neutral-400 hover:text-neutral-900 rounded-lg transition-colors">
                     <i class="ph-bold ph-x"></i>
                 </button>
             </div>
-            <div id="tagOverviewList" class="px-3 pb-5 overflow-y-auto flex flex-col gap-1 no-scrollbar"></div>
+            <div id="tagOverviewList" class="px-3 pb-5 overflow-y-auto flex flex-col gap-1 no-scrollbar" data-lenis-prevent></div>
         </div>
     </div>
 
     <!-- Folder Visibility (long-press "All screenshots" in the feed) -->
     <div id="folderVisibilityModal" class="fixed inset-0 z-50 hidden items-end md:items-center justify-center modal-backdrop">
-        <div class="modal-content w-full max-w-md rounded-b-none md:rounded-[1.25rem] max-h-[75vh] flex flex-col">
-            <div class="flex items-center justify-between px-5 pt-5 pb-3 shrink-0">
+        <div class="modal-content sheet-content w-full max-w-md rounded-b-none md:rounded-[1.25rem] max-h-[75vh] flex flex-col">
+            <div class="sheet-handle md:hidden shrink-0"><span></span></div>
+            <div class="flex items-center justify-between px-5 pt-2 md:pt-5 pb-3 shrink-0">
                 <div>
-                    <h2 class="text-lg font-semibold">Show folders</h2>
+                    <h2 class="font-display text-base">Show folders</h2>
                     <p class="text-xs text-neutral-400 mt-0.5" id="folderVisibilitySubtitle"></p>
                 </div>
                 <button onclick="closeFolderVisibilityModal()" class="p-2 text-neutral-400 hover:text-neutral-900 rounded-lg transition-colors">
                     <i class="ph-bold ph-x"></i>
                 </button>
             </div>
-            <div id="folderVisibilityList" class="px-3 pb-3 overflow-y-auto flex flex-col gap-1 no-scrollbar"></div>
+            <div id="folderVisibilityList" class="px-3 pb-3 overflow-y-auto flex flex-col gap-1 no-scrollbar" data-lenis-prevent></div>
             <div class="px-5 py-3 border-t border-neutral-100 shrink-0 flex items-center justify-between">
                 <button onclick="showAllFolders()" class="text-sm font-medium text-blue-500 hover:text-blue-600">Show all</button>
                 <button onclick="closeFolderVisibilityModal()" class="btn-primary px-5 py-2 text-sm">Done</button>
@@ -643,9 +1046,42 @@
         </div>
     </div>
 
-    <div id="statusBar" class="fixed bottom-6 left-1/2 -translate-x-1/2 bg-neutral-900/90 backdrop-blur-md text-white px-5 py-2.5 rounded-full shadow-2xl flex items-center gap-3 hidden transition-all z-50">
-        <div class="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin"></div><span id="statusText" class="text-xs font-medium">Processing...</span>
+    <!-- Card action menu — Bloom-style: morphs open from the ⋯ button it came from -->
+    <div id="cardMenuLayer" class="fixed inset-0 z-[58] hidden">
+        <div id="cardMenu" role="menu"></div>
     </div>
+
+    <!-- Command Palette -->
+    <div id="cmdk" class="fixed inset-0 z-[60] hidden modal-backdrop">
+        <div class="cmdk-panel" role="dialog" aria-label="Search and commands">
+            <div class="cmdk-input-row">
+                <i class="ph ph-magnifying-glass"></i>
+                <span id="cmdkChip" class="cmdk-chip hidden"></span>
+                <input id="cmdkInput" type="text" autocomplete="off" spellcheck="false"
+                       placeholder="Search screenshots, notes, folders…"
+                       oninput="renderCmdk()" onkeydown="cmdkKeydown(event)">
+                <span class="cmdk-kbd">ESC</span>
+            </div>
+            <div id="cmdkResults" class="cmdk-results" data-lenis-prevent></div>
+            <div class="cmdk-foot">
+                <span class="microlabel"><span class="cmdk-kbd">↑↓</span> Navigate</span>
+                <span class="microlabel"><span class="cmdk-kbd">↵</span> Open</span>
+                <span class="microlabel hidden md:inline-flex"><span class="cmdk-kbd">@</span> Users</span>
+                <span class="microlabel hidden md:inline-flex"><span class="cmdk-kbd">#</span> Folders</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Upload staging tray -->
+    <div id="uploadTray" class="hidden">
+        <div class="tray-head">
+            <span class="microlabel" id="trayTitle">Uploading</span>
+            <button onclick="clearFinishedUploads()" class="microlabel text-neutral-400 hover:text-neutral-700 transition-colors" id="trayClear">Clear</button>
+        </div>
+        <div class="tray-list" id="trayList" data-lenis-prevent></div>
+    </div>
+
+    <div id="toastRoot"></div>
 
     <div id="selectionToolbar" class="fixed bottom-6 left-1/2 -translate-x-1/2 bg-blue-600 backdrop-blur-md text-white pl-5 pr-3 py-2.5 rounded-full shadow-2xl flex items-center gap-3 hidden z-50">
         <span id="selectionCount" class="text-xs font-medium">0 selected</span>
@@ -692,6 +1128,10 @@
             setupLongPress();
             setupFolderLongPress();
             setupFeedFilterLongPress();
+            setupSheetDrag('tagOverview', closeTagOverview);
+            setupSheetDrag('folderVisibilityModal', closeFolderVisibilityModal);
+            setupSheetDrag('shareModal', closeShareModal);
+            initSmoothScroll();
             initScrollBehavior();
             preloadImages();
 
@@ -906,14 +1346,51 @@
             document.getElementById('loadingScreen').classList.add('hidden');
         }
 
+        // --- SMOOTH SCROLL (Lenis) ---
+        // Wheel only. syncTouch is deliberately OFF: iOS momentum is already
+        // excellent and hijacking touch makes it feel laggy — and it would fight
+        // the pointer-drag engine. Desktop gets the inertial glide; mobile keeps
+        // native scrolling.
+        let lenis = null;
+        function initSmoothScroll() {
+            if (typeof Lenis === 'undefined') return; // CDN blocked → native scroll, no harm
+            lenis = new Lenis({
+                duration: 1.05,
+                easing: t => Math.min(1, 1.001 - Math.pow(2, -10 * t)), // expo-out
+                smoothWheel: true,
+                syncTouch: false,
+                touchMultiplier: 1.6
+            });
+            const raf = time => { lenis.raf(time); requestAnimationFrame(raf); };
+            requestAnimationFrame(raf);
+        }
+
+        // Single entry point so callers don't care whether Lenis loaded
+        function smoothScrollTo(y) {
+            if (lenis) lenis.scrollTo(y, { duration: 0.9 });
+            else window.scrollTo({ top: y, behavior: 'smooth' });
+        }
+
         // --- SCROLL BEHAVIOR ---
         function initScrollBehavior() {
             const header = document.getElementById('mainHeader');
             const breadcrumb = document.getElementById('mobileBreadcrumb');
+            const edge = document.getElementById('scrollEdge');
             let lastScrollY = window.scrollY;
+
+            // The frosted edge sits flush under the header and rides with it
+            const placeEdge = () => {
+                if (!edge) return;
+                const hidden = header.classList.contains('-translate-y-full');
+                edge.style.top = hidden ? '0px' : header.offsetHeight + 'px';
+            };
+            placeEdge();
+            window.addEventListener('resize', placeEdge);
+
             window.addEventListener('scroll', () => {
                 const currentScrollY = window.scrollY;
                 if (currentScrollY < 0) return;
+                if (edge) edge.classList.toggle('is-on', currentScrollY > 24);
                 if (Math.abs(currentScrollY - lastScrollY) < 10) return;
                 const scrollingDown = currentScrollY > lastScrollY && currentScrollY > 60;
                 if (scrollingDown) {
@@ -923,6 +1400,7 @@
                     header.classList.remove('-translate-y-full');
                     if (breadcrumb) breadcrumb.classList.remove('is-visible');
                 }
+                placeEdge();
                 lastScrollY = currentScrollY;
             }, { passive: true });
         }
@@ -949,7 +1427,7 @@
             if (section) {
                 const headerHeight = 120;
                 const y = section.getBoundingClientRect().top + window.scrollY - headerHeight;
-                window.scrollTo({ top: y, behavior: 'smooth' });
+                smoothScrollTo(y);
             }
         }
 
@@ -1124,16 +1602,16 @@
                     <div class="folder-header mb-5 flex items-end relative pl-1"
                          data-folder-id="${folder.id}">
 
-                        <div class="folder-tab bg-neutral-200/80 text-neutral-500 py-1.5 text-xs font-semibold uppercase tracking-wider rounded-t-lg transition-all duration-200 select-none cursor-pointer group-hover/folder:bg-neutral-300/80 group-hover/folder:text-neutral-600 flex items-center gap-2 ${opacity}"
+                        <div class="folder-tab microlabel select-none cursor-pointer ${opacity}"
                              onclick="toggleFolder('${folder.id}')">
-                            <i class="ph-bold ${chevron} text-xs"></i>
+                            <i class="ph-bold ${chevron} text-[0.6rem]"></i>
                             <span class="folder-name-display" ${viewMode ? '' : `ondblclick="event.stopPropagation(); editFolderName('${folder.id}')"`}>${folder.name}</span>
-                            ${viewMode ? '' : `<input type="text" id="folder-name-input-${folder.id}" class="folder-name-input hidden bg-white/90 px-2 py-0.5 rounded border border-neutral-300 text-neutral-700 text-xs font-semibold uppercase tracking-wider"
+                            ${viewMode ? '' : `<input type="text" id="folder-name-input-${folder.id}" class="folder-name-input microlabel hidden bg-white/90 px-2 py-0.5 rounded border border-neutral-300 text-neutral-700"
                                    value="${folder.name}"
                                    onblur="saveFolderName('${folder.id}')"
                                    onkeydown="if(event.key==='Enter') this.blur(); if(event.key==='Escape') cancelEditFolderName('${folder.id}')"
                                    onclick="event.stopPropagation()">`}
-                            <span class="opacity-50 font-normal">${fCards.length}</span>
+                            <span class="folder-count">${fCards.length}</span>
                         </div>
 
                         ${addBtn}
@@ -1151,6 +1629,7 @@
             requestAnimationFrame(() => {
                 initAllNotesCollapsible();
                 buildFolderNav();
+                positionTabIndicator();
             });
         }
 
@@ -1162,11 +1641,16 @@
 
         function setLayoutMode(mode) {
             if (mode !== 'feed' && mode !== 'folders') return;
+            if (mode === layoutMode) return;
             layoutMode = mode;
             localStorage.setItem('ssaved_layout', mode);
             if (selectionMode) exitSelectionMode();
+
+            // Paint the tab state + start the indicator transition FIRST, then let
+            // the browser commit that frame before the expensive grid rebuild.
+            // Doing render() synchronously here is what made the underline stutter.
             updateLayoutToggleUI();
-            render();
+            requestAnimationFrame(() => requestAnimationFrame(() => render()));
         }
 
         function updateLayoutToggleUI() {
@@ -1174,7 +1658,31 @@
                 const tab = document.getElementById(`tab-${m}`);
                 if (tab) tab.className = `view-tab ${layoutMode === m ? 'is-active' : ''}`;
             });
+            positionTabIndicator();
         }
+
+        // Fluid indicator: slides + stretches to the active tab (pasito-style).
+        // Compositor-only — see the #tabIndicator CSS note.
+        const TAB_INDICATOR_BASE = 100;
+        let tabIndicatorReady = false;
+        function positionTabIndicator() {
+            const indicator = document.getElementById('tabIndicator');
+            const active = document.querySelector('.view-tab.is-active');
+            if (!indicator || !active || !active.offsetWidth) return;
+            const scale = active.offsetWidth / TAB_INDICATOR_BASE;
+
+            // First placement should appear, not animate in from zero width
+            if (!tabIndicatorReady) {
+                indicator.style.transition = 'none';
+                indicator.style.transform = `translate3d(${active.offsetLeft}px, 0, 0) scaleX(${scale})`;
+                void indicator.offsetWidth;          // flush before re-enabling
+                indicator.style.transition = '';
+                tabIndicatorReady = true;
+                return;
+            }
+            indicator.style.transform = `translate3d(${active.offsetLeft}px, 0, 0) scaleX(${scale})`;
+        }
+        window.addEventListener('resize', positionTabIndicator);
 
         function toggleFeedFilter(id) {
             if (feedFilter.has(id)) feedFilter.delete(id); else feedFilter.add(id);
@@ -1351,7 +1859,7 @@
 
             wrapper.innerHTML = `<div class="feed-layout flex flex-col md:flex-row gap-4 md:gap-8">${filterPanel}${feedGrid}</div>`;
 
-            requestAnimationFrame(() => { initAllNotesCollapsible(); });
+            requestAnimationFrame(() => { initAllNotesCollapsible(); positionTabIndicator(); });
         }
 
         function generateCardHTML(c, rIds, showFolderTag = false) {
@@ -1394,8 +1902,8 @@
                         <i class="ph-bold ph-arrow-up-right text-base"></i>
                     </button>`}
 
-                    ${(viewMode || selectionMode) ? '' : `<button onclick="event.stopPropagation(); deleteCard(${c.id})" class="delete-btn p-2 bg-white/80 hover:bg-red-50 backdrop-blur-md border border-white/50 text-neutral-600 hover:text-red-500 rounded-lg shadow-lg transition-all">
-                        <i class="ph-bold ph-x text-base"></i>
+                    ${(viewMode || selectionMode) ? '' : `<button onclick="event.stopPropagation(); openCardMenu(event, ${c.id})" class="delete-btn card-menu-btn p-2 bg-white/80 hover:bg-white backdrop-blur-md border border-white/50 text-neutral-600 hover:text-neutral-900 rounded-lg shadow-lg transition-all" aria-label="More actions">
+                        <i class="ph-bold ph-dots-three text-base"></i>
                     </button>`}
                 </div>
 
@@ -1415,7 +1923,7 @@
                                 class="${linkMode ? 'link-field w-full pl-6 pr-10 py-1 bg-transparent border-0 border-b border-neutral-100 focus:border-neutral-300 outline-none text-sm font-normal text-neutral-500 group-hover/input:text-neutral-700 focus:text-neutral-900 transition-colors placeholder:text-neutral-300 overflow-hidden whitespace-nowrap resize-none' : 'auto-grow w-full pl-6 pr-2 py-1 bg-transparent border-0 border-b border-neutral-100 focus:border-neutral-300 outline-none text-sm font-semibold text-neutral-400 group-hover/input:text-neutral-700 focus:text-neutral-900 transition-colors placeholder:text-neutral-300'}"
                                 style="${linkMode ? 'height: 24px; transition: height 0.2s ease, white-space 0.2s ease;' : ''}"
                                 placeholder="${linkMode ? 'Paste link...' : 'Username'}" rows="1">${linkMode ? c.link : c.username}</textarea>
-                            ${linkMode && c.link ? `<button onclick="event.stopPropagation(); copyCardLink(${c.id})" class="absolute inset-y-0 right-0 pl-4 pr-1 flex items-center text-neutral-300 hover:text-neutral-600 transition-colors bg-gradient-to-l from-white from-60% to-transparent" title="Copy link"><i class="ph-bold ph-copy text-xs"></i></button>` : ''}
+                            ${linkMode && c.link ? `<button onclick="event.stopPropagation(); copyCardLink(${c.id})" class="copy-link-btn absolute inset-y-0 right-0 pl-4 pr-1 flex items-center text-neutral-300 hover:text-neutral-600 transition-colors bg-gradient-to-l from-white from-60% to-transparent" title="Copy link"><i class="ph-bold ph-copy text-xs"></i></button>` : ''}
                         </div>
                     </div>
                     <div class="notes-wrapper" id="notes-wrapper-${c.id}">
@@ -1605,6 +2113,10 @@
             const subtitle = document.getElementById('tagOverviewSubtitle');
             if (!modal || !list) return;
 
+            // Reset the title — openMoveToFolder borrows this same shell
+            const heading = modal.querySelector('h2');
+            if (heading) heading.textContent = 'Jump to folder';
+
             const total = appData.cards.filter(c => !c.deletedAt).length;
             if (subtitle) subtitle.textContent = `${appData.folders.length} folder${appData.folders.length === 1 ? '' : 's'} · ${total} item${total === 1 ? '' : 's'}`;
 
@@ -1645,6 +2157,42 @@
             requestAnimationFrame(() => scrollToFolder(folderId));
         }
 
+        // --- BOTTOM SHEET DRAG-TO-DISMISS (mobile, vaul-style) ---
+        // Grab the handle, pull down past the threshold to close; below it, the
+        // sheet springs back with the house easing.
+        function setupSheetDrag(modalId, closeFn) {
+            const modal = document.getElementById(modalId);
+            const content = modal?.querySelector('.sheet-content');
+            const handle = modal?.querySelector('.sheet-handle');
+            if (!content || !handle) return;
+
+            let startY = null;
+            handle.addEventListener('pointerdown', e => {
+                startY = e.clientY;
+                content.style.transition = 'none';
+                try { handle.setPointerCapture(e.pointerId); } catch (err) {}
+            });
+            handle.addEventListener('pointermove', e => {
+                if (startY == null) return;
+                const dy = Math.max(0, e.clientY - startY);
+                content.style.transform = `translateY(${dy}px)`;
+            });
+            const release = e => {
+                if (startY == null) return;
+                const dy = Math.max(0, e.clientY - startY);
+                startY = null;
+                content.style.transition = '';
+                if (dy > 110) {
+                    content.style.transform = 'translateY(110%)';
+                    setTimeout(() => { closeFn(); content.style.transform = ''; }, 200);
+                } else {
+                    content.style.transform = '';
+                }
+            };
+            handle.addEventListener('pointerup', release);
+            handle.addEventListener('pointercancel', release);
+        }
+
         // Close tag overview on backdrop click
         document.getElementById('tagOverview')?.addEventListener('click', e => {
             if (e.target.id === 'tagOverview') closeTagOverview();
@@ -1653,6 +2201,360 @@
         // Close folder-visibility modal on backdrop click
         document.getElementById('folderVisibilityModal')?.addEventListener('click', e => {
             if (e.target.id === 'folderVisibilityModal') closeFolderVisibilityModal();
+        });
+
+        // --- CARD ACTION MENU ---
+        // One shared menu rather than per-card DOM (cards re-render constantly).
+        // It grows out of the corner of the ⋯ that opened it — origin-aware, so
+        // it reads as that button expanding rather than a panel appearing.
+        let cardMenuId = null;
+
+        function openCardMenu(e, id) {
+            const card = appData.cards.find(c => c.id === id);
+            if (!card) return;
+            const layer = document.getElementById('cardMenuLayer');
+            const menu = document.getElementById('cardMenu');
+            if (!layer || !menu) return;
+            cardMenuId = id;
+
+            const hasLink = card.link && card.link !== '#';
+            menu.innerHTML = `
+                <button class="card-menu-item" onclick="cardMenuAction('open')" ${hasLink ? '' : 'disabled style="opacity:.4"'}>
+                    <i class="ph-bold ph-arrow-up-right"></i> Open profile
+                </button>
+                <button class="card-menu-item" onclick="cardMenuAction('copy')" ${hasLink ? '' : 'disabled style="opacity:.4"'}>
+                    <i class="ph-bold ph-copy"></i> Copy link
+                </button>
+                <button class="card-menu-item" onclick="cardMenuAction('move')">
+                    <i class="ph-bold ph-folder-simple"></i> Move to folder
+                </button>
+                <div class="card-menu-sep"></div>
+                <button class="card-menu-item is-danger" onclick="cardMenuAction('delete')">
+                    <i class="ph-bold ph-trash"></i> Delete
+                </button>`;
+
+            layer.classList.remove('hidden');
+
+            // Position against the trigger, flipping near the viewport edges
+            const btn = e.currentTarget.getBoundingClientRect();
+            menu.style.visibility = 'hidden';
+            menu.style.top = '0px'; menu.style.left = '0px';
+            const mw = menu.offsetWidth, mh = menu.offsetHeight;
+            const flipX = btn.right - mw < 8;
+            const flipY = btn.bottom + mh + 8 > window.innerHeight;
+            const left = flipX ? Math.max(8, btn.left) : Math.min(window.innerWidth - mw - 8, btn.right - mw);
+            const top = flipY ? Math.max(8, btn.top - mh - 6) : btn.bottom + 6;
+            menu.style.left = left + 'px';
+            menu.style.top = top + 'px';
+            menu.style.transformOrigin = `${flipX ? 'left' : 'right'} ${flipY ? 'bottom' : 'top'}`;
+            menu.style.visibility = '';
+        }
+
+        function closeCardMenu() {
+            document.getElementById('cardMenuLayer')?.classList.add('hidden');
+            cardMenuId = null;
+        }
+
+        function cardMenuAction(action) {
+            const id = cardMenuId;
+            closeCardMenu();
+            if (id == null) return;
+            if (action === 'open') openProfile(id);
+            else if (action === 'copy') {
+                const c = appData.cards.find(x => x.id === id);
+                if (c?.link) { navigator.clipboard.writeText(c.link); toast('Link copied'); }
+            }
+            else if (action === 'move') openMoveToFolder(id);
+            else if (action === 'delete') deleteCard(id);
+        }
+
+        // Reuses the existing folder sheet/modal shell for the destination picker
+        function openMoveToFolder(id) {
+            const card = appData.cards.find(c => c.id === id);
+            const modal = document.getElementById('tagOverview');
+            const list = document.getElementById('tagOverviewList');
+            const subtitle = document.getElementById('tagOverviewSubtitle');
+            if (!card || !modal || !list) return;
+
+            modal.querySelector('h2').textContent = 'Move to folder';
+            if (subtitle) subtitle.textContent = card.username ? `@${card.username}` : 'Pick a destination';
+
+            list.innerHTML = appData.folders.map(f => `
+                <button onclick="moveCardToFolder(${id}, '${f.id}')"
+                        class="w-full flex items-center justify-between gap-3 px-4 py-3 rounded-xl text-left transition-colors ${f.id === card.folderId ? 'bg-neutral-100' : 'hover:bg-neutral-50 active:bg-neutral-100'}">
+                    <span class="flex items-center gap-2.5 min-w-0">
+                        <i class="ph-bold ph-folder text-neutral-400 shrink-0"></i>
+                        <span class="text-sm text-neutral-700 truncate">${escapeHtml(f.name)}</span>
+                    </span>
+                    ${f.id === card.folderId ? '<i class="ph-bold ph-check text-neutral-400 shrink-0"></i>' : ''}
+                </button>`).join('');
+
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+        }
+
+        async function moveCardToFolder(id, folderId) {
+            closeTagOverview();
+            const card = appData.cards.find(c => c.id === id);
+            if (!card || card.folderId === folderId) return;
+            const from = card.folderId;
+            card.folderId = folderId;
+            card.order = 0;
+            await saveCardToDB(card);
+            reindexCards(from);
+            transitionRender([id]);
+            toast(`Moved to ${getFolderName(folderId)}`);
+        }
+
+        document.getElementById('cardMenuLayer')?.addEventListener('click', e => {
+            if (e.target.id === 'cardMenuLayer') closeCardMenu();
+        });
+        window.addEventListener('keydown', e => { if (e.key === 'Escape') closeCardMenu(); });
+        window.addEventListener('scroll', () => { if (cardMenuId != null) closeCardMenu(); }, { passive: true });
+
+        // --- COMMAND PALETTE (⌘K) ---
+        // One surface for the three things you actually do: find a screenshot,
+        // jump to a folder, run an action. Sigils scope the search: @ usernames,
+        // # folders, > actions — shown as a chip, backspace drops it.
+        let cmdkOpen = false;
+        let cmdkScope = null;         // null | 'user' | 'folder' | 'action'
+        let cmdkItems = [];
+        let cmdkIndex = 0;
+
+        const SCOPES = {
+            '@': { key: 'user',   label: 'Usernames' },
+            '#': { key: 'folder', label: 'Folders' },
+            '>': { key: 'action', label: 'Actions' }
+        };
+
+        function openCmdk() {
+            const modal = document.getElementById('cmdk');
+            if (!modal) return;
+            cmdkOpen = true;
+            cmdkScope = null;
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+            const input = document.getElementById('cmdkInput');
+            input.value = '';
+            updateCmdkChip();
+            renderCmdk();
+            // Defer focus so the entrance animation isn't interrupted by the keyboard
+            requestAnimationFrame(() => input.focus());
+        }
+
+        function closeCmdk() {
+            const modal = document.getElementById('cmdk');
+            if (!modal) return;
+            cmdkOpen = false;
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+        }
+
+        function updateCmdkChip() {
+            const chip = document.getElementById('cmdkChip');
+            const input = document.getElementById('cmdkInput');
+            if (!chip) return;
+            if (cmdkScope) {
+                const entry = Object.values(SCOPES).find(s => s.key === cmdkScope);
+                chip.textContent = entry ? entry.label : cmdkScope;
+                chip.classList.remove('hidden');
+                input.placeholder = 'Filter…';
+            } else {
+                chip.classList.add('hidden');
+                input.placeholder = 'Search screenshots, notes, folders…';
+            }
+        }
+
+        function cmdkActions() {
+            const actions = [
+                { icon: 'ph-image', label: 'Add screenshot', meta: 'Upload', run: () => triggerUpload() },
+                { icon: 'ph-folder-plus', label: 'New folder', meta: 'Create', run: () => createNewFolder() },
+                { icon: layoutMode === 'feed' ? 'ph-folders' : 'ph-clock-counter-clockwise',
+                  label: layoutMode === 'feed' ? 'Switch to Folders' : 'Switch to Latest',
+                  meta: 'View', run: () => setLayoutMode(layoutMode === 'feed' ? 'folders' : 'feed') },
+                { icon: 'ph-link', label: 'Share link', meta: 'Share', run: () => showShareModal() },
+                { icon: 'ph-cloud-arrow-up', label: 'Backup to GitHub', meta: 'Backup', run: () => manualBackupToGitHub() }
+            ];
+            return viewMode ? actions.filter(a => a.meta === 'Share' || a.meta === 'View') : actions;
+        }
+
+        function buildCmdkItems(query) {
+            const q = query.trim().toLowerCase();
+            const items = [];
+
+            // Actions
+            if (!cmdkScope || cmdkScope === 'action') {
+                cmdkActions()
+                    .filter(a => !q || a.label.toLowerCase().includes(q))
+                    .forEach(a => items.push({ group: 'Actions', ...a }));
+            }
+
+            // Folders
+            if (!cmdkScope || cmdkScope === 'folder') {
+                appData.folders
+                    .filter(f => !q || f.name.toLowerCase().includes(q))
+                    .forEach(f => {
+                        const count = appData.cards.filter(c => c.folderId === f.id && !c.deletedAt).length;
+                        items.push({
+                            group: 'Folders', icon: 'ph-folder', label: f.name,
+                            meta: `${count}`, highlight: q,
+                            run: () => jumpToFolderFromOverview(f.id)
+                        });
+                    });
+            }
+
+            // Screenshots — match username or notes
+            if (!cmdkScope || cmdkScope === 'user') {
+                const cards = appData.cards.filter(c => {
+                    if (c.deletedAt) return false;
+                    if (!q) return false; // don't dump the whole library on an empty query
+                    return (c.username || '').toLowerCase().includes(q)
+                        || (cmdkScope === 'user' ? false : (c.notes || '').toLowerCase().includes(q));
+                }).slice(0, 12);
+                cards.forEach(c => items.push({
+                    group: 'Screenshots',
+                    thumb: c.imageUrl,
+                    label: c.username || '(no username)',
+                    sub: c.notes || '',
+                    meta: getFolderName(c.folderId),
+                    highlight: q,
+                    run: () => jumpToCard(c.id)
+                }));
+            }
+
+            // With an empty query and no scope, surface recent screenshots as a starting point
+            if (!q && !cmdkScope) {
+                appData.cards.filter(c => !c.deletedAt)
+                    .sort((a, b) => (b.createdAt && a.createdAt) ? new Date(b.createdAt) - new Date(a.createdAt) : b.id - a.id)
+                    .slice(0, 5)
+                    .forEach(c => items.push({
+                        group: 'Recent',
+                        thumb: c.imageUrl,
+                        label: c.username || '(no username)',
+                        meta: getFolderName(c.folderId),
+                        run: () => jumpToCard(c.id)
+                    }));
+            }
+
+            return items;
+        }
+
+        function markMatch(text, q) {
+            const safe = escapeHtml(text);
+            if (!q) return safe;
+            const i = text.toLowerCase().indexOf(q.toLowerCase());
+            if (i < 0) return safe;
+            return escapeHtml(text.slice(0, i)) + '<mark>' + escapeHtml(text.slice(i, i + q.length)) + '</mark>' + escapeHtml(text.slice(i + q.length));
+        }
+
+        function renderCmdk() {
+            const input = document.getElementById('cmdkInput');
+            const results = document.getElementById('cmdkResults');
+            if (!input || !results) return;
+
+            // A leading sigil promotes to a scope chip
+            const raw = input.value;
+            if (!cmdkScope && raw.length === 1 && SCOPES[raw]) {
+                cmdkScope = SCOPES[raw].key;
+                input.value = '';
+                updateCmdkChip();
+            }
+
+            cmdkItems = buildCmdkItems(input.value);
+            cmdkIndex = Math.min(cmdkIndex, Math.max(0, cmdkItems.length - 1));
+
+            if (!cmdkItems.length) {
+                results.innerHTML = `<div class="cmdk-empty">No matches</div>`;
+                return;
+            }
+
+            let html = '', lastGroup = null;
+            cmdkItems.forEach((item, i) => {
+                if (item.group !== lastGroup) {
+                    html += `<div class="cmdk-group microlabel">${item.group}</div>`;
+                    lastGroup = item.group;
+                }
+                const visual = item.thumb
+                    ? `<img src="${item.thumb}" class="cmdk-thumb" alt="">`
+                    : `<i class="ph-bold ${item.icon} cmdk-row-icon"></i>`;
+                const sub = item.sub ? ` <span class="text-neutral-300">— ${escapeHtml(item.sub.slice(0, 48))}</span>` : '';
+                html += `
+                <button class="cmdk-row ${i === cmdkIndex ? 'is-active' : ''}" data-idx="${i}"
+                        onmousemove="setCmdkIndex(${i})" onclick="runCmdkItem(${i})">
+                    ${visual}
+                    <span class="cmdk-row-label">${markMatch(item.label, item.highlight)}${sub}</span>
+                    <span class="cmdk-row-meta">${escapeHtml(item.meta || '')}</span>
+                </button>`;
+            });
+            results.innerHTML = html;
+        }
+
+        function setCmdkIndex(i) {
+            if (i === cmdkIndex) return;
+            cmdkIndex = i;
+            document.querySelectorAll('.cmdk-row').forEach(r => r.classList.toggle('is-active', +r.dataset.idx === i));
+        }
+
+        function moveCmdk(delta) {
+            if (!cmdkItems.length) return;
+            cmdkIndex = (cmdkIndex + delta + cmdkItems.length) % cmdkItems.length;
+            document.querySelectorAll('.cmdk-row').forEach(r => r.classList.toggle('is-active', +r.dataset.idx === cmdkIndex));
+            document.querySelector('.cmdk-row.is-active')?.scrollIntoView({ block: 'nearest' });
+        }
+
+        function runCmdkItem(i) {
+            const item = cmdkItems[i];
+            if (!item) return;
+            closeCmdk();
+            requestAnimationFrame(() => item.run());
+        }
+
+        function cmdkKeydown(e) {
+            if (e.key === 'ArrowDown') { e.preventDefault(); moveCmdk(1); }
+            else if (e.key === 'ArrowUp') { e.preventDefault(); moveCmdk(-1); }
+            else if (e.key === 'Enter') { e.preventDefault(); runCmdkItem(cmdkIndex); }
+            else if (e.key === 'Escape') { e.preventDefault(); closeCmdk(); }
+            else if (e.key === 'Backspace' && !e.target.value && cmdkScope) {
+                e.preventDefault(); cmdkScope = null; updateCmdkChip(); renderCmdk();
+            }
+        }
+
+        // Jump to a card from anywhere: expand its folder, scroll it in, flash it
+        function jumpToCard(id) {
+            const card = appData.cards.find(c => c.id === id);
+            if (!card) return;
+            const folder = appData.folders.find(f => f.id === card.folderId);
+            if (layoutMode === 'folders' && folder && folder.isCollapsed) {
+                folder.isCollapsed = false;
+                saveFolderToDB(folder);
+                render();
+            }
+            requestAnimationFrame(() => {
+                const el = document.getElementById(`card-${id}`);
+                if (!el) return;
+                const y = el.getBoundingClientRect().top + window.scrollY - 140;
+                smoothScrollTo(y);
+                el.classList.remove('card-flash');
+                void el.offsetWidth; // restart the animation
+                el.classList.add('card-flash');
+                setTimeout(() => el.classList.remove('card-flash'), 1600);
+            });
+        }
+
+        // Global shortcuts: ⌘K / Ctrl+K anywhere, "/" when not typing
+        document.addEventListener('keydown', e => {
+            if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+                e.preventDefault();
+                cmdkOpen ? closeCmdk() : openCmdk();
+                return;
+            }
+            if (e.key === '/' && !cmdkOpen && !/^(INPUT|TEXTAREA)$/.test(document.activeElement?.tagName || '')) {
+                e.preventDefault(); openCmdk();
+            }
+        });
+
+        document.getElementById('cmdk')?.addEventListener('click', e => {
+            if (e.target.id === 'cmdk') closeCmdk();
         });
 
         // --- IMAGE PRELOADING ---
@@ -1936,6 +2838,9 @@
             if (multi) ids.filter(x => x !== anchorId).forEach(x => document.getElementById(`card-${x}`)?.classList.add('card-hidden'));
 
             document.body.classList.add('global-dragging');
+            // Hand scrolling back to the browser for the duration of the drag —
+            // autoScroll()'s scrollBy and Lenis's rAF lerp would fight otherwise.
+            lenis?.stop();
             const wrapper = document.getElementById('folderWrapper');
             try { wrapper.setPointerCapture(dragState.pointerId); } catch (err) {}
 
@@ -2054,6 +2959,7 @@
             dragState = null;
             ds.ghost.remove();
             document.body.classList.remove('global-dragging');
+            lenis?.start();
             clearFolderHighlights();
             try { document.getElementById('folderWrapper').releasePointerCapture(ds.pointerId); } catch (err) {}
 
@@ -2220,14 +3126,25 @@
             });
         }
 
-        async function handleFiles(files) {
-            if (!files.length) return;
-            showStatus(true, `Uploading ${files.length} image${files.length > 1 ? 's' : ''}...`);
-            
-            console.log('Collection ID:', collectionId);
-            console.log('Files to upload:', files.length);
-            
-            const newCards = [];
+        // --- UPLOAD STAGING TRAY ---
+        // Each file runs its own visible state machine (queued → uploading →
+        // reading → done | failed-with-retry) instead of one blocking loop that
+        // died on an alert(). Serial by design: the proven-reliable path on
+        // mobile, and it keeps the pipeline legible.
+        let uploadEntries = [];
+        let uploadRunning = false;
+        let uploadUid = 0;
+
+        const TRAY_STATES = {
+            queued:    { label: 'Queued',        cls: 'is-queued' },
+            uploading: { label: 'Uploading',     cls: 'is-uploading' },
+            reading:   { label: 'Reading text',  cls: 'is-reading' },
+            done:      { label: 'Saved',         cls: 'is-done' },
+            failed:    { label: 'Failed',        cls: 'is-failed' }
+        };
+
+        function handleFiles(files) {
+            if (!files || !files.length) return;
 
             // Resolve destination folder: the per-folder add button sets a
             // target; otherwise fall back to Inbox. Reset immediately so a
@@ -2246,101 +3163,171 @@
                 saveFolderToDB(destFolder);
             }
 
-            for (let i = 0; i < files.length; i++) {
-                const file = files[i];
-                const id = Date.now() + i;
-                const imagePath = `${collectionId}/${id}.png`;
-                
-                console.log('Uploading to path:', imagePath);
-                
-                // Upload to Supabase Storage
-                const { data: uploadData, error: uploadError } = await db.storage
-                    .from('images')
-                    .upload(imagePath, file, { contentType: file.type });
-                
-                if (uploadError) {
-                    console.error('Upload error:', uploadError);
-                    alert('Upload failed: ' + uploadError.message);
-                    continue;
-                }
-                
-                console.log('Upload success:', uploadData);
-                
-                const imageUrl = getPublicImageUrl(imagePath);
-                console.log('Image URL:', imageUrl);
+            for (const file of [...files]) {
+                uploadEntries.push({
+                    uid: ++uploadUid,
+                    file,
+                    name: file.name || 'screenshot.png',
+                    thumb: URL.createObjectURL(file),
+                    destFolderId,
+                    state: 'queued',
+                    cardId: null
+                });
+            }
+            renderTray();
+            runUploadQueue();
+        }
 
-                const createdAt = new Date().toISOString();
+        async function runUploadQueue() {
+            if (uploadRunning) return;
+            uploadRunning = true;
+            let entry;
+            while ((entry = uploadEntries.find(e => e.state === 'queued'))) {
+                await processUploadEntry(entry);
+            }
+            uploadRunning = false;
+            renderTray();
+            // Auto-clear once everything has landed cleanly
+            if (uploadEntries.length && uploadEntries.every(e => e.state === 'done')) {
+                setTimeout(() => { if (uploadEntries.every(e => e.state === 'done')) clearFinishedUploads(); }, 2200);
+            }
+        }
+
+        async function processUploadEntry(entry) {
+            const setState = s => { entry.state = s; renderTray(); };
+            setState('uploading');
+
+            const id = Date.now() + entry.uid;
+            const imagePath = `${collectionId}/${id}.png`;
+
+            try {
+                const { error: uploadError } = await db.storage
+                    .from('images')
+                    .upload(imagePath, entry.file, { contentType: entry.file.type });
+                if (uploadError) throw uploadError;
+
                 const card = {
                     id,
                     username: '',
                     notes: '',
                     link: '#',
-                    imageUrl,
+                    imageUrl: getPublicImageUrl(imagePath),
                     imagePath,
-                    folderId: destFolderId,
-                    order: 0, // Will be auto-sorted by created_at timestamp
-                    createdAt,
+                    folderId: entry.destFolderId,
+                    order: 0, // auto-sorted by created_at timestamp
+                    createdAt: new Date().toISOString(),
                     suggestions: [],
                     isScanning: true,
                     linkMode: false
                 };
-                
-                newCards.push(card);
-                
+
                 const { error: dbError } = await saveCardToDB(card);
-                if (dbError) {
-                    console.error('DB save error:', dbError);
-                }
+                if (dbError) throw dbError;
+
+                entry.cardId = id;
+                appData.cards.unshift(card);
+                render([id]); // plain render: avoids stacking view transitions per file
+                preloadImages();
+
+                // OCR this card while the next file waits its turn
+                setState('reading');
+                await ocrCard(card);
+                setState('done');
+            } catch (e) {
+                console.error('Upload failed:', e);
+                entry.error = e.message || String(e);
+                setState('failed');
             }
-            
-            console.log('New cards created:', newCards.length);
-            
-            if (newCards.length === 0) {
-                showStatus(false);
+        }
+
+        async function ocrCard(card) {
+            try {
+                const blob = await simpleCrop(card.imageUrl);
+                const { data: { words } } = await Tesseract.recognize(blob, 'eng');
+                const banned = ['follow', 'followers', 'following', 'posts'];
+                const valid = words.map(w => w.text.trim())
+                    .filter(w => w.length > 4 && !/[:;,]/.test(w) && !banned.includes(w.toLowerCase()))
+                    .sort((a, b) => b.length - a.length);
+                const best = valid[0] ? cleanString(valid[0]) : '';
+
+                const actual = appData.cards.find(x => x.id === card.id);
+                if (!actual) return;
+                Object.assign(actual, {
+                    username: best,
+                    link: `https://instagram.com/${best}`,
+                    suggestions: valid,
+                    isScanning: false
+                });
+                await saveCardToDB(actual);
+
+                const el = document.getElementById(`card-${actual.id}`);
+                if (el) {
+                    const txt = el.querySelector('textarea[placeholder="Username"]');
+                    if (txt && document.activeElement !== txt) { txt.value = best; autoResize(txt); }
+                    el.classList.remove('animate-pulse-subtle');
+                }
+            } catch (e) {
+                console.error('OCR failed:', e);
+                const actual = appData.cards.find(x => x.id === card.id);
+                if (actual) { actual.isScanning = false; document.getElementById(`card-${actual.id}`)?.classList.remove('animate-pulse-subtle'); }
+            }
+        }
+
+        function retryUpload(uid) {
+            const entry = uploadEntries.find(e => e.uid === uid);
+            if (!entry || entry.state !== 'failed') return;
+            entry.state = 'queued';
+            entry.error = null;
+            renderTray();
+            runUploadQueue();
+        }
+
+        function clearFinishedUploads() {
+            uploadEntries.filter(e => e.state === 'done').forEach(e => URL.revokeObjectURL(e.thumb));
+            uploadEntries = uploadEntries.filter(e => e.state !== 'done');
+            renderTray();
+        }
+
+        function renderTray() {
+            const tray = document.getElementById('uploadTray');
+            const list = document.getElementById('trayList');
+            const title = document.getElementById('trayTitle');
+            const clearBtn = document.getElementById('trayClear');
+            if (!tray || !list) return;
+
+            if (!uploadEntries.length) {
+                tray.classList.add('hidden');
+                list.innerHTML = '';
                 return;
             }
-            
-            appData.cards.unshift(...newCards);
-            transitionRender(newCards.map(c => c.id));
-            preloadImages();
-            
-            showStatus(true, 'Processing OCR...');
-            await new Promise(r => setTimeout(r, 100));
+            tray.classList.remove('hidden');
 
-            // Run OCR on each new card
-            for (const c of newCards) {
-                try {
-                    const blob = await simpleCrop(c.imageUrl);
-                    const { data: { words } } = await Tesseract.recognize(blob, 'eng');
-                    const banned = ['follow', 'followers', 'following', 'posts'];
-                    const valid = words.map(w => w.text.trim()).filter(w => w.length > 4 && !/[:;,]/.test(w) && !banned.includes(w.toLowerCase())).sort((a,b) => b.length - a.length);
-                    const best = valid[0] ? cleanString(valid[0]) : "";
-                    
-                    const actual = appData.cards.find(x => x.id === c.id);
-                    if (actual) {
-                        Object.assign(actual, { 
-                            username: best, 
-                            link: `https://instagram.com/${best}`, 
-                            suggestions: valid, 
-                            isScanning: false 
-                        });
-                        await saveCardToDB(actual);
-                        
-                        const el = document.getElementById(`card-${actual.id}`);
-                        if(el) {
-                            const txt = el.querySelector('textarea[placeholder="Username"]');
-                            if(txt && document.activeElement !== txt) { 
-                                txt.value = best; 
-                                autoResize(txt); 
-                            }
-                            el.classList.remove('animate-pulse-subtle');
-                        }
-                    }
-                } catch (e) { 
-                    console.error(e); 
-                }
-            }
-            showStatus(false);
+            const pending = uploadEntries.filter(e => e.state !== 'done' && e.state !== 'failed').length;
+            const failed = uploadEntries.filter(e => e.state === 'failed').length;
+            const done = uploadEntries.filter(e => e.state === 'done').length;
+            title.textContent = pending ? `Adding ${pending} of ${uploadEntries.length}`
+                              : failed  ? `${failed} failed`
+                                        : `${done} added`;
+            clearBtn.classList.toggle('hidden', !done);
+
+            list.innerHTML = uploadEntries.map(e => {
+                const st = TRAY_STATES[e.state];
+                return `
+                <div class="tray-item ${st.cls}">
+                    <img src="${e.thumb}" class="tray-thumb" alt="">
+                    <div class="tray-body">
+                        <div class="text-[0.7rem] text-neutral-600 truncate">${escapeHtml(e.name)}</div>
+                        <span class="tray-state">${st.label}</span>
+                        <div class="tray-bar"></div>
+                    </div>
+                    ${e.state === 'failed' ? `<button class="tray-retry" onclick="retryUpload(${e.uid})">Retry</button>` : ''}
+                    ${e.state === 'done' ? '<i class="ph-bold ph-check text-emerald-500 text-xs icon-pop"></i>' : ''}
+                </div>`;
+            }).join('');
+        }
+
+        function escapeHtml(s) {
+            return String(s).replace(/[&<>"']/g, ch => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[ch]));
         }
 
         // --- UTILS ---
@@ -2352,11 +3339,48 @@
             el.classList.remove('opacity-0'); 
             setTimeout(() => el.classList.add('opacity-0'), 2000); 
         }
-        function showStatus(show, txt) { 
-            const el = document.getElementById('statusBar'); 
-            el.classList.toggle('hidden', !show); 
-            el.classList.toggle('flex', show); 
-            if (txt) document.getElementById('statusText').innerText = txt; 
+        // --- TOASTS (sonner-style stacked pills) ---
+        const activeToasts = new Map();
+        let toastSeq = 0;
+        const TOAST_SPINNER = '<div class="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin shrink-0"></div>';
+
+        function toast(msg, opts = {}) {
+            const { id, spinner = false, action = null, actionLabel = 'Undo', duration = 3200 } = opts;
+            const root = document.getElementById('toastRoot');
+            const key = id || 't' + (++toastSeq);
+            let el = activeToasts.get(key);
+            if (!el) {
+                el = document.createElement('div');
+                el.className = 'toast toast-enter';
+                root.appendChild(el);
+                activeToasts.set(key, el);
+            }
+            el.innerHTML = (spinner ? TOAST_SPINNER : '') + `<span>${msg}</span>`;
+            if (action) {
+                const btn = document.createElement('button');
+                btn.className = 'toast-action';
+                btn.textContent = actionLabel;
+                btn.onclick = () => action();
+                el.appendChild(btn);
+            }
+            clearTimeout(el._hideTimer);
+            if (duration !== Infinity) el._hideTimer = setTimeout(() => dismissToast(key), duration);
+            return key;
+        }
+
+        function dismissToast(key) {
+            const el = activeToasts.get(key);
+            if (!el) return;
+            activeToasts.delete(key);
+            clearTimeout(el._hideTimer);
+            el.classList.remove('toast-enter');
+            el.classList.add('toast-exit');
+            setTimeout(() => el.remove(), 250);
+        }
+
+        function showStatus(show, txt) {
+            if (show) toast(txt || 'Processing…', { id: 'status', spinner: true, duration: Infinity });
+            else dismissToast('status');
         }
         function cleanString(s) { 
             return s.replace(/[^a-zA-Z0-9_.]/g, '').toLowerCase(); 
@@ -2428,6 +3452,16 @@
             if (c?.link) {
                 navigator.clipboard.writeText(c.link);
                 showSaved();
+                // Icon morphs copy → check, then back
+                const icon = document.querySelector(`#card-${id} .copy-link-btn i`);
+                if (icon) {
+                    icon.className = 'ph-bold ph-check text-xs icon-pop';
+                    icon.closest('button').classList.add('text-emerald-500');
+                    setTimeout(() => {
+                        icon.className = 'ph-bold ph-copy text-xs icon-pop';
+                        icon.closest('button')?.classList.remove('text-emerald-500');
+                    }, 1200);
+                }
             }
         }
 
@@ -2625,18 +3659,16 @@
         }
         
         function updateUndoUI() {
-            const btn = document.getElementById('undoBtn');
-            if(undoTimeout) clearTimeout(undoTimeout);
-
-            // Count deleted cards (cards with deletedAt timestamp)
             const deletedCount = appData.cards.filter(c => c.deletedAt).length;
-
-            if(deletedCount > 0) {
-                btn.classList.remove('hidden-btn');
-                document.getElementById('undoText').innerText = `Undo (${deletedCount})`;
-                undoTimeout = setTimeout(() => btn.classList.add('hidden-btn'), 15000); // 15 seconds
+            if (deletedCount > 0) {
+                toast(deletedCount === 1 ? 'Screenshot deleted' : `${deletedCount} screenshots deleted`, {
+                    id: 'undo',
+                    action: () => triggerUndo(),
+                    actionLabel: 'Undo',
+                    duration: 15000
+                });
             } else {
-                btn.classList.add('hidden-btn');
+                dismissToast('undo');
             }
         }
 
@@ -2668,12 +3700,19 @@
         }
         
         function setMobileCols(n) {
+            const changed = String(localStorage.getItem('ssaved_cols') || 1) !== String(n);
             localStorage.setItem('ssaved_cols', n);
-            [1,2].forEach(i => {
-                const btn = document.getElementById(`col-btn-${i}`);
-                if(btn) btn.className = `w-8 h-8 flex items-center justify-center rounded-md transition-all ${i==n ? 'bg-white text-neutral-900 shadow-sm font-bold' : 'text-neutral-400'}`;
+
+            // Thumb translates; cells only change colour. Equal-width cells, so
+            // translate only — no stretch (that vocabulary belongs to the tabs).
+            const thumb = document.querySelector('.density-thumb');
+            if (thumb) thumb.style.transform = `translate3d(${(n - 1) * 44}px, 0, 0)`;
+            [1, 2].forEach(i => {
+                document.getElementById(`col-btn-${i}`)?.classList.toggle('is-active', String(i) === String(n));
             });
-            render();
+
+            if (!changed) return;
+            requestAnimationFrame(() => requestAnimationFrame(() => render()));
         }
 
         // --- SHARE MODAL ---
@@ -2694,6 +3733,12 @@
         function copyShareUrl() {
             navigator.clipboard.writeText(document.getElementById('shareUrlDisplay').textContent);
             document.getElementById('copyConfirm').classList.remove('opacity-0');
+            // Button morphs Copy → Copied ✓, then back
+            const btn = document.getElementById('copyShareBtn');
+            if (btn) {
+                btn.innerHTML = '<i class="ph-bold ph-check icon-pop"></i> Copied';
+                setTimeout(() => { btn.innerHTML = '<i class="ph-bold ph-copy icon-pop"></i> Copy'; }, 1600);
+            }
             setTimeout(() => {
                 document.getElementById('copyConfirm').classList.add('opacity-0');
             }, 2000);
