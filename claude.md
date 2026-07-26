@@ -1,5 +1,20 @@
 # SSaved App - Development Log
 
+## ✅ improved2 round 2 — serif out, menu in, Lenis, merged mobile row (Jul 26, 2026)
+
+Commit ab5dc9c. Five asks from Marilyn, all in `improved2/` only.
+
+1. **Instrument Serif removed.** `.font-display` is now the same IBM Plex Mono at weight 500 / `-0.03em` — one typeface, two registers. Display sizes dropped (`text-2xl` → `text-base`/`text-lg`) because mono at 2xl reads chunky where serif read elegant.
+2. **Bloom-style card menu.** The card's delete-× became a `⋯` that opens `#cardMenu`: Open profile / Copy link / **Move to folder** / Delete. ONE shared menu element, not per-card DOM (cards re-render constantly). Positioned against the trigger rect with edge-flipping, and `transform-origin` set per-open so it grows out of the button corner. Move-to-folder reuses the `#tagOverview` shell — so `showTagOverview()` must reset the `<h2>` back to "Jump to folder".
+3. **Lenis smooth scroll** (what tyronec.com uses — confirmed via `html.lenis`). `smoothWheel: true`, **`syncTouch: false`** deliberately: iOS momentum is already good and hijacking touch both feels laggy and would fight the pointer-drag engine. `lenis.stop()` in `beginDrag` / `.start()` in `endDrag` so autoScroll's `scrollBy` doesn't fight the rAF lerp. Inner scrollables need `data-lenis-prevent` (palette results, tray list, both modal lists). All smooth scrolling goes through `smoothScrollTo()`, which falls back to native if the CDN is blocked.
+4. **Tab underline lag fixed — two causes, both real:**
+   - `#tabIndicator` transitioned `left`/`width`, which relayouts every frame on the main thread. Now a fixed 100px base animated with `translate3d + scaleX` — compositor-only. `positionTabIndicator()` suppresses the transition on first placement (`tabIndicatorReady`) so it doesn't animate in from zero width.
+   - `setLayoutMode` called `render()` synchronously, so the heavy grid rebuild blocked the frame the transition needed to start. Now it paints tab state first and defers `render()` by two rAFs. Measured: the synchronous part went to **0.5ms**.
+5. **Merged mobile control row** (designed with an Opus product-designer subagent; I implemented as design engineer). `#viewTabs` is now `justify-between`: `.tab-group` (labeled tabs, on the hairline, stretching underline) on the left, `#densityToggle` (enclosed icon-only pill, sliding white thumb) on the right. Different *form* per category, so no divider is needed to separate them. Fits 375px with 40px to spare.
+   - **Icon off-by-one fixed:** the two real *layout* glyphs had been assigned to the two *view modes*. Folders `ph-squares-four` → `ph-folders`; Latest `ph-rows` → `ph-clock-counter-clockwise`; 1-col `ph-rectangle` → `ph-rows`; 2-col `ph-columns` → `ph-squares-four` (`ph-columns` reads as a split pane, not a 2-across grid). Also updated the ⌘K "Switch to…" action icons.
+   - **Gotcha:** `#tabIndicator` MUST live inside `.tab-group` — `positionTabIndicator()` reads `offsetLeft`, which needs that wrapper as the `position:relative` offsetParent; and `justify-between` on the bare `#viewTabs` would throw the two tabs to opposite ends.
+   - The header's second row is now empty on mobile → `hidden md:flex`, header 116px → **61px**, `main` `pt-36` → `pt-24`. `#fileInput` stays in that hidden container; `.click()` works fine on a `display:none` input (verified).
+
 ## ✅ "improved2" — the bold variant (Jul 25, 2026)
 
 **What:** `improved2/index.html` → https://nnnephirale.github.io/ssaved-app/improved2/?c=... — third parallel build (root = original, `/improved/` = restrained polish, `/improved2/` = bold). Same Supabase backend, so every existing `?c=` collection works in all three.
