@@ -1571,9 +1571,12 @@
                 if (edge) edge.classList.toggle('is-on', currentScrollY > 24);
                 if (Math.abs(currentScrollY - lastScrollY) < 10) return;
                 const scrollingDown = currentScrollY > lastScrollY && currentScrollY > 60;
+                // The breadcrumb names the folder you're scrolling through — it's a
+                // Folders-view concept. Latest is chronological, so it would only
+                // ever show a stale, meaningless folder name there.
                 if (scrollingDown) {
                     header.classList.add('-translate-y-full');
-                    if (breadcrumb) breadcrumb.classList.add('is-visible');
+                    if (breadcrumb) breadcrumb.classList.toggle('is-visible', layoutMode === 'folders');
                 } else {
                     header.classList.remove('-translate-y-full');
                     if (breadcrumb) breadcrumb.classList.remove('is-visible');
@@ -1980,8 +1983,11 @@
             const wrapper = document.getElementById('folderWrapper');
             const sideNav = document.getElementById('folderSideNav');
             if (sideNav) sideNav.innerHTML = ''; // no per-folder nav in the feed
+            // No folder breadcrumb in the feed. Remove the WINNING class —
+            // #mobileBreadcrumb.is-visible (1,1,0) outranks .opacity-0 (0,1,0),
+            // so adding opacity-0 here never actually hid it.
             const bc = document.getElementById('mobileBreadcrumb');
-            if (bc) bc.classList.add('opacity-0'); // no folder-scroll breadcrumb in the feed
+            if (bc) { bc.classList.remove('is-visible'); bc.classList.add('opacity-0'); }
 
             const mCols = localStorage.getItem('ssaved_cols') || 1;
             const gridClass = `grid-cols-${mCols} md:grid-cols-2 lg:grid-cols-3`;
