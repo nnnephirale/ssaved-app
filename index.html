@@ -323,6 +323,150 @@
         .card-menu-item.is-danger:hover { background: rgba(244, 63, 94, 0.07); color: #e11d48; }
         .card-menu-sep { height: 1px; margin: 0.25rem 0.3rem; background: rgba(0, 0, 0, 0.05); }
 
+        /* --- LOOK AT THIS (card triage) --- */
+        #lookLayer {
+            position: fixed; inset: 0; z-index: 62;
+            background: linear-gradient(180deg, #FAFAF8 0%, #F2F1ED 100%);
+            display: flex; flex-direction: column;
+            overscroll-behavior: contain;
+            animation: lookIn 0.32s var(--ease);
+        }
+        @keyframes lookIn {
+            from { opacity: 0; transform: scale(0.97); filter: blur(6px); }
+            to   { opacity: 1; transform: scale(1); filter: blur(0); }
+        }
+        .look-bar {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 0.9rem 1.1rem; flex-shrink: 0;
+        }
+        .look-progress-track {
+            position: absolute; top: 0; left: 0; right: 0; height: 2px;
+            background: rgba(0, 0, 0, 0.05);
+        }
+        .look-progress-fill {
+            height: 100%; background: #171717;
+            transform-origin: left center; transform: scaleX(0);
+            transition: transform 0.4s var(--ease);
+        }
+        .look-stage {
+            flex: 1; position: relative;
+            display: flex; align-items: center; justify-content: center;
+            padding: 0 1.1rem; min-height: 0;
+        }
+        .look-card {
+            position: relative;
+            width: 100%; max-width: 24rem;
+            /* Definite height is required: the image wrap uses flex:1 to claim the
+               space the foot doesn't need, and flex-grow has nothing to distribute
+               inside an auto-height parent (the wrap collapsed to 0). */
+            height: 100%; max-height: 100%;
+            display: flex; flex-direction: column;
+            background: #fff; border-radius: 1.25rem;
+            border: 1px solid rgba(0, 0, 0, 0.04);
+            box-shadow: 0 2px 4px -1px rgba(0,0,0,.02), 0 18px 50px -12px rgba(0,0,0,.16);
+            overflow: hidden;
+            touch-action: none;              /* we own the gesture */
+            will-change: transform;
+            cursor: grab;
+        }
+        .look-card.is-dragging { cursor: grabbing; transition: none; }
+        .look-card.is-settling { transition: transform 0.38s var(--ease), opacity 0.38s var(--ease); }
+        /* The next card, peeking underneath — depth without a full stack */
+        .look-understudy {
+            position: absolute; left: 50%; top: 50%;
+            width: 100%; max-width: 24rem; height: 82%;
+            transform: translate(-50%, -50%) scale(0.94) translateY(10px);
+            background: #fff; border-radius: 1.25rem;
+            border: 1px solid rgba(0,0,0,.04);
+            box-shadow: 0 12px 32px -14px rgba(0,0,0,.12);
+            pointer-events: none; z-index: -1;
+        }
+        .look-image-wrap {
+            position: relative; flex: 1; min-height: 0;
+            background: #EEEDE9; cursor: pointer;
+            overflow: hidden;              /* contain the image, whatever it measures */
+        }
+        /* Absolutely positioned, NOT height:100% — a percentage height resolves
+           unreliably against a flex-grow-derived height (it came out 49px too tall
+           and covered the username row). inset:0 pins it to the wrap exactly. */
+        .look-image-wrap img {
+            position: absolute; inset: 0;
+            width: 100%; height: 100%;
+            object-fit: cover; object-position: top;
+            pointer-events: none; user-select: none;
+        }
+        .look-open-hint {
+            position: absolute; right: 0.7rem; top: 0.7rem;
+            display: flex; align-items: center; gap: 0.35rem;
+            padding: 0.35rem 0.6rem; border-radius: 0.6rem;
+            background: rgba(255,255,255,.85);
+            backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+            border: 1px solid rgba(255,255,255,.6);
+            color: #525252; box-shadow: 0 4px 14px -4px rgba(0,0,0,.18);
+        }
+        .look-foot { flex-shrink: 0; padding: 0.9rem 1rem 1rem; }
+        .look-username {
+            display: block; font-size: 0.9rem; font-weight: 500;
+            color: #171717; letter-spacing: -0.01em;
+            overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+        }
+        .look-link {
+            display: flex; align-items: center; gap: 0.4rem; width: 100%;
+            margin-top: 0.15rem; color: #a3a3a3; font-size: 0.6875rem;
+            overflow: hidden;
+        }
+        .look-link span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .look-link:hover { color: #525252; }
+        /* Notes: readable at rest — this is the whole point of the mode */
+        .look-note {
+            margin-top: 0.7rem;
+            font-size: 0.8125rem; line-height: 1.6; font-weight: 300;
+            color: #404040; white-space: pre-wrap; word-break: break-word;
+            max-height: 7.5rem; overflow-y: auto; overscroll-behavior: contain;
+            cursor: text;
+        }
+        .look-note::-webkit-scrollbar { width: 0; }
+        .look-note-input {
+            width: 100%; margin-top: 0.7rem; resize: none;
+            font-size: 0.8125rem; line-height: 1.6; font-weight: 300; color: #171717;
+            background: transparent; border: 0; outline: none;
+            max-height: 7.5rem; overflow-y: auto;
+        }
+        .look-add-note {
+            display: flex; align-items: center; justify-content: center; gap: 0.5rem;
+            width: 100%; margin-top: 0.7rem; padding: 0.75rem;
+            border-radius: 0.75rem; border: 1px dashed rgba(0,0,0,.12);
+            color: #a3a3a3; background: rgba(0,0,0,.015);
+            transition: all 0.2s var(--ease);
+        }
+        .look-add-note:hover { color: #525252; border-color: rgba(0,0,0,.2); background: rgba(0,0,0,.03); }
+        .look-add-note i { font-size: 1.1rem; }
+
+        /* Swipe stamps */
+        .look-stamp {
+            position: absolute; top: 1.1rem;
+            padding: 0.35rem 0.7rem; border-radius: 0.5rem;
+            border: 2px solid currentColor; opacity: 0;
+            pointer-events: none; letter-spacing: 0.14em;
+        }
+        .look-stamp-done { right: 1.1rem; color: #10b981; transform: rotate(8deg); }
+        .look-stamp-keep { left: 1.1rem; color: #737373; transform: rotate(-8deg); }
+        .look-stamp-fav  { left: 50%; top: 45%; color: #f59e0b; margin-left: -2.2rem; }
+
+        /* No action buttons — the gestures are the interface. Just breathing room. */
+        .look-tail { height: 1.75rem; flex-shrink: 0; }
+        /* Already-favourited is information, not chrome, so it stays visible */
+        .look-fav-mark { color: #f59e0b; font-size: 0.8rem; flex-shrink: 0; }
+
+        .look-empty {
+            flex: 1; display: flex; flex-direction: column;
+            align-items: center; justify-content: center; gap: 0.9rem;
+            padding: 2rem; text-align: center;
+        }
+
+        /* Favourite star in the normal grid */
+        .fav-star { color: #f59e0b; font-size: 0.7rem; flex-shrink: 0; }
+
         /* --- COMMAND PALETTE (⌘K) --- */
         #cmdk { align-items: flex-start; justify-content: center; padding: 12vh 1rem 1rem; }
         @media (max-width: 767px) { #cmdk { padding-top: 5vh; } }
@@ -872,6 +1016,9 @@
                     <button onclick="openCmdk()" class="md:hidden w-8 h-8 flex items-center justify-center text-neutral-400 hover:text-neutral-900 rounded-md transition-all" title="Search (⌘K)">
                         <i class="ph ph-magnifying-glass text-lg"></i>
                     </button>
+                    <button onclick="openLook()" class="md:hidden w-8 h-8 flex items-center justify-center text-neutral-400 hover:text-neutral-900 rounded-md transition-all view-hide" title="Look at this">
+                        <i class="ph ph-cards text-lg"></i>
+                    </button>
                     <!-- Mobile: Link + Backup icons next to title -->
                     <button onclick="showShareModal()" class="md:hidden w-8 h-8 flex items-center justify-center text-neutral-400 hover:text-neutral-900 rounded-md transition-all" title="Share Link">
                         <i class="ph ph-link text-lg"></i>
@@ -909,6 +1056,12 @@
                     <i class="ph ph-magnifying-glass text-sm"></i>
                     <span class="microlabel">Search</span>
                     <span class="cmdk-kbd">⌘K</span>
+                </button>
+
+                <!-- Desktop: Look at this -->
+                <button onclick="openLook()" class="cmdk-trigger hidden md:flex shrink-0 view-hide" title="Look at this — review your pile">
+                    <i class="ph ph-cards text-sm"></i>
+                    <span class="microlabel">Look</span>
                 </button>
 
                 <!-- Desktop: Share + Backup buttons -->
@@ -1051,6 +1204,24 @@
         <div id="cardMenu" role="menu"></div>
     </div>
 
+    <!-- LOOK AT THIS — one card at a time, swipe to triage -->
+    <div id="lookLayer" class="hidden">
+        <div class="look-progress-track"><div class="look-progress-fill" id="lookProgress"></div></div>
+
+        <div class="look-bar">
+            <button onclick="closeLook()" class="w-9 h-9 flex items-center justify-center text-neutral-400 hover:text-neutral-900 rounded-lg transition-colors" aria-label="Close">
+                <i class="ph-bold ph-x text-lg"></i>
+            </button>
+            <span class="microlabel text-neutral-400" id="lookCount"></span>
+            <button onclick="undoLastLook()" id="lookUndoBtn" class="w-9 h-9 flex items-center justify-center text-neutral-300 hover:text-neutral-900 rounded-lg transition-colors disabled:opacity-30" aria-label="Undo last" disabled>
+                <i class="ph-bold ph-arrow-u-up-left text-base"></i>
+            </button>
+        </div>
+
+        <div class="look-stage" id="lookStage"></div>
+        <div class="look-tail" id="lookTail"></div>
+    </div>
+
     <!-- Command Palette -->
     <div id="cmdk" class="fixed inset-0 z-[60] hidden modal-backdrop">
         <div class="cmdk-panel" role="dialog" aria-label="Search and commands">
@@ -1108,6 +1279,7 @@
         let collectionId = null;
         let layoutMode = localStorage.getItem('ssaved_layout') || 'folders'; // 'folders' | 'feed'
         let feedFilter = new Set(); // folderIds to narrow the feed by; empty = show all
+        let feedFavouritesOnly = false; // independent of the folder filter
         
         function getInboxId() {
             const inbox = appData.folders.find(f => f.name === 'Inbox');
@@ -1122,6 +1294,7 @@
             if (collectionId) {
                 document.getElementById('headerCollectionName').textContent = `(${collectionId})`;
             }
+            initLookState();
             await cleanupOldDeletedCards();
             autoBackupToGitHub();
             setupGlobalDrag();
@@ -1689,7 +1862,8 @@
             render();
         }
 
-        function clearFeedFilter() { feedFilter.clear(); render(); }
+        function clearFeedFilter() { feedFilter.clear(); feedFavouritesOnly = false; render(); }
+        function toggleFavFilter() { feedFavouritesOnly = !feedFavouritesOnly; render(); }
 
         // Long-press the "All screenshots" chip to open the folder-visibility picker
         function setupFeedFilterLongPress() {
@@ -1818,6 +1992,7 @@
 
             // Visible cards: newest uploaded first, narrowed by the active filter
             let cards = appData.cards.filter(c => !c.deletedAt);
+            if (feedFavouritesOnly) cards = cards.filter(c => isFavourite(c.id));
             if (feedFilter.size) cards = cards.filter(c => feedFilter.has(c.folderId));
             cards.sort((a, b) => {
                 if (a.createdAt && b.createdAt) return new Date(b.createdAt) - new Date(a.createdAt);
@@ -1834,18 +2009,27 @@
                 </button>`;
             }).join('');
 
+            const favCount = appData.cards.filter(c => !c.deletedAt && isFavourite(c.id)).length;
+            const favChip = favCount ? `
+                    <button onclick="toggleFavFilter()" class="feed-filter-chip ${feedFavouritesOnly ? 'is-active' : ''}" title="Only favourites">
+                        <i class="ph-${feedFavouritesOnly ? 'fill' : 'bold'} ph-star text-sm"></i>
+                        <span>Favourites</span>
+                        <span class="feed-filter-count">${favCount}</span>
+                    </button>` : '';
+
             const filterPanel = `
             <aside class="feed-filter-panel">
                 <div class="feed-filter-head">
                     <span class="text-xs font-semibold uppercase tracking-wider text-neutral-500">Filter</span>
-                    ${feedFilter.size ? `<button onclick="clearFeedFilter()" class="text-xs text-blue-500 hover:text-blue-600 font-medium">Clear</button>` : ''}
+                    ${(feedFilter.size || feedFavouritesOnly) ? `<button onclick="clearFeedFilter()" class="text-xs text-blue-500 hover:text-blue-600 font-medium">Clear</button>` : ''}
                 </div>
                 <div class="feed-filter-list">
-                    <button onclick="clearFeedFilter()" id="feedAllChip" class="feed-filter-chip feed-all-chip ${allActive ? 'is-active' : ''}" title="Tap to show all · long-press to choose folders">
-                        <i class="ph-bold ${allActive ? 'ph-check-circle' : 'ph-circle'} text-sm"></i>
+                    <button onclick="clearFeedFilter()" id="feedAllChip" class="feed-filter-chip feed-all-chip ${(allActive && !feedFavouritesOnly) ? 'is-active' : ''}" title="Tap to show all · long-press to choose folders">
+                        <i class="ph-bold ${(allActive && !feedFavouritesOnly) ? 'ph-check-circle' : 'ph-circle'} text-sm"></i>
                         <span>All screenshots</span>
                         <span class="feed-filter-count">${appData.cards.filter(c => !c.deletedAt).length}</span>
                     </button>
+                    ${favChip}
                     ${chips}
                 </div>
             </aside>`;
@@ -1911,6 +2095,7 @@
                     <div class="relative username-wrapper z-10">
                         ${tooltip}
                         <div class="relative group/input">
+                            ${isFavourite(c.id) ? '<i class="ph-fill ph-star fav-star absolute -top-3 right-0 z-10" title="Favourite"></i>' : ''}
                             <div class="absolute inset-y-0 left-0 pl-1 flex items-center ${viewMode ? 'pointer-events-none' : 'cursor-pointer'} z-10" style="touch-action: manipulation; user-select: none;" ${viewMode ? '' : `onclick="handleTagTap(${c.id})" title="${linkMode ? 'Double-tap to switch to username' : hasSuggestions ? 'Tap for suggestions · double-tap for link' : 'Double-tap to switch to link'}"`}>
                                 ${linkMode
                                     ? `<i class="ph-bold ph-link text-neutral-400 text-sm"></i>`
@@ -2312,6 +2497,328 @@
         window.addEventListener('keydown', e => { if (e.key === 'Escape') closeCardMenu(); });
         window.addEventListener('scroll', () => { if (cardMenuId != null) closeCardMenu(); }, { passive: true });
 
+        // --- LOOK AT THIS (card triage) ---
+        // Persistence adapter. Everything reviewed/favourite goes through these
+        // four functions and nothing else touches the storage — swapping to
+        // Supabase columns later is a change confined to this block.
+        // (Note + link edits already persist to Supabase via updateCard.)
+        function lookKey(kind) { return `ssaved_${kind}_${collectionId}`; }
+        function loadIdSet(kind) {
+            try { return new Set(JSON.parse(localStorage.getItem(lookKey(kind)) || '[]')); }
+            catch (e) { return new Set(); }
+        }
+        function saveIdSet(kind, set) {
+            try { localStorage.setItem(lookKey(kind), JSON.stringify([...set])); } catch (e) {}
+        }
+        let reviewedIds = new Set();
+        let favouriteIds = new Set();
+        function isReviewed(id) { return reviewedIds.has(id); }
+        function isFavourite(id) { return favouriteIds.has(id); }
+        function setReviewed(id, on) {
+            on ? reviewedIds.add(id) : reviewedIds.delete(id);
+            saveIdSet('reviewed', reviewedIds);
+        }
+        function setFavourite(id, on) {
+            on ? favouriteIds.add(id) : favouriteIds.delete(id);
+            saveIdSet('fav', favouriteIds);
+        }
+        function initLookState() {
+            reviewedIds = loadIdSet('reviewed');
+            favouriteIds = loadIdSet('fav');
+        }
+
+        let lookQueue = [];       // card ids still to triage
+        let lookIndex = 0;
+        let lookHistory = [];     // {id, action, prevFav} for undo
+        let lookDrag = null;
+        let lookBusy = false;     // guards double-commits mid-animation
+
+        function buildLookQueue() {
+            return appData.cards
+                .filter(c => !c.deletedAt && !isReviewed(c.id))
+                .sort((a, b) => (a.createdAt && b.createdAt)
+                    ? new Date(b.createdAt) - new Date(a.createdAt)
+                    : b.id - a.id)
+                .map(c => c.id);
+        }
+
+        function openLook() {
+            const layer = document.getElementById('lookLayer');
+            if (!layer) return;
+            lookQueue = buildLookQueue();
+            lookIndex = 0;
+            lookHistory = [];
+            lookTotal = lookQueue.length;
+            layer.classList.remove('hidden');
+            lenis?.stop();
+            document.body.style.overflow = 'hidden';
+            renderLookCard();
+        }
+        let lookTotal = 0;
+
+        function closeLook() {
+            const layer = document.getElementById('lookLayer');
+            if (!layer) return;
+            commitPendingNote();          // never lose an in-progress edit
+            layer.classList.add('hidden');
+            lenis?.start();
+            document.body.style.overflow = '';
+            transitionRender();           // reflect any note/star changes in the grid
+        }
+
+        function renderLookCard() {
+            const stage = document.getElementById('lookStage');
+            const tail = document.getElementById('lookTail');
+            const countEl = document.getElementById('lookCount');
+            const progress = document.getElementById('lookProgress');
+            const undoBtn = document.getElementById('lookUndoBtn');
+            if (!stage) return;
+
+            if (undoBtn) undoBtn.disabled = lookHistory.length === 0;
+
+            const remaining = lookQueue.length - lookIndex;
+            if (progress) {
+                const done = lookTotal ? (lookTotal - remaining) / lookTotal : 0;
+                progress.style.transform = `scaleX(${done})`;
+            }
+
+            if (lookIndex >= lookQueue.length) {
+                if (countEl) countEl.textContent = '';
+                if (tail) tail.style.display = 'none';
+                stage.innerHTML = `
+                    <div class="look-empty">
+                        <div class="w-16 h-16 rounded-2xl bg-neutral-100 flex items-center justify-center text-neutral-300">
+                            <i class="ph-fill ph-check-circle text-3xl"></i>
+                        </div>
+                        <p class="font-display text-base text-neutral-600">${lookTotal ? 'All caught up' : 'Nothing to look at'}</p>
+                        <p class="microlabel text-neutral-400">${lookTotal ? `${lookTotal} reviewed this session` : 'Every card has been cleared'}</p>
+                        <div class="flex items-center gap-2 mt-2">
+                            <button onclick="resetReviewed()" class="btn-secondary px-4 py-2 text-xs">Start over</button>
+                            <button onclick="closeLook()" class="btn-primary px-4 py-2 text-xs">Done</button>
+                        </div>
+                    </div>`;
+                return;
+            }
+
+            if (tail) tail.style.display = '';
+            if (countEl) countEl.textContent = `${remaining} left`;
+
+            const card = appData.cards.find(c => c.id === lookQueue[lookIndex]);
+            if (!card) { lookIndex++; renderLookCard(); return; }
+
+            const fav = isFavourite(card.id);
+            const hasLink = card.link && card.link !== '#';
+            const noteHtml = card.notes && card.notes.trim()
+                ? `<div class="look-note" onclick="startNoteEdit(event)">${escapeHtml(card.notes)}</div>`
+                : `<button class="look-add-note" onclick="startNoteEdit(event)">
+                       <i class="ph-bold ph-plus"></i><span class="microlabel">Add a thought</span>
+                   </button>`;
+
+            stage.innerHTML = `
+                ${lookIndex + 1 < lookQueue.length ? '<div class="look-understudy"></div>' : ''}
+                <article class="look-card" id="lookCard" data-card-id="${card.id}">
+                    <div class="look-stamp look-stamp-done microlabel">Done</div>
+                    <div class="look-stamp look-stamp-keep microlabel">Keep</div>
+                    <div class="look-stamp look-stamp-fav"><i class="ph-fill ph-star text-3xl"></i></div>
+
+                    <div class="look-image-wrap" id="lookImageWrap">
+                        <img src="${card.imageUrl}" alt="">
+                        ${hasLink ? `<div class="look-open-hint"><i class="ph-bold ph-arrow-up-right text-xs"></i><span class="microlabel">Open</span></div>` : ''}
+                    </div>
+
+                    <div class="look-foot">
+                        <span class="flex items-center gap-1.5">
+                            <span class="look-username">${card.username ? '@' + escapeHtml(card.username) : 'No username yet'}</span>
+                            ${fav ? '<i class="ph-fill ph-star look-fav-mark" title="Favourited"></i>' : ''}
+                        </span>
+                        <button class="look-link" onclick="editLookLink(event)">
+                            <i class="ph-bold ph-link text-[0.7rem] shrink-0"></i>
+                            <span>${hasLink ? escapeHtml(card.link) : 'Add a link'}</span>
+                            <i class="ph-bold ph-pencil-simple text-[0.65rem] shrink-0 ml-auto opacity-50"></i>
+                        </button>
+                        ${noteHtml}
+                    </div>
+                </article>`;
+
+            setupLookGestures();
+        }
+
+        // --- note / link editing (must not start a swipe) ---
+        function startNoteEdit(e) {
+            e.stopPropagation();
+            const card = currentLookCard();
+            if (!card) return;
+            const target = e.currentTarget;
+            const ta = document.createElement('textarea');
+            ta.className = 'look-note-input';
+            ta.value = card.notes || '';
+            ta.placeholder = 'What do you want to remember about this?';
+            ta.rows = 3;
+            ta.addEventListener('pointerdown', ev => ev.stopPropagation());
+            ta.addEventListener('input', () => { ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px'; });
+            ta.addEventListener('blur', () => commitPendingNote());
+            target.replaceWith(ta);
+            ta.focus();
+            ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px';
+        }
+
+        function commitPendingNote() {
+            const ta = document.querySelector('.look-note-input');
+            if (!ta) return;
+            const card = currentLookCard();
+            if (!card) return;
+            const val = ta.value.trim();
+            if (val !== (card.notes || '').trim()) {
+                card.notes = val;
+                saveCardToDB(card);
+            }
+            ta.remove();
+        }
+
+        function editLookLink(e) {
+            e.stopPropagation();
+            const card = currentLookCard();
+            if (!card) return;
+            const next = prompt('Link for this screenshot:', card.link && card.link !== '#' ? card.link : 'https://');
+            if (next === null) return;
+            const val = next.trim();
+            card.link = val || '#';
+            if (val) card.linkMode = true;
+            saveCardToDB(card);
+            renderLookCard();
+        }
+
+        function currentLookCard() {
+            const el = document.getElementById('lookCard');
+            if (!el) return null;
+            return appData.cards.find(c => c.id === +el.dataset.cardId) || null;
+        }
+
+        // --- gestures ---
+        const LOOK_THRESHOLD = 105;
+        function setupLookGestures() {
+            const el = document.getElementById('lookCard');
+            const img = document.getElementById('lookImageWrap');
+            if (!el) return;
+
+            el.addEventListener('pointerdown', e => {
+                if (e.target.closest('button, textarea, .look-note')) return;
+                if (lookBusy) return;
+                lookDrag = { x0: e.clientX, y0: e.clientY, dx: 0, dy: 0, moved: false, id: e.pointerId, t0: Date.now() };
+                el.classList.add('is-dragging');
+                try { el.setPointerCapture(e.pointerId); } catch (err) {}
+            });
+
+            el.addEventListener('pointermove', e => {
+                if (!lookDrag) return;
+                lookDrag.dx = e.clientX - lookDrag.x0;
+                lookDrag.dy = e.clientY - lookDrag.y0;
+                if (Math.hypot(lookDrag.dx, lookDrag.dy) > 6) lookDrag.moved = true;
+                paintLookDrag(el);
+            });
+
+            const release = () => {
+                if (!lookDrag) return;
+                const { dx, dy, moved } = lookDrag;
+                el.classList.remove('is-dragging');
+                lookDrag = null;
+                if (!moved) { resetLookCard(el); return; }
+                // Up beats sideways only when it's clearly a vertical flick
+                if (dy < -LOOK_THRESHOLD && Math.abs(dy) > Math.abs(dx)) return lookDecide('fav');
+                if (dx > LOOK_THRESHOLD) return lookDecide('done');
+                if (dx < -LOOK_THRESHOLD) return lookDecide('keep');
+                resetLookCard(el);
+            };
+            el.addEventListener('pointerup', release);
+            el.addEventListener('pointercancel', release);
+
+            // Tap the image → open the profile. Only if it wasn't a drag.
+            img?.addEventListener('click', () => {
+                const card = currentLookCard();
+                if (!card || !card.link || card.link === '#') return;
+                window.open(card.link, '_blank');
+            });
+        }
+
+        function paintLookDrag(el) {
+            if (!lookDrag) return;
+            const { dx, dy } = lookDrag;
+            const rot = Math.max(-12, Math.min(12, dx / 14));
+            el.style.transform = `translate3d(${dx}px, ${dy}px, 0) rotate(${rot}deg)`;
+            const done = el.querySelector('.look-stamp-done');
+            const keep = el.querySelector('.look-stamp-keep');
+            const favS = el.querySelector('.look-stamp-fav');
+            const up = dy < 0 && Math.abs(dy) > Math.abs(dx);
+            if (done) done.style.opacity = up ? 0 : Math.max(0, Math.min(1, dx / LOOK_THRESHOLD));
+            if (keep) keep.style.opacity = up ? 0 : Math.max(0, Math.min(1, -dx / LOOK_THRESHOLD));
+            if (favS) favS.style.opacity = up ? Math.max(0, Math.min(1, -dy / LOOK_THRESHOLD)) : 0;
+        }
+
+        function resetLookCard(el) {
+            el.classList.add('is-settling');
+            el.style.transform = '';
+            el.querySelectorAll('.look-stamp').forEach(s => s.style.opacity = 0);
+            setTimeout(() => el.classList.remove('is-settling'), 380);
+        }
+
+        function lookDecide(action) {
+            if (lookBusy) return;
+            const card = currentLookCard();
+            if (!card) return;
+            lookBusy = true;
+            commitPendingNote();
+
+            const prevFav = isFavourite(card.id);
+            if (action === 'fav') { setFavourite(card.id, true); setReviewed(card.id, true); }
+            else if (action === 'done') setReviewed(card.id, true);
+            // 'keep' deliberately records nothing — it stays in the pile next session
+
+            lookHistory.push({ id: card.id, action, prevFav });
+
+            const el = document.getElementById('lookCard');
+            if (el) {
+                el.classList.add('is-settling');
+                const off = window.innerWidth + 200;
+                if (action === 'fav') el.style.transform = `translate3d(0, ${-window.innerHeight}px, 0) rotate(-4deg)`;
+                else if (action === 'done') el.style.transform = `translate3d(${off}px, 40px, 0) rotate(14deg)`;
+                else el.style.transform = `translate3d(${-off}px, 40px, 0) rotate(-14deg)`;
+                el.style.opacity = '0';
+            }
+            if (navigator.vibrate) navigator.vibrate(8);
+
+            setTimeout(() => {
+                lookIndex++;
+                lookBusy = false;
+                renderLookCard();
+            }, 300);
+        }
+
+        function undoLastLook() {
+            if (lookBusy || !lookHistory.length) return;
+            const last = lookHistory.pop();
+            setReviewed(last.id, false);
+            setFavourite(last.id, last.prevFav);
+            lookIndex = Math.max(0, lookIndex - 1);
+            renderLookCard();
+        }
+
+        function resetReviewed() {
+            reviewedIds.clear();
+            saveIdSet('reviewed', reviewedIds);
+            openLook();
+            toast('Pile reset');
+        }
+
+        // Keyboard: arrows mirror the swipes
+        window.addEventListener('keydown', e => {
+            if (document.getElementById('lookLayer')?.classList.contains('hidden') !== false) return;
+            if (/^(INPUT|TEXTAREA)$/.test(document.activeElement?.tagName || '')) return;
+            if (e.key === 'ArrowRight') { e.preventDefault(); lookDecide('done'); }
+            else if (e.key === 'ArrowLeft') { e.preventDefault(); lookDecide('keep'); }
+            else if (e.key === 'ArrowUp') { e.preventDefault(); lookDecide('fav'); }
+            else if (e.key === 'Escape') { e.preventDefault(); closeLook(); }
+        });
+
         // --- COMMAND PALETTE (⌘K) ---
         // One surface for the three things you actually do: find a screenshot,
         // jump to a folder, run an action. Sigils scope the search: @ usernames,
@@ -2367,6 +2874,7 @@
 
         function cmdkActions() {
             const actions = [
+                { icon: 'ph-cards', label: 'Look at this — review your pile', meta: 'Review', run: () => openLook() },
                 { icon: 'ph-image', label: 'Add screenshot', meta: 'Upload', run: () => triggerUpload() },
                 { icon: 'ph-folder-plus', label: 'New folder', meta: 'Create', run: () => createNewFolder() },
                 { icon: layoutMode === 'feed' ? 'ph-folders' : 'ph-clock-counter-clockwise',
