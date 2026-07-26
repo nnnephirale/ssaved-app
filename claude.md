@@ -1,5 +1,46 @@
 # SSaved App - Development Log
 
+## ✅ "Look at this" — swipe-to-triage review mode (Jul 26, 2026)
+
+Commit e3b0bd3. Full-screen, one card at a time, for working through the backlog.
+
+**Behaviour:** swipe **right** = solved, clears from the pile · **left** = keep, stays for
+next session · **up** = favourite (also clears). Tapping the image opens the profile.
+Existing notes render readably (0.8125rem/1.6, not the grid's tiny text); empty ones show
+a big "Add a thought" button. The link is editable via a pencil. Undo in the top bar,
+arrow keys mirror the swipes, Esc closes.
+
+**No action buttons** — Marilyn: "i dont think i need the three icons: swipe left, right and
+top is understood by the sole user (me)." This deliberately overrides the design-DNA rule
+that hidden gestures get a visible twin; she's the only user. Already-favourited state
+still shows as a star (information, not chrome).
+
+**Storage — deliberately NOT a migration.** `reviewedIds` / `favouriteIds` are localStorage
+Sets behind a four-function adapter (`isReviewed` / `setReviewed` / `isFavourite` /
+`setFavourite` + `loadIdSet`/`saveIdSet`). Nothing else touches storage, so swapping to
+Supabase columns later is confined to that block. Chosen over columns because this project's
+worst outage came from code shipping ahead of the schema. **Consequence: "solved" is
+per-device.** Note and link edits still go to Supabase, so actual content syncs.
+
+**Surfacing:** star on the card in the grid, plus a "Favourites" filter chip in Latest
+(`feedFavouritesOnly`, independent of the folder `feedFilter`). Entry = header button
+(`ph-cards`) + ⌘K action; the mobile control row was left untouched.
+
+**Two layout bugs found in testing, both worth remembering:**
+1. `.look-image-wrap img { height: 100% }` rendered **49px taller than its wrapper** and
+   covered the username row. A percentage height resolves unreliably against a
+   flex-grow-derived height. Fix: `position: absolute; inset: 0` + `overflow: hidden` on
+   the wrap. **`getBoundingClientRect()` on the WRAPPER hid this** — the wrapper measured
+   correctly while its child overflowed; always measure the child too.
+2. Fixing that collapsed the image area to zero, because an absolutely-positioned child
+   gives its parent no height and `flex: 1` has nothing to distribute inside an
+   **auto-height** parent. Fix: `height: 100%` on `.look-card`.
+
+**Testing note:** the first symptom looked exactly like the known stale-compositor
+preview bug, and hit-testing (`elementFromPoint`) said the username was visible and
+topmost — because it *was* in the layout tree, just painted under the overflowing image.
+A fresh tab reproduced it, which is what proved it real. Hit-testing can't see paint order.
+
 ## ✅ improved2 promoted to the root app (Jul 26, 2026)
 
 Commit 7877832. `improved2/index.html` copied over `index.html`, so
