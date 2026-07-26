@@ -1301,6 +1301,9 @@
             }
             initLookState();
             await cleanupOldDeletedCards();
+            // If we were mid-triage when the page went away (tapped through to
+            // Instagram and iOS reloaded us), drop straight back onto that card.
+            restoreLookSession();
             autoBackupToGitHub();
             setupGlobalDrag();
             setupLongPress();
@@ -2544,13 +2547,75 @@
         let lookDrag = null;
         let lookBusy = false;     // guards double-commits mid-animation
 
+        // Shuffled, not chronological — the point of the mode is to re-encounter
+        // the pile, and date order makes every session start the same way.
+        // Fisher-Yates; the order is fixed for the session and persisted, so
+        // leaving and coming back doesn't reshuffle under you.
         function buildLookQueue() {
-            return appData.cards
+            const ids = appData.cards
                 .filter(c => !c.deletedAt && !isReviewed(c.id))
-                .sort((a, b) => (a.createdAt && b.createdAt)
-                    ? new Date(b.createdAt) - new Date(a.createdAt)
-                    : b.id - a.id)
                 .map(c => c.id);
+            for (let i = ids.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [ids[i], ids[j]] = [ids[j], ids[i]];
+            }
+            return ids;
+        }
+
+        // --- session persistence ---
+        // iOS evicts standalone-PWA pages aggressively: tapping a screenshot to
+        // open Instagram and coming back often reloads the app from scratch.
+        // Persist enough to drop straight back onto the same card.
+        function saveLookSession() {
+            try {
+                localStorage.setItem(lookKey('session'), JSON.stringify({
+                    queue: lookQueue,
+                    currentId: lookQueue[lookIndex] ?? null,
+                    total: lookTotal
+                }));
+            } catch (e) {}
+        }
+        function clearLookSession() {
+            try { localStorage.removeItem(lookKey('session')); } catch (e) {}
+        }
+        function restoreLookSession() {
+            let s = null;
+            try { s = JSON.parse(localStorage.getItem(lookKey('session')) || 'null'); } catch (e) {}
+            if (!s || !Array.isArray(s.queue)) return false;
+
+            // Drop anything deleted or reviewed elsewhere since we left
+            const alive = new Set(appData.cards.filter(c => !c.deletedAt).map(c => c.id));
+            const q = s.queue.filter(id => alive.has(id));
+            if (!q.length) { clearLookSession(); return false; }
+
+            lookQueue = q;
+            lookTotal = s.total || q.length;
+            const i = s.currentId != null ? q.indexOf(s.currentId) : 0;
+            lookIndex = i >= 0 ? i : 0;
+            lookHistory = [];
+
+            const layer = document.getElementById('lookLayer');
+            if (!layer) return false;
+            layer.classList.remove('hidden');
+            lenis?.stop();
+            document.body.style.overflow = 'hidden';
+            renderLookCard();
+            return true;
+        }
+
+        // Opening a link in a NEW tab from an iOS standalone PWA: window.open()
+        // frequently yields a blank Safari tab with an empty URL bar. A real
+        // anchor activated by the user's gesture navigates reliably.
+        function openExternal(url) {
+            if (!url || url === '#') return;
+            const a = document.createElement('a');
+            a.href = url;
+            a.target = '_blank';
+            a.rel = 'noopener noreferrer';
+            a.style.display = 'none';
+            document.body.appendChild(a);
+            a.click();
+            setTimeout(() => a.remove(), 0);
         }
 
         function openLook() {
@@ -2564,6 +2629,7 @@
             lenis?.stop();
             document.body.style.overflow = 'hidden';
             renderLookCard();
+            saveLookSession();
         }
         let lookTotal = 0;
 
@@ -2571,6 +2637,7 @@
             const layer = document.getElementById('lookLayer');
             if (!layer) return;
             commitPendingNote();          // never lose an in-progress edit
+            clearLookSession();           // closing is deliberate — don't reopen next load
             layer.classList.add('hidden');
             lenis?.start();
             document.body.style.overflow = '';
@@ -2747,7 +2814,9 @@
             img?.addEventListener('click', () => {
                 const card = currentLookCard();
                 if (!card || !card.link || card.link === '#') return;
-                window.open(card.link, '_blank');
+                commitPendingNote();
+                saveLookSession();   // so returning lands back on THIS card
+                openExternal(card.link);
             });
         }
 
@@ -2801,6 +2870,7 @@
                 lookIndex++;
                 lookBusy = false;
                 renderLookCard();
+                saveLookSession();
             }, 300);
         }
 
@@ -2819,6 +2889,17 @@
             openLook();
             toast('Pile reset');
         }
+
+        // Safety net: persist the moment the page is backgrounded or torn down,
+        // which on iOS is the last callback you reliably get.
+        function isLookOpen() {
+            const l = document.getElementById('lookLayer');
+            return !!l && !l.classList.contains('hidden');
+        }
+        window.addEventListener('pagehide', () => { if (isLookOpen()) { commitPendingNote(); saveLookSession(); } });
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'hidden' && isLookOpen()) { commitPendingNote(); saveLookSession(); }
+        });
 
         // Keyboard: arrows mirror the swipes
         window.addEventListener('keydown', e => {
@@ -3919,7 +4000,7 @@
         
         function openProfile(id) {
             const c = appData.cards.find(x => x.id === id);
-            if(c && c.link !== '#') window.open(c.link, '_blank');
+            if (c && c.link !== '#') openExternal(c.link);
         }
 
         window.addEventListener('click', (e) => { 
