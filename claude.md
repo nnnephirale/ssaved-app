@@ -1,5 +1,23 @@
 # SSaved App - Development Log
 
+## ✅ improved2 promoted to the root app (Jul 26, 2026)
+
+Commit 7877832. `improved2/index.html` copied over `index.html`, so
+https://nnnephirale.github.io/ssaved-app/?c=... now serves the bold build.
+
+**Pre-flight checks that made this safe (repeat them before any future promotion):**
+- `git log 431fb3f..HEAD -- index.html` was EMPTY — the root hadn't diverged since the
+  fork, so nothing was silently dropped. If it ever has commits, reconcile them first.
+- Function-inventory diff (`grep -oE '^\s*(async )?function \w+'`, sorted, `comm -23`)
+  showed **zero** root functions missing from improved2 — a clean superset, 116 → 146.
+
+The old root remains in history at **2c55039**; `/improved/` and `/improved2/` are still
+published for comparison. Root and `/improved2/` are now byte-identical — when editing,
+change one and copy, or the two will drift.
+
+Same Supabase backend throughout, so every existing `?c=` collection was unaffected by
+the swap.
+
 ## ✅ improved2 round 2 — serif out, menu in, Lenis, merged mobile row (Jul 26, 2026)
 
 Commit ab5dc9c. Five asks from Marilyn, all in `improved2/` only.
