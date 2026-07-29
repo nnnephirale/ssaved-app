@@ -1036,7 +1036,7 @@
         /* Mobile filter: one control, its label is the current state */
         .feed-showing {
             display: flex; align-items: center; gap: 0.5rem;
-            width: 100%; height: 44px; padding: 0 0.85rem; margin-bottom: 0.25rem;
+            width: 100%; max-width: 22rem; height: 44px; padding: 0 0.85rem;
             border-radius: 10px; background: rgba(0,0,0,0.035);
             color: var(--body); text-align: left;
             transition: background-color 0.18s var(--ease);
@@ -2154,25 +2154,14 @@
             else showingLabel = 'All screenshots';
 
             const filterPanel = `
-            <button onclick="openFolderVisibilityModal()" class="feed-showing md:hidden" aria-label="Filter by folder">
-                <span class="microlabel text-neutral-400">Showing</span>
-                <span class="feed-showing-value">${escapeHtml(showingLabel)}</span>
-                <i class="ph-bold ph-caret-down text-[0.65rem] text-neutral-400 ml-auto"></i>
-            </button>
-            <aside class="feed-filter-panel hidden md:block">
-                <div class="feed-filter-head">
-                    <span class="microlabel text-neutral-500">Filter</span>
-                    ${(feedFilter.size || feedFavouritesOnly) ? `<button onclick="clearFeedFilter()" class="microlabel text-neutral-400 hover:text-neutral-900 transition-colors">Clear</button>` : ''}
-                </div>
-                <div class="feed-filter-list">
-                    <button onclick="clearFeedFilter()" id="feedAllChip" class="feed-filter-chip ${(allActive && !feedFavouritesOnly) ? 'is-active' : ''}">
-                        <span>All screenshots</span>
-                        <span class="feed-filter-count">${appData.cards.filter(c => !c.deletedAt).length}</span>
-                    </button>
-                    ${favChip}
-                    ${chips}
-                </div>
-            </aside>`;
+            <div class="flex items-center gap-3">
+                <button onclick="openFolderVisibilityModal()" class="feed-showing" aria-label="Filter by folder">
+                    <span class="microlabel text-neutral-400">Showing</span>
+                    <span class="feed-showing-value">${escapeHtml(showingLabel)}</span>
+                    <i class="ph-bold ph-caret-down text-[0.65rem] text-neutral-400 ml-auto"></i>
+                </button>
+                ${(feedFilter.size || feedFavouritesOnly) ? `<button onclick="clearFeedFilter()" class="microlabel text-neutral-400 hover:text-neutral-900 transition-colors shrink-0">Clear</button>` : ''}
+            </div>`;
 
             const feedGrid = cards.length
                 ? `<div class="folder-grid-area grid ${gridClass} gap-5 md:gap-6 flex-1">${cards.map(c => generateCardHTML(c, rIds, true)).join('')}</div>`
@@ -2181,7 +2170,11 @@
                         <p class="text-sm">No screenshots in the selected folders</p>
                    </div>`;
 
-            wrapper.innerHTML = `<div class="feed-layout flex flex-col md:flex-row gap-4 md:gap-8">${filterPanel}${feedGrid}</div>`;
+            // Filter sits ABOVE the grid at every width, not in a sidebar. A
+            // 13rem sidebar + 2rem gap stole 240px from the grid, so a feed card
+            // came out 351px against the folders view's 431px for the same card.
+            // Stacking it keeps the grid the full content width in both views.
+            wrapper.innerHTML = `<div class="feed-layout flex flex-col gap-4">${filterPanel}${feedGrid}</div>`;
 
             requestAnimationFrame(() => { initAllNotesCollapsible(); positionTabIndicator(); });
         }
