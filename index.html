@@ -947,8 +947,12 @@
             }
         }
 
-        /* --- FOLDER SIDE NAV --- */
+        /* --- FOLDER SIDE NAV ---
+           The rule on the right is a progress track: light at rest, filling
+           downward as you scroll through that folder (Instagram-stories logic,
+           rotated). --p is 0..1, set per folder by updateFolderProgress(). */
         .side-nav-item {
+            position: relative;
             padding: 0.25rem 0.75rem;
             font-size: 0.65rem;
             font-weight: 500;
@@ -956,17 +960,52 @@
             letter-spacing: 0.05em;
             color: rgba(0,0,0,0.2);
             cursor: pointer;
-            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-            border-right: 2px solid transparent;
+            transition: color 0.3s var(--ease), transform 0.3s var(--ease);
             white-space: nowrap;
+            --p: 0;
         }
-        .side-nav-item:hover {
-            color: rgba(0,0,0,0.4);
+        .side-nav-item::before,
+        .side-nav-item::after {
+            content: '';
+            position: absolute; right: 0; top: 0;
+            width: 2px; height: 100%;
+            border-radius: 1px;
         }
+        .side-nav-item::before { background: rgba(0,0,0,0.08); }          /* track */
+        .side-nav-item::after {                                            /* fill */
+            background: rgba(0,0,0,0.45);
+            transform: scaleY(var(--p));
+            transform-origin: top center;
+            transition: transform 0.12s linear;
+        }
+        .side-nav-item:hover { color: rgba(0,0,0,0.4); }
         .side-nav-item.is-active {
             color: rgba(0,0,0,0.6);
-            border-right-color: rgba(0,0,0,0.4);
             transform: translateX(-4px);
+        }
+
+        /* Filtered-out cards are hidden, not destroyed — no image re-decode */
+        .card.is-filtered-out { display: none; }
+
+        /* --- MOBILE: the same progress as a row of pills --- */
+        .fp-track {
+            display: flex; align-items: center; gap: 3px;
+            flex: 1; min-width: 0;
+        }
+        .fp-seg {
+            position: relative; flex: 1; min-width: 6px;
+            height: 3px; border-radius: 2px;
+            background: rgba(0,0,0,0.10);
+            overflow: hidden;
+            --p: 0;
+        }
+        .fp-seg::after {
+            content: '';
+            position: absolute; inset: 0;
+            background: rgba(0,0,0,0.45);
+            transform: scaleX(var(--p));
+            transform-origin: left center;
+            transition: transform 0.12s linear;
         }
 
         /* --- MOBILE BREADCRUMB --- */
@@ -1141,7 +1180,10 @@
     <!-- Mobile Folder Breadcrumb -->
     <div id="mobileBreadcrumb" class="md:hidden fixed top-0 left-0 right-0 z-35 pointer-events-none opacity-0 transition-all duration-300" style="z-index: 35;">
         <div class="px-4 pt-2 pb-1">
-            <span id="breadcrumbText" class="mobile-breadcrumb inline-block text-[10px] font-medium uppercase tracking-wider text-neutral-400 bg-white/80 backdrop-blur-md px-3 py-1 rounded-full border border-neutral-100/80 shadow-sm"></span>
+            <span class="mobile-breadcrumb flex items-center gap-2.5 text-[10px] font-medium uppercase tracking-wider text-neutral-400 bg-white/80 backdrop-blur-md px-3 py-1.5 rounded-full border border-neutral-100/80 shadow-sm">
+                <span id="breadcrumbText" class="shrink-0 max-w-[9rem] truncate"></span>
+                <span class="fp-track" id="folderProgressTrack"></span>
+            </span>
         </div>
     </div>
 
@@ -1722,9 +1764,52 @@
                 ).join('');
             }
 
+            // Mobile: one segment per folder, same progress as the desktop rail
+            const track = document.getElementById('folderProgressTrack');
+            if (track) {
+                track.innerHTML = appData.folders.map(f =>
+                    `<span class="fp-seg" data-folder-id="${f.id}"></span>`
+                ).join('');
+            }
+
             // Init observer for both desktop and mobile
             initFolderObserver();
+            updateFolderProgress();
         }
+
+        // --- FOLDER READ-PROGRESS ---
+        // How far you've scrolled through each folder, 0..1, measured against a
+        // reading line ~35% down the viewport so a folder reads "done" as it
+        // leaves rather than only when its last pixel clears the bottom.
+        let folderProgressPending = false;
+        function updateFolderProgress() {
+            folderProgressPending = false;
+            if (layoutMode !== 'folders') return;
+            const readLine = window.scrollY + window.innerHeight * 0.35;
+            const viewBottom = window.scrollY + window.innerHeight;
+            // At the end of the page the read line can never reach the last
+            // section, so it would stall short of full. Anything wholly on
+            // screen once you've hit the bottom counts as read.
+            const atBottom = viewBottom >= document.documentElement.scrollHeight - 2;
+            appData.folders.forEach(f => {
+                const section = document.getElementById(`folder-${f.id}`);
+                if (!section) return;
+                const top = section.offsetTop;
+                const h = section.offsetHeight || 1;
+                let p = Math.max(0, Math.min(1, (readLine - top) / h));
+                if (atBottom && top + h <= viewBottom + 2) p = 1;
+                const v = p.toFixed(3);
+                document.querySelector(`.side-nav-item[data-folder-id="${f.id}"]`)?.style.setProperty('--p', v);
+                document.querySelector(`.fp-seg[data-folder-id="${f.id}"]`)?.style.setProperty('--p', v);
+            });
+        }
+        function queueFolderProgress() {
+            if (folderProgressPending) return;
+            folderProgressPending = true;
+            requestAnimationFrame(updateFolderProgress);
+        }
+        window.addEventListener('scroll', queueFolderProgress, { passive: true });
+        window.addEventListener('resize', queueFolderProgress);
 
         function scrollToFolder(folderId) {
             const section = document.getElementById(`folder-${folderId}`);
@@ -2003,11 +2088,49 @@
 
         function toggleFeedFilter(id) {
             if (feedFilter.has(id)) feedFilter.delete(id); else feedFilter.add(id);
-            render();
+            applyFeedFilter();
         }
 
-        function clearFeedFilter() { feedFilter.clear(); feedFavouritesOnly = false; render(); }
-        function toggleFavFilter() { feedFavouritesOnly = !feedFavouritesOnly; render(); }
+        function clearFeedFilter() { feedFilter.clear(); feedFavouritesOnly = false; applyFeedFilter(); }
+        function toggleFavFilter() { feedFavouritesOnly = !feedFavouritesOnly; applyFeedFilter(); }
+
+        // Show/hide already-rendered cards instead of rebuilding the grid.
+        function applyFeedFilter() {
+            if (layoutMode !== 'feed') { render(); return; }
+            let shown = 0;
+            document.querySelectorAll('#folderWrapper .card').forEach(el => {
+                const c = appData.cards.find(x => x.id === +el.id.replace('card-', ''));
+                if (!c) return;
+                let vis = true;
+                if (feedFavouritesOnly && !isFavourite(c.id)) vis = false;
+                if (feedFilter.size && !feedFilter.has(c.folderId)) vis = false;
+                el.classList.toggle('is-filtered-out', !vis);
+                if (vis) shown++;
+            });
+            const empty = document.getElementById('feedEmpty');
+            if (empty) empty.classList.toggle('hidden', shown > 0);
+            const grid = document.querySelector('#folderWrapper .folder-grid-area');
+            if (grid) grid.classList.toggle('hidden', shown === 0);
+            updateShowingLabel();
+        }
+
+        // Repaint just the label of the one filter control — no DOM rebuild.
+        function updateShowingLabel() {
+            const el = document.querySelector('.feed-showing-value');
+            if (!el) return;
+            const counts = {};
+            appData.cards.forEach(c => { if (!c.deletedAt) counts[c.folderId] = (counts[c.folderId] || 0) + 1; });
+            const picked = [...feedFilter].filter(id => counts[id]);
+            let label;
+            if (feedFavouritesOnly && picked.length) label = `Favourites · ${picked.length} folder${picked.length === 1 ? '' : 's'}`;
+            else if (feedFavouritesOnly) label = 'Favourites';
+            else if (picked.length === 1) label = getFolderName(picked[0]);
+            else if (picked.length > 1) label = `${picked.length} folders`;
+            else label = 'All screenshots';
+            el.textContent = label;
+            const clear = document.querySelector('.feed-clear-btn');
+            if (clear) clear.classList.toggle('hidden', !(feedFilter.size || feedFavouritesOnly));
+        }
 
         // Folders that currently hold at least one live card
         function foldersWithCards() {
@@ -2083,13 +2206,14 @@
             // Normalize: everything visible -> "all" (empty include-set)
             if (withCards.every(x => visible.has(x))) feedFilter.clear();
             else feedFilter = visible;
-            render();                    // re-render the feed live
+            applyFeedFilter();           // live, without rebuilding the grid
             buildFolderVisibilityList(); // refresh the checkboxes
         }
 
         function showAllFolders() {
             feedFilter.clear();
-            render();
+            feedFavouritesOnly = false;
+            applyFeedFilter();
             buildFolderVisibilityList();
         }
 
@@ -2116,9 +2240,10 @@
             const filterFolders = appData.folders.filter(f => counts[f.id]);
 
             // Visible cards: newest uploaded first, narrowed by the active filter
+            // Render EVERY live card; filtering is a class toggle afterwards, so
+            // changing a filter never rebuilds the grid (which re-created every
+            // <img> and made the screen blink).
             let cards = appData.cards.filter(c => !c.deletedAt);
-            if (feedFavouritesOnly) cards = cards.filter(c => isFavourite(c.id));
-            if (feedFilter.size) cards = cards.filter(c => feedFilter.has(c.folderId));
             cards.sort((a, b) => {
                 if (a.createdAt && b.createdAt) return new Date(b.createdAt) - new Date(a.createdAt);
                 return b.id - a.id;
@@ -2160,21 +2285,23 @@
                     <span class="feed-showing-value">${escapeHtml(showingLabel)}</span>
                     <i class="ph-bold ph-caret-down text-[0.65rem] text-neutral-400 ml-auto"></i>
                 </button>
-                ${(feedFilter.size || feedFavouritesOnly) ? `<button onclick="clearFeedFilter()" class="microlabel text-neutral-400 hover:text-neutral-900 transition-colors shrink-0">Clear</button>` : ''}
+                <button onclick="clearFeedFilter()" class="feed-clear-btn microlabel text-neutral-400 hover:text-neutral-900 transition-colors shrink-0 ${(feedFilter.size || feedFavouritesOnly) ? '' : 'hidden'}">Clear</button>
             </div>`;
 
             const feedGrid = cards.length
                 ? `<div class="folder-grid-area grid ${gridClass} gap-5 md:gap-6 flex-1">${cards.map(c => generateCardHTML(c, rIds, true)).join('')}</div>`
-                : `<div class="flex-1 flex flex-col items-center justify-center text-neutral-400 py-20">
-                        <i class="ph-fill ph-funnel text-3xl mb-3 text-neutral-300"></i>
-                        <p class="text-sm">No screenshots in the selected folders</p>
-                   </div>`;
+                : '';
 
             // Filter sits ABOVE the grid at every width, not in a sidebar. A
             // 13rem sidebar + 2rem gap stole 240px from the grid, so a feed card
             // came out 351px against the folders view's 431px for the same card.
             // Stacking it keeps the grid the full content width in both views.
-            wrapper.innerHTML = `<div class="feed-layout flex flex-col gap-4">${filterPanel}${feedGrid}</div>`;
+            const feedEmpty = `<div id="feedEmpty" class="hidden flex-1 flex flex-col items-center justify-center text-neutral-400 py-20">
+                    <i class="ph-fill ph-funnel text-3xl mb-3 text-neutral-300"></i>
+                    <p class="text-xs">No screenshots in the selected folders</p>
+                </div>`;
+            wrapper.innerHTML = `<div class="feed-layout flex flex-col gap-4">${filterPanel}${feedGrid}${feedEmpty}</div>`;
+            applyFeedFilter();   // paint the current filter onto the fresh DOM
 
             requestAnimationFrame(() => { initAllNotesCollapsible(); positionTabIndicator(); });
         }
@@ -3855,11 +3982,22 @@
         
         async function toggleFolder(id) {
             const f = appData.folders.find(x => x.id === id);
-            if (f) {
-                f.isCollapsed = !f.isCollapsed;
-                await saveFolderToDB(f);
-                render();
+            if (!f) return;
+            f.isCollapsed = !f.isCollapsed;
+            // Collapse in place: show/hide the grid and flip the chevron. A full
+            // render here rebuilt every other folder's cards too.
+            const section = document.getElementById(`folder-${id}`);
+            const grid = section?.querySelector('.folder-grid-area');
+            const tab = section?.querySelector('.folder-tab');
+            const chev = tab?.querySelector('i');
+            if (grid) grid.classList.toggle('hidden', f.isCollapsed);
+            if (tab) tab.classList.toggle('opacity-50', f.isCollapsed);
+            if (chev) {
+                chev.classList.toggle('ph-caret-right', f.isCollapsed);
+                chev.classList.toggle('ph-caret-down', !f.isCollapsed);
             }
+            queueFolderProgress();
+            await saveFolderToDB(f);
         }
 
         let pendingDeleteFolderId = null;
@@ -4652,7 +4790,13 @@
             });
 
             if (!changed) return;
-            requestAnimationFrame(() => requestAnimationFrame(() => render()));
+            // Swap the column class on the existing grids — rebuilding would
+            // re-create every <img> and flash the screen for a layout tweak.
+            document.querySelectorAll('#folderWrapper .folder-grid-area').forEach(g => {
+                g.classList.remove('grid-cols-1', 'grid-cols-2');
+                g.classList.add(`grid-cols-${n}`);
+            });
+            queueFolderProgress();
         }
 
         // --- SHARE MODAL ---
