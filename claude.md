@@ -1,5 +1,145 @@
 # SSaved App - Development Log
 
+## ✅ "Failed" uploads that weren't, and dead OCR — one null deref (Jul 31, 2026)
+
+Marilyn: "when i upload an image it often says failed and retry, but the truth is the image
+actually gets uploaded. however, i havent had the OCR working in a long while."
+
+**Both symptoms, one line.** `#saveIndicator` was deleted from the markup in **1526564**
+("Streamline the mobile UI: 18 persistent controls down to 9") — toasts had replaced it and a
+successful save is deliberately silent. But **five call sites survived**, and `showSaved()`
+dereferenced the result without a guard:
+
+```js
+const el = document.getElementById('saveIndicator');
+el.classList.remove('opacity-0');   // TypeError: el is null
+```
+
+`saveCardToDB()` calls `showSaved()` on its way out, **after** the upsert. So every completed
+write threw. Callers `await saveCardToDB(...)`, so in `processUploadEntry` the rejection was
+caught by the upload's own `catch` and the entry went to **`failed`** — with the image already
+in Storage and the row already in Postgres. And because the throw jumped over
+`appData.cards.unshift(card)` … `setState('reading')` … `ocrCard(...)`, **OCR was never
+invoked at all.** Not broken — unreachable, since 1526564.
+
+**Reproduced and verified against real Supabase** (throwaway collection `zz-diag-0731`, deleted
+afterwards — cards/folders/collections/storage all confirmed `[]`). Before: tray `failed`,
+`error: "Cannot read properties of null (reading 'classList')"`, `appData.cards.length === 0`,
+yet the row and a 70,544-byte object were both present, `username: ""`. After: tray `done`,
+`username: "marilynmakerlab"`, link built, textarea populated live, 5s end to end.
+
+**Not the schema.** Asked directly, so it was checked directly: `cards` has all 12 columns the
+code writes (`id, collection_id, username, notes, link, image_path, folder_id, order,
+suggestions, created_at, deleted_at, tags`); `folders` and `collections` likewise. **No SQL
+migration is outstanding.** (Doc nit: `collections` is `id, created_at, slug` — no `name`
+column, contra the schema section below. `createCollection()` only inserts `{ id }`, so this is
+harmless.) Tesseract v5 was also cleared as a suspect — a probe against the pinned CDN build
+confirms `data.words` is still present and the app's filter/sort picks the username correctly.
+
+**Fixes:**
+1. `showSaved()` null-guarded, kept as the one seam if a "saved" affordance ever returns.
+2. `flashBackupStatus()` borrowed the same dead element — routed to `toast()` under one id.
+3. **Structural:** `processUploadEntry` now closes its `try` right after the two writes. Past
+   that point the upload *has* succeeded, so `render`/`preloadImages`/`ocrCard` each get their
+   own guard and **cannot re-report a committed card as "Failed"**. Display must never
+   re-judge a write that already landed — that inversion is what made a cosmetic null deref
+   look like data loss.
+
+**Sweep:** every literal `getElementById('x')` / `querySelector('#x')` in the file was diffed
+against every `id="…"` in the markup. `saveIndicator` was the **only** orphan. Worth re-running
+after any pass that strips UI (`python3` one-liner in the session log) — deleting an element is
+routine, and the call sites are what get left behind.
+
+## ✅ Reliability audit — 17 bugs fixed, 404 KB dropped (Jul 29, 2026)
+
+Marilyn: "it's pretty broken. i sometimes run into errors while using it on my phone."
+Two parallel audits (mobile-runtime reliability + dead-weight), every finding re-verified
+against the code before any edit. `index.html` +348/−146.
+
+**The three that explain "errors on my phone":**
+
+1. **`alert()` on every failed card save** (`saveCardToDB`) — and notes were a **full-row
+   upsert per keystroke**, no debounce. One cellular blip mid-typing = a native modal that
+   dismisses the keyboard and steals focus, one per failed character; inside the upload and
+   folder-delete `await` loops it froze the whole batch until tapped. Now a toast with Retry,
+   and `updateCard` coalesces per card at 600ms (**measured: 12 keystrokes → 1 write, was
+   12**), flushed on `pagehide` + `visibilitychange`.
+2. **A dropped request on load painted an empty app over real data.** `loadCollection`
+   destructured only `data`. supabase-js does NOT throw on network failure — it resolves
+   `{data: null, error}` — so a blip was indistinguishable from "collection doesn't exist",
+   and `initCollection` fell through to `createCollection()`, resetting `appData` to a bare
+   Inbox and rendering "Nothing saved yet". **This is the exact shape of the historical
+   "notes are gone" scare below.** Now returns `'loaded' | 'absent' | 'failed'`; only
+   PGRST116 (genuinely 0 rows) creates. Verified by stubbing all four read paths: network
+   errors → retry screen, **0 rows written**; PGRST116 → still creates.
+3. **One unreadable image wedged the upload queue forever.** `simpleCrop` re-fetched the
+   just-uploaded image from Supabase with `crossOrigin='anonymous'` *after* the grid had
+   loaded the same URL without it — WebKit reuses the cached non-CORS response and fails the
+   check. With **no `onerror` and no timeout** the promise never settled → `ocrCard` never
+   returned → `uploadRunning` latched `true` and every later file sat at "Queued" until a
+   reload. Now crops the **local File** (no network, no CORS), plus `onerror`, a 10s timeout,
+   a null-blob guard, a 45s race around OCR, and `try/finally` on the queue flag.
+   **Verified with a corrupt file placed FIRST: the two valid files behind it still
+   processed and OCR'd.**
+
+**Also fixed:** undo-delete didn't check its write, so a failed restore left `deleted_at` set
+and the *next* page load hard-deleted the row **and its image** — undo appeared to work and
+the card was destroyed (now reverts state, re-arms the timer, says so) · `getInboxId()`
+matched on the folder **name**, so renaming "Inbox" sent every upload into a phantom folder
+(id now resolved once at load; `inboxId`) · `preloadImages` decoded **every** full-res
+screenshot (~14 MB each — the iOS "problem repeatedly occurred" reload); capped at 12,
+skipped entirely under 768px · ⌘K "Add screenshot" was a silent no-op on iOS (`fileInput
+.click()` from a rAF loses the user-gesture grant; now synchronous) · same for the palette's
+keyboard (`input.focus()` deferred) · a **second finger** overwrote `pressInfo` while the
+first long-press timer was armed, firing `pickUp()` on the wrong card (`isPrimary` +
+`clearTimeout`) · Look mode: an under-threshold swipe starting on the image **navigated to
+Instagram** (added `lookJustDragged`, the guard the grid engine already had) · long notes were
+unscrollable on touch (`.look-card{touch-action:none}` covers the subtree → `pan-y` on the
+note) · undo discarded a note being typed (Safari fires no `blur` when a focused element is
+removed from the DOM) · a stale Look session resumed **days later** (30-min TTL) ·
+`restoreLookSession()` ran before `initSmoothScroll()`, so its `lenis?.stop()` was a no-op ·
+`reindexCards` fired N unawaited parallel upserts including soft-deleted cards (now one
+batched call, `!deletedAt`) · `handleFolderDropMultiple` didn't check its write · unescaped
+`${c.notes}` / `${c.username}` in textareas (RCDATA: a note containing `</textarea` destroyed
+the card, and `&amp;` was entity-decoded on re-render then **persisted mutated**) and
+`${folder.name}` in three attributes — a folder named `Mum's "stuff"` broke out and killed the
+header's buttons. `confirmDeleteFolder` now takes only an id.
+
+**Payload: −404 KB.** `unpkg.com/@phosphor-icons/web` is a *loader shim* that appends
+`<link>`s for **all six weights**; the app uses three (`ph`, `ph-bold`, `ph-fill` — zero uses
+of thin/light/duotone). Replaced with three pinned links. **If you ever re-add that bare
+shim, you re-add the 404 KB.** Tesseract (67 KB) is now lazy via `ensureTesseract()`.
+Verified all three weights still render real glyphs (a bogus icon class gives
+`content: none` — use that as the control).
+
+**Deleted as dead:** `deleteCardFromDB` (superseded by `permanentlyDeleteCard`), `showStatus`,
+`undoTimeout`, `inSelectableFolder`, `.focus-ring`, `.tray-item.is-leaving`, the
+`tailwind.config` `warm` palette (15 lines, zero uses), 6 debug `console.log`s.
+
+**Corrections to the notes below — the docs were staler than the code.** Every "removed
+feature" vestige this file warns about is **already gone** (grep = 0 for `deletedCardsStack`,
+the old HTML5 DnD handlers, `dragSrcId`, `INBOX_ID`, `tags`, `toggleAddMenu`, …).
+`handleImageClick` is **no longer a no-op** (it drives `toggleCardSelection`) — do not delete
+it. `saveCardToDB` omitting `deleted_at` is **harmless**: PostgREST's `ON CONFLICT DO UPDATE`
+only sets columns present in the payload. **`debug.html` does not exist** despite being cited
+three times below as a recovery tool. The 8 empty `catch {}` blocks are deliberate
+(`setPointerCapture` throws on synthetic pointers; `localStorage` throws on quota).
+
+**Still open, deliberately not done:** ~995 KB of 28 old backup `.html` files (including
+`personal.html` and `restore.html`) are tracked on `main` and therefore **publicly served
+from GitHub Pages** — referenced by nothing but prose, git history is the backup, but
+deleting them is Marilyn's call. `setupFeedFilterLongPress` / `setupFolderLongPress` are
+~81 lines of near-identical scaffolding on the same `#folderWrapper` node (~40 lines
+recoverable) — left alone because it's the most fragile code in the app and consolidating it
+risks the very reliability this pass was about.
+
+**Testing note (cost me time):** the Browser pane cannot open `file://` here and
+`launch.json` servers can't read `~/Documents` (sandbox). Working loop: `python3 -m
+http.server` from **Bash** in background, then `navigate` to `127.0.0.1`. See the
+`claude-preview-panel-debugging` skill. Both test collections (`zz-selftest-0729`,
+`zz-selftest2-0729`) and all 8 uploaded images were deleted from Supabase afterwards —
+verified 0 rows remaining.
+
 ## ✅ "Look at this" — swipe-to-triage review mode (Jul 26, 2026)
 
 Commit e3b0bd3. Full-screen, one card at a time, for working through the backlog.

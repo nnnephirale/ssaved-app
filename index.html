@@ -948,40 +948,53 @@
         }
 
         /* --- FOLDER SIDE NAV ---
-           The rule on the right is a progress track: light at rest, filling
-           downward as you scroll through that folder (Instagram-stories logic,
-           rotated). --p is 0..1, set per folder by updateFolderProgress(). */
+           ONE unbroken strand down the right edge, drawn as a single SVG path by
+           updateFolderNavRail(). It reads as a continuous progress line (light at
+           rest, inking downward as you scroll) and WEAVES outward at the folder
+           you're in — a bead on a thread, not a stack of separate rules. Was one
+           2px pseudo-element per item: 4px gaps between them plus a translateX on
+           the active item, which is exactly the broken-and-indented look.
+
+           Three things here are load-bearing:
+           - `position: fixed`, not relative. An ID rule (1,0,0) outranks Tailwind's
+             .fixed (0,1,0), so `relative` silently unpins the nav into page flow.
+             fixed is a containing block for the rail all the same.
+           - width: max-content. A fixed box with only `right` set fills the entire
+             viewport width, and its invisible 150px band eats clicks on the grid.
+           - the 22px gutter sits on the ITEMS, not the nav. Absolute offsets resolve
+             against the padding box, so padding here shifts the rail 22px inboard of
+             the edge it's meant to sit on. */
+        #folderSideNav { position: fixed; width: max-content; }
+        #folderNavItems { padding-right: 22px; }
+        #folderNavRail {
+            position: absolute; top: 0; right: 0;
+            width: 22px; height: 100%;
+            overflow: visible; pointer-events: none;
+        }
+        #folderNavRail path { fill: none; stroke-width: 2; stroke-linecap: round; }
+        #folderNavRail .rail-track { stroke: rgba(0,0,0,0.08); }
+        #folderNavRail .rail-fill {
+            stroke: rgba(0,0,0,0.45);
+            transition: stroke-dashoffset 0.12s linear;
+        }
         .side-nav-item {
             position: relative;
-            padding: 0.25rem 0.75rem;
+            padding: 0.3rem 0;
             font-size: 0.65rem;
             font-weight: 500;
             text-transform: uppercase;
             letter-spacing: 0.05em;
             color: rgba(0,0,0,0.2);
             cursor: pointer;
-            transition: color 0.3s var(--ease), transform 0.3s var(--ease);
+            transition: color 0.3s var(--ease), transform 0.35s var(--ease);
             white-space: nowrap;
-            --p: 0;
-        }
-        .side-nav-item::before,
-        .side-nav-item::after {
-            content: '';
-            position: absolute; right: 0; top: 0;
-            width: 2px; height: 100%;
-            border-radius: 1px;
-        }
-        .side-nav-item::before { background: rgba(0,0,0,0.08); }          /* track */
-        .side-nav-item::after {                                            /* fill */
-            background: rgba(0,0,0,0.45);
-            transform: scaleY(var(--p));
-            transform-origin: top center;
-            transition: transform 0.12s linear;
         }
         .side-nav-item:hover { color: rgba(0,0,0,0.4); }
+        /* The LABEL pulls away from the strand; the strand itself never leaves its
+           column — the bow in the path is what marks position. */
         .side-nav-item.is-active {
             color: rgba(0,0,0,0.6);
-            transform: translateX(-4px);
+            transform: translateX(-6px);
         }
 
         /* Filtered-out cards are hidden, not destroyed — no image re-decode */
@@ -1218,7 +1231,9 @@
     </main>
 
     <!-- Folder Side Nav (Desktop only) -->
-    <nav id="folderSideNav" class="hidden md:flex fixed right-6 top-1/2 -translate-y-1/2 z-30 flex-col items-end gap-1" aria-label="Folder navigation">
+    <nav id="folderSideNav" class="hidden md:block fixed right-6 top-1/2 -translate-y-1/2 z-30" aria-label="Folder navigation">
+        <svg id="folderNavRail" aria-hidden="true"><path class="rail-track"></path><path class="rail-fill"></path></svg>
+        <div id="folderNavItems" class="flex flex-col items-end"></div>
     </nav>
 
     <!-- Share Modal -->
@@ -1756,12 +1771,13 @@
         let activeFolderName = '';
 
         function buildFolderNav() {
-            // Desktop side nav
-            const nav = document.getElementById('folderSideNav');
+            // Desktop side nav — items only; the rail SVG is permanent markup
+            const nav = document.getElementById('folderNavItems');
             if (nav && window.innerWidth >= 768) {
                 nav.innerHTML = appData.folders.map(f =>
-                    `<div class="side-nav-item" data-folder-id="${f.id}" onclick="scrollToFolder('${f.id}')">${f.name}</div>`
+                    `<div class="side-nav-item" data-folder-id="${f.id}" onclick="scrollToFolder('${f.id}')">${escapeHtml(f.name)}</div>`
                 ).join('');
+                clearFolderNavRail();   // fresh items, no stale crest to glide from
             }
 
             // Mobile: one segment per folder, same progress as the desktop rail
@@ -1791,6 +1807,9 @@
             // section, so it would stall short of full. Anything wholly on
             // screen once you've hit the bottom counts as read.
             const atBottom = viewBottom >= document.documentElement.scrollHeight - 2;
+            // The rail is one line, so its fill front is one number: how far down
+            // the stack of nav items the read line has reached.
+            let railFill = 0;
             appData.folders.forEach(f => {
                 const section = document.getElementById(`folder-${f.id}`);
                 if (!section) return;
@@ -1799,9 +1818,95 @@
                 let p = Math.max(0, Math.min(1, (readLine - top) / h));
                 if (atBottom && top + h <= viewBottom + 2) p = 1;
                 const v = p.toFixed(3);
-                document.querySelector(`.side-nav-item[data-folder-id="${f.id}"]`)?.style.setProperty('--p', v);
+                const navItem = document.querySelector(`.side-nav-item[data-folder-id="${f.id}"]`);
+                if (navItem) railFill += p * navItem.offsetHeight;
                 document.querySelector(`.fp-seg[data-folder-id="${f.id}"]`)?.style.setProperty('--p', v);
             });
+            drawFolderNavRail(railFill);
+        }
+
+        // One path, top to bottom, bowing out to meet the folder you're in. The
+        // fill is the same geometry revealed by dashoffset, so track and ink are
+        // literally the same strand.
+        //
+        // A path's `d` can't be CSS-transitioned, so the crest is lerped in a rAF
+        // loop instead — otherwise the bow teleports between folders, which looks
+        // worse than the breaks this replaced. The loop only spins while moving.
+        const RAIL_BASE = 11, RAIL_BOW = 18;  // resting x, and the excursion's crest x
+        let railCrest = null, railBow = 0;    // current (animated)
+        let railCrestTo = 0, railBowTo = 0;   // target
+        let railFillY = 0, railRaf = null, railPathD = '';
+
+        // Blank the geometry, don't just reset the state. The rail is 0px tall with
+        // no items (Latest view), but overflow is visible — a leftover `d` keeps
+        // painting a 150px line down the right edge of a view that has no folders.
+        function clearFolderNavRail() {
+            railCrest = null; railBow = 0; railBowTo = 0; railPathD = '';
+            if (railRaf !== null) { cancelAnimationFrame(railRaf); railRaf = null; }
+            document.querySelectorAll('#folderNavRail path').forEach(p => p.removeAttribute('d'));
+        }
+
+        function drawFolderNavRail(fillY) {
+            const items = document.getElementById('folderNavItems');
+            if (!items || !items.firstElementChild || !items.offsetHeight) return;  // hidden on mobile
+            railFillY = fillY;
+            const active = items.querySelector('.side-nav-item.is-active');
+            if (active) {
+                railCrestTo = active.offsetTop + active.offsetHeight / 2;
+                railBowTo = 1;
+                if (railCrest === null) railCrest = railCrestTo;   // don't glide in from y=0
+            } else {
+                railBowTo = 0;                                     // relax to a straight line
+            }
+            if (railCrest === null) railCrest = railCrestTo;
+            if (railRaf === null) railRaf = requestAnimationFrame(stepFolderNavRail);
+        }
+
+        function stepFolderNavRail() {
+            railRaf = null;
+            const dc = railCrestTo - railCrest, db = railBowTo - railBow;
+            const settled = Math.abs(dc) < 0.4 && Math.abs(db) < 0.004;
+            if (settled) { railCrest = railCrestTo; railBow = railBowTo; }
+            else { railCrest += dc * 0.22; railBow += db * 0.22; }
+            paintFolderNavRail();
+            if (!settled) railRaf = requestAnimationFrame(stepFolderNavRail);
+        }
+
+        function paintFolderNavRail() {
+            const items = document.getElementById('folderNavItems');
+            const svg = document.getElementById('folderNavRail');
+            if (!items || !svg) return;
+            const H = items.offsetHeight;
+            if (!H) return;
+            const track = svg.querySelector('.rail-track');
+            const fill = svg.querySelector('.rail-fill');
+
+            let d;
+            if (railBow < 0.01) {
+                d = `M ${RAIL_BASE} 0 L ${RAIL_BASE} ${H}`;
+            } else {
+                const x = (RAIL_BASE + (RAIL_BOW - RAIL_BASE) * railBow).toFixed(2);
+                const c = railCrest;
+                // Half-height of the bow, clamped so it always fits inside the rail —
+                // an excursion that runs off the top would need crossed handles and
+                // kinks the curve. k = r/2 puts both handles on the midpoint line,
+                // which is the smooth S: vertical tangent at both ends, no wiggle.
+                const r = Math.max(6, Math.min(22, c, H - c));
+                const a = c - r, b = c + r;
+                const k = r * 0.5;
+                d = `M ${RAIL_BASE} 0 L ${RAIL_BASE} ${a.toFixed(2)}`
+                  + ` C ${RAIL_BASE} ${(a + k).toFixed(2)} ${x} ${(c - k).toFixed(2)} ${x} ${c.toFixed(2)}`
+                  + ` C ${x} ${(c + k).toFixed(2)} ${RAIL_BASE} ${(b - k).toFixed(2)} ${RAIL_BASE} ${b.toFixed(2)}`
+                  + ` L ${RAIL_BASE} ${H}`;
+            }
+            if (d !== railPathD) {
+                railPathD = d;
+                track.setAttribute('d', d);
+                fill.setAttribute('d', d);
+                fill.style.strokeDasharray = fill.getTotalLength();
+            }
+            const L = fill.getTotalLength();
+            fill.style.strokeDashoffset = (L * (1 - Math.max(0, Math.min(1, railFillY / H)))).toFixed(2);
         }
         function queueFolderProgress() {
             if (folderProgressPending) return;
@@ -1833,6 +1938,7 @@
                     if (navItem) {
                         if (entry.isIntersecting) navItem.classList.add('is-active');
                         else navItem.classList.remove('is-active');
+                        queueFolderProgress();   // the rail's bow follows .is-active
                     }
 
                     // Mobile breadcrumb — update to the topmost visible folder
@@ -1861,7 +1967,7 @@
                 nav.classList.add('hidden');
             } else {
                 nav.classList.remove('hidden');
-                nav.classList.add('md:flex');
+                nav.classList.add('md:block');
             }
         });
 
@@ -1941,6 +2047,7 @@
         }
 
         // --- RENDER ---
+        let gridEntranceDone = false;
         function render(restoreId = null) {
             const wrapper = document.getElementById('folderWrapper');
             const empty = document.getElementById('emptyState');
@@ -1958,6 +2065,13 @@
             empty.classList.add('hidden');
             if (tabs) tabs.classList.remove('hidden');
             wrapper.innerHTML = '';
+
+            // The slide-up entrance is a page-load flourish, nothing more. render()
+            // runs on every folder toggle, delete and view switch, and replaying it
+            // there reads as a flash — the grid you were already looking at fades
+            // from opacity 0 again. First paint only.
+            const enterClass = gridEntranceDone ? '' : 'folder-enter';
+            gridEntranceDone = true;
 
             if (layoutMode === 'feed') { renderFeed(rIds); return; }
 
@@ -2000,7 +2114,7 @@
                 </button>`;
 
                 const section = `
-                <section id="folder-${folder.id}" class="folder-enter group/folder">
+                <section id="folder-${folder.id}" class="${enterClass} group/folder">
                     <div class="folder-header mb-5 flex items-end relative pl-1"
                          data-folder-id="${folder.id}">
 
@@ -2219,8 +2333,11 @@
 
         function renderFeed(rIds) {
             const wrapper = document.getElementById('folderWrapper');
-            const sideNav = document.getElementById('folderSideNav');
-            if (sideNav) sideNav.innerHTML = ''; // no per-folder nav in the feed
+            // No per-folder nav in the feed. Clear the ITEMS only — the rail SVG is
+            // permanent markup now, so wiping #folderSideNav would delete it.
+            const navItems = document.getElementById('folderNavItems');
+            if (navItems) navItems.innerHTML = '';
+            clearFolderNavRail();
             // No folder breadcrumb in the feed. Remove the WINNING class —
             // #mobileBreadcrumb.is-visible (1,1,0) outranks .opacity-0 (0,1,0),
             // so adding opacity-0 here never actually hid it.
@@ -4225,48 +4342,64 @@
             const id = Date.now() + entry.uid;
             const imagePath = `${collectionId}/${id}.png`;
 
+            const card = {
+                id,
+                username: '',
+                notes: '',
+                link: '#',
+                imageUrl: getPublicImageUrl(imagePath),
+                imagePath,
+                folderId: entry.destFolderId,
+                order: 0, // auto-sorted by created_at timestamp
+                createdAt: new Date().toISOString(),
+                suggestions: [],
+                isScanning: true,
+                linkMode: false
+            };
+
+            // --- The part that can genuinely fail: the two writes. ---
             try {
                 const { error: uploadError } = await db.storage
                     .from('images')
                     .upload(imagePath, entry.file, { contentType: entry.file.type });
                 if (uploadError) throw uploadError;
 
-                const card = {
-                    id,
-                    username: '',
-                    notes: '',
-                    link: '#',
-                    imageUrl: getPublicImageUrl(imagePath),
-                    imagePath,
-                    folderId: entry.destFolderId,
-                    order: 0, // auto-sorted by created_at timestamp
-                    createdAt: new Date().toISOString(),
-                    suggestions: [],
-                    isScanning: true,
-                    linkMode: false
-                };
-
                 const { error: dbError } = await saveCardToDB(card);
                 if (dbError) throw dbError;
+            } catch (e) {
+                console.error('Upload failed:', e);
+                entry.error = e.message || String(e);
+                return setState('failed');
+            }
 
-                entry.cardId = id;
-                appData.cards.unshift(card);
+            // --- Past this line the upload HAS succeeded: the image is in
+            // storage and the row is written. Everything below is presentation,
+            // and it used to sit inside the same try — so one throw in the
+            // cosmetic tail reported a perfectly landed card as "Failed" and
+            // skipped OCR entirely. A null #saveIndicator inside saveCardToDB
+            // did exactly that on every upload. Never let display re-judge a
+            // write that already committed. ---
+            entry.cardId = id;
+            appData.cards.unshift(card);
+            try {
                 render([id]); // plain render: avoids stacking view transitions per file
                 preloadImages();
+            } catch (e) {
+                console.error('Post-upload render failed:', e);
+            }
 
-                // OCR this card while the next file waits its turn. Bounded:
-                // OCR is a nicety, and it must never be able to stall the queue.
-                setState('reading');
+            // OCR this card while the next file waits its turn. Bounded: OCR is
+            // a nicety, and it must never stall the queue or fail the upload.
+            setState('reading');
+            try {
                 await Promise.race([
                     ocrCard(card, entry.file),
                     new Promise(r => setTimeout(r, 45000))
                 ]);
-                setState('done');
             } catch (e) {
-                console.error('Upload failed:', e);
-                entry.error = e.message || String(e);
-                setState('failed');
+                console.error('OCR failed:', e);
             }
+            setState('done');
         }
 
         // `file` is the original local File — crop from that, never from the
@@ -4386,10 +4519,19 @@
         function transitionRender(ids) { 
             document.startViewTransition ? document.startViewTransition(() => render(ids)) : render(ids); 
         }
-        function showSaved() { 
-            const el = document.getElementById('saveIndicator'); 
-            el.classList.remove('opacity-0'); 
-            setTimeout(() => el.classList.add('opacity-0'), 2000); 
+        // #saveIndicator was deleted from the markup in the mobile streamline
+        // (1526564) — toasts are the feedback channel now and a successful save
+        // is deliberately silent. The five call sites were left behind, so this
+        // dereferenced null and THREW on every single save. Because callers
+        // `await saveCardToDB(...)`, that turned every completed write into a
+        // rejected promise: uploads whose image and row had both landed reported
+        // "Failed", and OCR never ran at all. Null-guarded, not deleted: this
+        // stays the one seam to reattach a "saved" affordance to.
+        function showSaved() {
+            const el = document.getElementById('saveIndicator');
+            if (!el) return;
+            el.classList.remove('opacity-0');
+            setTimeout(() => el.classList.add('opacity-0'), 2000);
         }
         // --- TOASTS (sonner-style stacked pills) ---
         const activeToasts = new Map();
@@ -4921,19 +5063,11 @@
             }
         }
 
+        // Also borrowed the now-deleted #saveIndicator. Routed to the toast
+        // system instead — same status, on the channel that still exists. One
+        // toast id so "Backing up…" is replaced in place rather than stacking.
         function flashBackupStatus(text, isError = false) {
-            const indicator = document.getElementById('saveIndicator');
-            const original = indicator.textContent;
-            indicator.textContent = text;
-            indicator.style.color = isError ? '#ef4444' : '#22c55e';
-            indicator.style.opacity = '1';
-            setTimeout(() => {
-                indicator.style.opacity = '0';
-                setTimeout(() => {
-                    indicator.textContent = original;
-                    indicator.style.color = '';
-                }, 300);
-            }, 2000);
+            toast(text, { id: 'gh-backup', duration: isError ? 5000 : 2500 });
         }
 
         async function manualBackupToGitHub() {
