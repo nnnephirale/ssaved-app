@@ -1624,7 +1624,13 @@
             appData.folders = [{ id: inboxId, name: 'Inbox', order: 0, isCollapsed: false }];
             appData.cards = [];
             docEtag = null;
-            await saveState({ immediate: true });
+            const { error } = await saveState({ immediate: true });
+            if (error) {
+                setLoadingText(error === 'unauthorized'
+                    ? 'That write key was rejected. Reload and enter the right one.'
+                    : 'Could not create the collection: ' + error);
+                throw new Error(String(error));
+            }
             render();
         }
 
@@ -4384,6 +4390,9 @@
             };
 
             // --- The part that can genuinely fail: the two writes. ---
+            // The card goes into appData BEFORE the write, because the write serialises
+            // appData. Saving first wrote a list that did not yet contain this card.
+            appData.cards.unshift(card);
             try {
                 const slash = imagePath.indexOf('/');
                 const upRes = await cloudFetch(
@@ -4392,13 +4401,19 @@
                     { method: 'PUT', headers: { 'content-type': entry.file.type || 'image/png' }, body: entry.file },
                     120000   // a full-size screenshot off a phone connection needs room
                 );
-                if (!upRes.ok) throw new Error('image upload failed: HTTP ' + upRes.status);
+                if (upRes.status === 401) throw new Error('write key rejected (401) — re-enter it from the collection sheet');
+                if (!upRes.ok) throw new Error('HTTP ' + upRes.status + ' uploading the image');
 
-                const { error: dbError } = await saveCardToDB(card);
-                if (dbError) throw dbError;
+                const { error: dbError } = await saveState({ immediate: true });
+                if (dbError) throw new Error(String(dbError));
             } catch (e) {
                 console.error('Upload failed:', e);
+                // roll the card back out of the list — it is not stored, and leaving it on
+                // screen is exactly the lie that lost a week of deposits entries
+                const i = appData.cards.findIndex(c => c.id === id);
+                if (i > -1) appData.cards.splice(i, 1);
                 entry.error = e.message || String(e);
+                toast('Upload failed: ' + entry.error, { id: 'upfail', duration: 8000 });
                 return setState('failed');
             }
 
@@ -4410,7 +4425,6 @@
             // did exactly that on every upload. Never let display re-judge a
             // write that already committed. ---
             entry.cardId = id;
-            appData.cards.unshift(card);
             try {
                 render([id]); // plain render: avoids stacking view transitions per file
                 preloadImages();
