@@ -142,9 +142,8 @@
             align-items: flex-start;
             gap: 37px;
             width: max-content;
-            /* The top padding only shows once the wordmark tucks away — without
-               it the names sit flush against the viewport edge. */
             padding: 0.5rem 1rem 1.475rem;
+            transition: padding-top 0.34s var(--ease);
         }
         @media (min-width: 768px) { .frail-inner { padding: 0.5rem 1.5rem 1.475rem; } }
         .frail-item {
@@ -323,23 +322,23 @@
         .info-dot {
             position: absolute;
             right: 10px; bottom: 10px;
-            width: 38px; height: 38px;
+            width: 34px; height: 34px;
             border-radius: 50%;
             display: flex; align-items: center; justify-content: center;
             background: rgba(255, 255, 255, 0.42);
             backdrop-filter: blur(14px) saturate(180%);
             -webkit-backdrop-filter: blur(14px) saturate(180%);
             box-shadow:
-                inset 0 0 0 1px rgba(255, 255, 255, 0.55),
+                inset 0 0 0 1px rgba(255, 255, 255, 0.275),
                 0 2px 8px rgba(0, 0, 0, 0.12);
             color: #1F1F1F;
             z-index: 3;
         }
-        /* 54px tap target under a 38px dot — comfortably past the 44px minimum */
+        /* 50px tap target under a 34px dot — still past the 44px minimum */
         .info-dot::before { content: ''; position: absolute; inset: -8px; border-radius: 50%; }
         /* The glyph is ASSETS/Info.svg verbatim (path + viewBox), at the same
            0.55 of the circle it occupies in the mockup. */
-        .info-dot svg { width: 21px; height: 21px; display: block; fill: currentColor; }
+        .info-dot svg { width: 19px; height: 19px; display: block; fill: currentColor; }
         .fav-star { position: absolute; top: 9px; right: 10px; z-index: 3;
                     color: #f59e0b; font-size: 0.9rem;
                     filter: drop-shadow(0 1px 3px rgba(0,0,0,0.35)); }
@@ -542,11 +541,10 @@
            the header is the hardest. */
         #addFab {
             position: fixed; z-index: 41;
-            /* Deliberately NOT clamped to the safe area by default: Marilyn wants
-               this to sit in the strip iOS reserves for the home indicator.
-               --fab-safe is 0px unless the tuner turns it back on. */
-            right: var(--fab-r, 16px);
-            bottom: calc(var(--fab-b, 6px) + var(--fab-safe, 0px));
+            /* Dialled in on the device: bottom 0 measured from the top of the home
+               indicator, i.e. flush to the safe area rather than inside it. */
+            right: 16px;
+            bottom: var(--sab);
             display: inline-flex; align-items: center; gap: 0.5rem;
             height: 3rem; padding: 0 1.1rem; border-radius: 9999px;
             background: rgba(240,239,236,0.92);
@@ -559,63 +557,6 @@
         #addFab:hover { color: var(--ink); }
         #addFab i { font-size: 1rem; }
         @media (min-width: 768px) { #addFab { display: none; } }
-
-        /* ==== TEMPORARY — FAB POSITION TUNER ====================================
-           Scaffolding so Marilyn can dial the Screenshot button in on the real
-           device and read the numbers back. Delete this block, the #fabTuner /
-           #fabNudge markup, and the JS block with the same banner. The tuned
-           values then become the --fab-* defaults in :root. */
-        #fabNudge {
-            position: fixed; z-index: 41;
-            right: var(--fab-r, 16px);
-            bottom: calc(var(--fab-b, 6px) + var(--fab-safe, 0px) + 3rem + 8px);
-            width: 38px; height: 38px; border-radius: 999px;
-            display: flex; align-items: center; justify-content: center;
-            background: rgba(240,239,236,0.92);
-            backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
-            border: 1px solid rgba(0,0,0,0.05);
-            box-shadow: 0 8px 28px -8px rgba(0,0,0,0.18);
-            color: var(--body); font-size: 1rem; line-height: 1;
-        }
-        @media (min-width: 768px) { #fabNudge { display: none; } }
-        #fabTuner {
-            position: fixed; z-index: 70;
-            top: 0; left: 0; right: 0;
-            padding: calc(var(--sat) + 10px) 14px 14px;
-            background: rgba(255,255,255,0.86);
-            backdrop-filter: blur(24px) saturate(180%);
-            -webkit-backdrop-filter: blur(24px) saturate(180%);
-            border-bottom: 1px solid rgba(0,0,0,0.06);
-            box-shadow: 0 12px 40px -16px rgba(0,0,0,0.25);
-            display: flex; flex-direction: column; gap: 8px;
-        }
-        #fabTuner.hidden { display: none; }
-        .ft-row {
-            display: flex; align-items: center; gap: 10px;
-            height: 40px; padding: 0 12px;
-            border-radius: 10px; background: rgba(0,0,0,0.04);
-        }
-        .ft-row label { font-size: 0.6875rem; font-weight: 500; color: var(--mute);
-                        width: 3.6rem; flex-shrink: 0; }
-        .ft-row input[type=range] { flex: 1; min-width: 0; }
-        .ft-val { font-size: 0.8125rem; font-weight: 500; color: var(--ink);
-                  width: 3.2rem; text-align: right; font-variant-numeric: tabular-nums; }
-        .ft-foot { display: flex; align-items: center; gap: 8px; }
-        /* wraps rather than scrolls — the whole string has to be readable at a
-           glance, it is the entire point of the panel */
-        .ft-readout {
-            padding: 8px 10px; border-radius: 8px;
-            background: rgba(0,0,0,0.04); color: var(--body);
-            font-family: var(--font-mono); font-size: 0.6875rem; line-height: 1.5;
-            word-break: break-word;
-        }
-        .ft-btn {
-            flex: 1; height: 36px; padding: 0 12px; border-radius: 9px;
-            background: rgba(0,0,0,0.06); color: var(--body);
-            font-size: 0.75rem; font-weight: 500;
-        }
-        .ft-btn.is-primary { background: #171717; color: #fff; }
-        /* ==== END TEMPORARY ==================================================== */
 
         /* --- COLLECTION SHEET rows --- */
         .sheet-row {
@@ -1105,7 +1046,13 @@
             /* The frosted panel starts at y=0 and runs up under the clock; this
                padding is what keeps the wordmark clear of it. */
             padding-top: calc(var(--sat) + var(--header-air));
+            transition: padding-top 0.34s var(--ease);
         }
+        /* Tucked, the folder rail should occupy the space the wordmark had, not
+           just the space below it — so the header gives up its own air and the
+           rail its top padding. Worth 16px, on top of the 58px brand row. */
+        #mainHeader.is-tucked { padding-top: var(--sat); }
+        #mainHeader.is-tucked .frail-inner { padding-top: 0; }
         /* main's own top padding has to grow by the same amount, or the first
            row of cards starts underneath the header at scroll 0. */
         #mainContainer { padding-top: calc(7.5rem + var(--sat) + var(--header-air)); }
@@ -1646,33 +1593,6 @@
         <span class="microlabel">Screenshot</span>
     </button>
 
-    <!-- ==== TEMPORARY — FAB POSITION TUNER (see the CSS/JS blocks of the same name) -->
-    <button id="fabNudge" onclick="toggleFabTuner()" class="view-hide" aria-label="Adjust button position">—</button>
-    <div id="fabTuner" class="hidden">
-        <div class="ft-row">
-            <label for="ftBottom">Bottom</label>
-            <input id="ftBottom" type="range" min="-60" max="160" step="1" oninput="setFab('b', this.value)">
-            <span class="ft-val" id="ftBottomVal"></span>
-        </div>
-        <div class="ft-row">
-            <label for="ftRight">Right</label>
-            <input id="ftRight" type="range" min="-20" max="120" step="1" oninput="setFab('r', this.value)">
-            <span class="ft-val" id="ftRightVal"></span>
-        </div>
-        <div class="ft-row">
-            <label for="ftSafe">Safe area</label>
-            <input id="ftSafe" type="checkbox" onchange="setFab('safe', this.checked)" style="width:20px;height:20px">
-            <span class="ft-val" id="ftSafeVal"></span>
-        </div>
-        <div class="ft-readout" id="ftReadout"></div>
-        <div class="ft-foot">
-            <button class="ft-btn" onclick="toggleFabTuner()">Done</button>
-            <button class="ft-btn" onclick="resetFab()">Reset</button>
-            <button class="ft-btn is-primary" onclick="copyFabSettings()">Copy</button>
-        </div>
-    </div>
-    <!-- ==== END TEMPORARY ==== -->
-
     <!-- This collection — absorbs the old share + backup icons, and gives the
          collection id somewhere to live other than a parenthetical -->
     <div id="collectionSheet" class="fixed inset-0 z-50 hidden items-end md:items-center justify-center p-0 md:p-4 modal-backdrop">
@@ -1903,7 +1823,6 @@
                 document.getElementById('headerCollectionName').textContent = collectionId;
             }
             initLookState();
-            loadFabCfg();   // TEMPORARY — see the FAB POSITION TUNER block
             await cleanupOldDeletedCards();
             autoBackupToGitHub();
             setupGlobalDrag();
@@ -2211,9 +2130,12 @@
                 const currentScrollY = window.scrollY;
                 if (currentScrollY < 0) return;
                 if (edge) edge.classList.toggle('is-on', currentScrollY > 24);
-                if (Math.abs(currentScrollY - lastScrollY) < 10) return;
+                if (Math.abs(currentScrollY - lastScrollY) < 6) return;
                 if (performance.now() < scrollLockUntil) { lastScrollY = currentScrollY; return; }
-                const scrollingDown = currentScrollY > lastScrollY && currentScrollY > 60;
+                // Measured: the old gates (6px delta past 60px of travel) meant the
+                // wordmark did not tuck until you were 72px down, which on a phone
+                // is most of a flick — long enough that it read as never happening.
+                const scrollingDown = currentScrollY > lastScrollY && currentScrollY > 8;
                 header.classList.toggle('is-tucked', scrollingDown);
                 // offsetHeight is mid-transition here; settle the edge afterwards.
                 placeEdge();
@@ -5157,70 +5079,6 @@
             uploadTargetFolderId = folderId;
             document.getElementById('fileInput').click();
         }
-
-        // ==== TEMPORARY — FAB POSITION TUNER ================================
-        // Live dials for the Screenshot button's offsets, so the numbers can be
-        // read off the real device rather than guessed from a screenshot. The
-        // safe-area inset is OFF by default here on purpose: the ask is to sit
-        // inside the strip iOS reserves for the home indicator.
-        // Delete this block, its CSS and its markup once the values are settled.
-        const FAB_DEFAULTS = { b: 6, r: 16, safe: false };
-        let fabCfg = { ...FAB_DEFAULTS };
-
-        function loadFabCfg() {
-            try {
-                const raw = localStorage.getItem('ssaved_fab');
-                if (raw) fabCfg = { ...FAB_DEFAULTS, ...JSON.parse(raw) };
-            } catch (e) {}
-            applyFabCfg();
-        }
-
-        function applyFabCfg() {
-            const r = document.documentElement.style;
-            r.setProperty('--fab-b', fabCfg.b + 'px');
-            r.setProperty('--fab-r', fabCfg.r + 'px');
-            r.setProperty('--fab-safe', fabCfg.safe ? 'var(--sab)' : '0px');
-
-            const b = document.getElementById('ftBottom');
-            const rt = document.getElementById('ftRight');
-            const sf = document.getElementById('ftSafe');
-            if (b) b.value = fabCfg.b;
-            if (rt) rt.value = fabCfg.r;
-            if (sf) sf.checked = fabCfg.safe;
-            const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
-            set('ftBottomVal', fabCfg.b + 'px');
-            set('ftRightVal', fabCfg.r + 'px');
-            set('ftSafeVal', fabCfg.safe ? 'on' : 'off');
-            set('ftReadout', fabSettingsString());
-            try { localStorage.setItem('ssaved_fab', JSON.stringify(fabCfg)); } catch (e) {}
-        }
-
-        function fabSettingsString() {
-            const sab = getComputedStyle(document.documentElement)
-                .getPropertyValue('--sab').trim() || '0px';
-            return `bottom:${fabCfg.b}px right:${fabCfg.r}px safe:${fabCfg.safe ? 'on' : 'off'} (inset ${sab})`;
-        }
-
-        function setFab(key, value) {
-            fabCfg[key] = key === 'safe' ? !!value : parseInt(value, 10);
-            applyFabCfg();
-        }
-
-        function resetFab() { fabCfg = { ...FAB_DEFAULTS }; applyFabCfg(); }
-
-        function toggleFabTuner() {
-            const t = document.getElementById('fabTuner');
-            if (!t) return;
-            t.classList.toggle('hidden');
-            if (!t.classList.contains('hidden')) applyFabCfg();
-        }
-
-        function copyFabSettings() {
-            const s = fabSettingsString();
-            navigator.clipboard?.writeText(s);
-            toast('Copied: ' + s, { duration: 6000 });
-        }
-        // ==== END TEMPORARY =================================================
         
         // Tapping the screenshot IS the link now — no hover-revealed arrow.
         // In selection mode the same tap toggles the card instead.
