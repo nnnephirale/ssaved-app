@@ -2,13 +2,16 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <!-- viewport-fit=cover lets the page paint edge to edge, up behind the status
+         bar and down past the home indicator. Everything that must stay clear of
+         them uses env(safe-area-inset-*) — see the SAFE AREA block in the CSS. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <meta http-equiv="Content-Security-Policy" content="script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.tailwindcss.com https://cdn.jsdelivr.net https://unpkg.com blob:; worker-src blob:; child-src blob:;">
     <title>SSaved</title>
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Geist:wght@300..700&display=swap" rel="stylesheet">
 
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Phosphor: the three weights we actually use. The bare
@@ -25,24 +28,49 @@
          paint on a phone connection. -->
 
     <style>
-        /* --- TYPOGRAPHY: mono is the voice, serif is the signature --- */
+        /* --- TYPOGRAPHY: Geist is the voice, the Queens wordmark is the signature --- */
         :root {
-            --font-ui: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+            --font-ui: 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+            --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
             --ease: cubic-bezier(0.16, 1, 0.3, 1);
 
             /* Four text greys. #737373 (4.74:1) is the hard floor for any glyph
                carrying information — the old #C4C4C4 (1.74:1) and #D4D4D4 (1.48:1)
-               were below the eye's resolving power, so structure read as fog. */
+               were below the eye's resolving power, so structure read as fog.
+               --dim is the ONE exception: it only ever carries 22px/700 folder
+               names, where 3.06:1 clears AA for large text. */
             --ink:   #171717;   /* primary / focused / active */
             --body:  #404040;   /* sustained reading text */
             --mute:  #737373;   /* structural at rest — THE FLOOR */
             --ghost: #A3A3A3;   /* placeholders, disabled, labelled icons. Never a word alone. */
+            --dim:   #909090;   /* inactive folder names only — large text, 3.06:1 */
+
+            /* Grid geometry. --cols drives mobile density (1 or 2); --card-min is
+               the desktop size lever. Both are set on <html> from localStorage. */
+            --cols: 2;
+            --card-min: 300px;
+            --shot-radius: 14px;
+            --bubble: #EDECE8;
+
+            /* --- SAFE AREA ---
+               The page runs edge to edge (viewport-fit=cover), so the frosted
+               header now sits UNDER the clock and battery rather than starting
+               below them. --sat is that overlap; every fixed thing at the top
+               adds it, everything pinned to the bottom adds --sab so it clears
+               the home indicator. Both resolve to 0 in a desktop browser, so
+               nothing here changes the desktop layout.
+               The extra 8px is the mockup's own breathing room between the
+               status bar and the wordmark. */
+            --sat: env(safe-area-inset-top, 0px);
+            --sab: env(safe-area-inset-bottom, 0px);
+            --header-air: 8px;
         }
         body {
             background: linear-gradient(180deg, #FAFAF8 0%, #F7F6F3 100%);
             min-height: 100vh;
+            min-height: 100dvh;   /* dvh tracks Safari's collapsing toolbars; vh does not */
             font-family: var(--font-ui);
-            font-weight: 300;
+            font-weight: 400;
         }
 
         /* --- IDENTITY: username and URL are ONE field in two modes ---
@@ -57,75 +85,122 @@
             color: var(--mute);
         }
         input, textarea, button, kbd { font-family: var(--font-ui); }
-        /* Display = the same mono, just heavier and tighter. One typeface, two registers. */
-        .font-display { font-weight: 500; letter-spacing: -0.03em; }
-        /* Mono-caps micro-label — the workhorse for every structural label */
+        /* Display = the same Geist, just heavier and tighter. One typeface, two registers. */
+        .font-display { font-weight: 500; letter-spacing: -0.02em; }
+        /* Caps micro-label — the workhorse for every structural label. Geist needs
+           less tracking than the mono it replaced (0.16em read as spaced-out). */
         .microlabel {
             font-size: 0.625rem;
             font-weight: 500;
             text-transform: uppercase;
-            letter-spacing: 0.16em;
+            letter-spacing: 0.11em;
         }
+        .font-mono-ui { font-family: var(--font-mono); }
 
-        /* --- FOLDER HEADERS (flat mono-caps; the clip-path tab is gone) --- */
-        .folder-tab {
+        /* --- FOLDER RAIL — the app's whole navigation ---
+           Sentence-case folder names in Geist Bold with the count as a
+           superscript, one horizontal scroller. There are no folder headers in
+           the grid any more: this row IS the header, so it stays put when the
+           wordmark tucks away on scroll. */
+        #folderRail {
+            overflow-x: auto;
+            overflow-y: hidden;
+            overscroll-behavior-x: contain;
+            -webkit-overflow-scrolling: touch;
+            scrollbar-width: none;
+            -ms-overflow-style: none;
+        }
+        #folderRail::-webkit-scrollbar { display: none; height: 0; }
+        #folderRail.is-off { display: none; }
+        .frail-inner {
+            display: flex;
+            align-items: flex-start;
+            gap: 37px;
+            width: max-content;
+            /* The top padding only shows once the wordmark tucks away — without
+               it the names sit flush against the viewport edge. */
+            padding: 0.5rem 1rem 0.85rem;
+        }
+        @media (min-width: 768px) { .frail-inner { padding: 0.5rem 1.5rem 0.85rem; } }
+        .frail-item {
+            position: relative;
             display: inline-flex;
-            align-items: center;
-            gap: 0.55rem;
-            padding: 0.25rem 0.6rem 0.25rem 0.15rem;
-            border-radius: 0.5rem;
-            background: transparent;
-            color: #a3a3a3;
-            transition: color 0.2s var(--ease), background-color 0.2s var(--ease);
+            align-items: flex-start;
+            gap: 2px;
+            padding: 0;
+            border: 0;
+            background: none;
+            white-space: nowrap;
+            font-size: 1.375rem;
+            font-weight: 700;
+            letter-spacing: -0.03em;
+            line-height: 1.15;
+            color: var(--dim);
+            cursor: pointer;
+            transition: color 0.28s var(--ease);
+            /* the row is a scroller; a tap must never be read as a drag-scroll */
+            touch-action: manipulation;
         }
-        .folder-tab:hover { color: #525252; }
-        .folder-tab .folder-count {
-            font-size: 0.625rem;
-            font-weight: 400;
-            letter-spacing: 0.05em;
-            color: #A3A3A3;
+        .frail-item:hover { color: #6b6b6b; }
+        .frail-item.is-active { color: var(--ink); }
+        .frail-item.is-collapsed .frail-name { opacity: 0.55; }
+        .frail-count {
+            font-size: 0.46em;
+            font-weight: 500;
+            letter-spacing: 0;
+            line-height: 1;
+            transform: translateY(1px);
         }
-        .folder-tab:hover .folder-count { color: #a3a3a3; }
-        .folder-drop-active .folder-tab {
-            background-color: #3b82f6 !important;
-            color: white !important;
+        /* Read-progress lives under the active name — the same information the
+           mobile breadcrumb's pill row used to carry, with none of its own
+           furniture. The track matters: a bare fill at 2% progress paints a 3px
+           dash that reads as a rendering artefact, not as a measure. */
+        .frail-item::before,
+        .frail-item::after {
+            content: '';
+            position: absolute;
+            left: 0; right: 0; bottom: -5px;
+            height: 2px; border-radius: 1px;
+            background: currentColor;
+            opacity: 0;
+            transition: opacity 0.3s var(--ease);
         }
-        .folder-drop-active .folder-tab .folder-count { color: rgba(255,255,255,0.7); }
+        .frail-item::after {
+            transform: scaleX(var(--p, 0));
+            transform-origin: left center;
+            transition: transform 0.12s linear, opacity 0.3s var(--ease);
+        }
+        .frail-item.is-active::before { opacity: 0.09; }
+        .frail-item.is-active::after  { opacity: 0.32; }
+        .frail-item.is-drop-target { color: #3b82f6; }
         .folder-drop-active .folder-grid-area {
             background-color: rgba(59, 130, 246, 0.05);
             border-radius: 1rem;
             box-shadow: inset 0 0 0 2px rgba(59, 130, 246, 0.2);
         }
 
-        /* --- CARD STYLING --- */
+        /* --- CARD ---
+           The card itself is now just a stack: the screenshot carries the shadow
+           and the glass rim, the note sits under it in its own bubble. No white
+           panel, no card border — the objects are the image and the note. */
         .card {
-            background: white;
-            border-radius: 1.25rem;
-            border: 1px solid rgba(0, 0, 0, 0.04);
-            overflow: hidden;
-            box-shadow: 
-                0 2px 4px -1px rgba(0, 0, 0, 0.02),
-                0 8px 24px -4px rgba(0, 0, 0, 0.06);
-            transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), 
-                        box-shadow 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+            background: none;
+            border: 0;
+            border-radius: 0;
+            overflow: visible;
+            box-shadow: none;
         }
-        .card:hover {
-            transform: translateY(-3px);
-            box-shadow: 
-                0 4px 8px -2px rgba(0, 0, 0, 0.03),
-                0 16px 40px -8px rgba(0, 0, 0, 0.1);
+        .card.is-restored .shot {
+            box-shadow:
+                0 0 0 1px rgba(244, 63, 94, 0.3),
+                0 8px 28px -6px rgba(244, 63, 94, 0.28);
         }
-        .card.is-restored {
-            border-color: rgba(244, 63, 94, 0.25);
-            box-shadow: 
-                0 4px 8px -2px rgba(244, 63, 94, 0.08),
-                0 16px 48px -8px rgba(244, 63, 94, 0.2);
-        }
-        .card.is-selected {
+        .card.is-selected .shot {
             box-shadow: 0 0 0 3px #3b82f6;
-            border-radius: 0.75rem;
         }
-        .card.is-selected:hover { transform: none; }
         .selection-check {
             position: absolute;
             top: 0.75rem;
@@ -142,6 +217,133 @@
             color: white;
             font-size: 12px;
         }
+
+        /* --- THE SCREENSHOT ---
+           Shadow built the Josh Comeau way: one light source (straight above,
+           so the shadow pools BELOW), four layers whose offset/blur grow on a
+           fixed ratio, and a warm low-saturation shadow hue rather than pure
+           black — black on a warm background reads as dirt. */
+        .card-grid {
+            display: grid;
+            gap: 10px;
+            grid-template-columns: repeat(var(--cols, 2), minmax(0, 1fr));
+            min-height: 50px;
+        }
+        @media (min-width: 768px) {
+            .card-grid {
+                gap: 22px;
+                grid-template-columns: repeat(auto-fill, minmax(var(--card-min, 300px), 1fr));
+            }
+        }
+        .shot {
+            --shadow-hue: 30deg 8% 62%;
+            position: relative;
+            aspect-ratio: 9 / 16;
+            border-radius: var(--shot-radius);
+            overflow: hidden;
+            background: #EFEEEB;
+            cursor: pointer;
+            box-shadow:
+                0 0 0 1px hsl(var(--shadow-hue) / 0.22),
+                0.3px 0.6px 0.8px hsl(var(--shadow-hue) / 0.10),
+                0.9px 1.7px 2.3px -0.7px hsl(var(--shadow-hue) / 0.12),
+                2.2px 4.4px 5.9px -1.5px hsl(var(--shadow-hue) / 0.14),
+                5.3px 10.6px 14.2px -2.2px hsl(var(--shadow-hue) / 0.16);
+            transition: box-shadow 0.3s var(--ease), transform 0.3s var(--ease);
+        }
+        /* Two full-screen phone screenshots side by side keep their native 19.5:9
+           so nothing is cropped away; every other density falls back to 9:16. */
+        @media (max-width: 767px) {
+            html[data-cols="2"] .shot { aspect-ratio: 9 / 19.5; }
+        }
+        .shot-img {
+            width: 100%; height: 100%;
+            object-fit: cover; object-position: top;
+            pointer-events: none;
+            display: block;
+            transition: transform 0.5s var(--ease);
+        }
+        /* Liquid-glass rim: a bright inner hairline plus a top sheen and a
+           weighted bottom edge, so the image reads as sitting under glass
+           rather than inside a stroke. */
+        .shot::after {
+            content: '';
+            position: absolute; inset: 0;
+            border-radius: inherit;
+            pointer-events: none;
+            box-shadow:
+                inset 0 0 0 1px rgba(255, 255, 255, 0.5),
+                inset 0 1px 0 rgba(255, 255, 255, 0.75),
+                inset 0 -1px 0 rgba(0, 0, 0, 0.05);
+            background: linear-gradient(
+                180deg,
+                rgba(255,255,255,0.18) 0%,
+                rgba(255,255,255,0) 14%,
+                rgba(255,255,255,0) 86%,
+                rgba(0,0,0,0.025) 100%);
+        }
+        @media (hover: hover) and (pointer: fine) {
+            .card:hover .shot {
+                transform: translateY(-3px);
+                box-shadow:
+                    0 0 0 1px hsl(var(--shadow-hue) / 0.22),
+                    0.4px 0.9px 1.2px hsl(var(--shadow-hue) / 0.11),
+                    1.3px 2.6px 3.5px -0.6px hsl(var(--shadow-hue) / 0.13),
+                    3.3px 6.6px 8.9px -1.2px hsl(var(--shadow-hue) / 0.15),
+                    8px 16px 21.4px -1.8px hsl(var(--shadow-hue) / 0.17);
+            }
+        }
+
+        /* --- INFO DOT — the card's only visible control --- */
+        .info-dot {
+            position: absolute;
+            right: 10px; bottom: 10px;
+            width: 38px; height: 38px;
+            border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            background: rgba(255, 255, 255, 0.42);
+            backdrop-filter: blur(14px) saturate(180%);
+            -webkit-backdrop-filter: blur(14px) saturate(180%);
+            box-shadow:
+                inset 0 0 0 1px rgba(255, 255, 255, 0.55),
+                0 2px 8px rgba(0, 0, 0, 0.12);
+            color: #1F1F1F;
+            z-index: 3;
+        }
+        /* 54px tap target under a 38px dot — comfortably past the 44px minimum */
+        .info-dot::before { content: ''; position: absolute; inset: -8px; border-radius: 50%; }
+        /* The glyph is ASSETS/Info.svg verbatim (path + viewBox), at the same
+           0.55 of the circle it occupies in the mockup. */
+        .info-dot svg { width: 21px; height: 21px; display: block; fill: currentColor; }
+        .fav-star { position: absolute; top: 9px; right: 10px; z-index: 3;
+                    color: #f59e0b; font-size: 0.9rem;
+                    filter: drop-shadow(0 1px 3px rgba(0,0,0,0.35)); }
+
+        /* --- NOTE BUBBLE --- */
+        .note-bubble {
+            position: relative;
+            border-radius: 14px;
+            background: var(--bubble);
+            padding: 0.6rem 0.75rem;
+            transition: background-color 0.2s var(--ease);
+        }
+        .note-bubble.is-empty { background: rgba(0, 0, 0, 0.028); }
+        .notes-textarea {
+            display: block;
+            width: 100%;
+            padding: 0;
+            border: 0;
+            outline: none;
+            resize: none;
+            background: transparent;
+            font-size: 1rem;
+            font-weight: 500;
+            letter-spacing: -0.015em;
+            line-height: 1.3;
+            color: var(--ink);
+        }
+        .notes-textarea::placeholder { color: var(--ghost); font-weight: 400; }
+        .notes-textarea:focus { border: 0 !important; }
 
         /* --- AUTO-GROW INPUTS --- */
         .auto-grow {
@@ -172,20 +374,6 @@
         .animate-pulse-subtle { animation: subtlePulse 2s ease-in-out infinite; }
 
         /* --- UI COMPONENTS --- */
-        .tooltip-arrow::after {
-            content: " "; position: absolute; top: 100%; left: 50%; margin-left: -6px;
-            border: 6px solid transparent; border-top-color: rgba(255,255,255,0.95); filter: drop-shadow(0 1px 2px rgb(0 0 0 / 0.08));
-        }
-        .tooltip-container {
-            transition: opacity 0.22s cubic-bezier(0.16, 1, 0.3, 1), transform 0.22s cubic-bezier(0.16, 1, 0.3, 1), filter 0.22s cubic-bezier(0.16, 1, 0.3, 1);
-            opacity: 0;
-            pointer-events: none;
-            transform: translateY(6px) scale(0.93);
-            transform-origin: bottom left;
-            filter: blur(3px);
-        }
-        .tooltip-container.active { opacity: 1; pointer-events: auto; transform: translateY(0) scale(1); filter: blur(0); }
-
         /* --- PRESS FEEDBACK (all buttons respond to the finger) --- */
         button:not(:disabled):active { transform: scale(0.97) !important; }
         button { transition: transform 0.15s cubic-bezier(0.16, 1, 0.3, 1); }
@@ -195,7 +383,7 @@
 
         /* --- TOASTS (stacked pills, bottom center) --- */
         #toastRoot {
-            position: fixed; bottom: 1.5rem; left: 50%; transform: translateX(-50%);
+            position: fixed; bottom: calc(1.5rem + var(--sab)); left: 50%; transform: translateX(-50%);
             z-index: 60; display: flex; flex-direction: column; align-items: center;
             gap: 0.5rem; pointer-events: none; width: max-content; max-width: calc(100vw - 2rem);
         }
@@ -221,46 +409,27 @@
         }
         .toast .toast-action:hover { color: #fecdd3; }
 
-        /* --- FLUID TAB INDICATOR (slides + stretches between tabs) ---
-           Animated with transform ONLY. Transitioning left/width relayouts every
-           frame on the main thread, which is what made this stutter on mobile
-           while render() rebuilt the grid. translate+scaleX runs on the
-           compositor and is immune to that work. Base width is a fixed 100px;
-           scaleX maps it onto the active tab. */
-        #tabIndicator {
-            position: absolute; bottom: -1px; left: 0;
-            width: 100px; height: 2px;
-            background: #171717; border-radius: 1px; pointer-events: none;
-            transform-origin: left center;
-            transform: translate3d(0, 0, 0) scaleX(0);
-            transition: transform 0.34s var(--ease);
-            will-change: transform;
-        }
-
-        /* --- DENSITY TOGGLE (mobile) — a surface that slides, not a line that stretches --- */
-        #densityToggle {
-            padding: 3px;
+        /* --- SEGMENTED CONTROLS (collection sheet) --- */
+        .seg {
+            display: inline-flex; gap: 2px; padding: 3px;
             border-radius: 11px;
             background: rgba(0, 0, 0, 0.035);
             border: 1px solid rgba(0, 0, 0, 0.04);
         }
-        .density-cell {
-            position: relative; z-index: 1;
-            width: 44px; height: 40px;
-            display: flex; align-items: center; justify-content: center;
+        .seg-cell {
+            display: inline-flex; align-items: center; justify-content: center; gap: 0.35rem;
+            min-width: 42px; height: 32px; padding: 0 0.65rem;
             border-radius: 8px; background: transparent;
-            color: #a3a3a3;
-            transition: color 0.22s var(--ease);
+            color: var(--ghost);
+            font-size: 0.75rem; font-weight: 500; letter-spacing: -0.01em;
+            transition: color 0.2s var(--ease), background-color 0.2s var(--ease), box-shadow 0.2s var(--ease);
             touch-action: manipulation;
         }
-        .density-cell.is-active { color: #171717; }
-        .density-thumb {
-            position: absolute; top: 3px; left: 3px;
-            width: 44px; height: 40px; border-radius: 8px;
+        .seg-cell i { font-size: 0.85rem; }
+        .seg-cell.is-active {
+            color: var(--ink);
             background: #fff;
             box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05), 0 0 0 1px rgba(0, 0, 0, 0.03);
-            transition: transform 0.22s var(--ease);
-            will-change: transform;
         }
 
         /* --- MODAL / SHEET ENTRANCES --- */
@@ -279,6 +448,9 @@
             @keyframes sheetIn { from { transform: translateY(100%); } to { transform: translateY(0); } }
             .modal-backdrop:not(.hidden) .sheet-content { animation: sheetIn 0.42s cubic-bezier(0.16, 1, 0.3, 1); }
             .sheet-content { transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
+            /* A bottom sheet now runs to the true bottom of the screen, so its
+               last row would sit under the home indicator without this. */
+            .sheet-content { padding-bottom: calc(1.25rem + var(--sab)); }
             .sheet-handle {
                 display: flex; justify-content: center;
                 padding: 0.6rem 0 0.1rem; touch-action: none; cursor: grab;
@@ -301,39 +473,6 @@
         .lenis.lenis-smooth { scroll-behavior: auto !important; }
         .lenis.lenis-stopped { overflow: clip; }
 
-        /* --- CARD ACTION MENU (Bloom-style morph from the trigger) --- */
-        #cardMenu {
-            position: fixed;
-            min-width: 11rem;
-            padding: 0.3rem;
-            background: rgba(255, 255, 255, 0.95);
-            backdrop-filter: blur(20px) saturate(1.4);
-            -webkit-backdrop-filter: blur(20px) saturate(1.4);
-            border: 1px solid rgba(0, 0, 0, 0.05);
-            border-radius: 0.85rem;
-            box-shadow: 0 24px 60px -16px rgba(0, 0, 0, 0.28), 0 2px 8px -3px rgba(0, 0, 0, 0.06);
-            /* transform-origin is set per-open so it grows out of the button corner */
-            animation: cardMenuIn 0.26s var(--ease);
-        }
-        @keyframes cardMenuIn {
-            from { opacity: 0; transform: scale(0.86); filter: blur(5px); }
-            to   { opacity: 1; transform: scale(1); filter: blur(0); }
-        }
-        .card-menu-item {
-            display: flex; align-items: center; gap: 0.6rem;
-            width: 100%; padding: 0.5rem 0.6rem;
-            border-radius: 0.55rem; text-align: left;
-            font-size: 0.75rem; font-weight: 300; color: #525252;
-            transition: background-color 0.12s ease, color 0.12s ease;
-        }
-        .card-menu-item i { font-size: 0.9rem; color: #a3a3a3; width: 1rem; }
-        .card-menu-item:hover { background: rgba(0, 0, 0, 0.045); color: #171717; }
-        .card-menu-item:hover i { color: #171717; }
-        .card-menu-item.is-danger { color: #f43f5e; }
-        .card-menu-item.is-danger i { color: #f43f5e; }
-        .card-menu-item.is-danger:hover { background: rgba(244, 63, 94, 0.07); color: #e11d48; }
-        .card-menu-sep { height: 1px; margin: 0.25rem 0.3rem; background: rgba(0, 0, 0, 0.05); }
-
         /* --- HEADER ICON BUTTON --- 44px per WCAG 2.5.5 / Apple HIG.
            Was 32px at 8px spacing, which collides on touch. */
         .hdr-btn {
@@ -350,7 +489,7 @@
            the header is the hardest. */
         #addFab {
             position: fixed; z-index: 41;
-            right: 1rem; bottom: calc(1rem + env(safe-area-inset-bottom));
+            right: 1rem; bottom: calc(1rem + var(--sab));
             display: inline-flex; align-items: center; gap: 0.5rem;
             height: 3rem; padding: 0 1.1rem; border-radius: 9999px;
             background: rgba(240,239,236,0.92);
@@ -393,7 +532,7 @@
         }
         .look-bar {
             display: flex; align-items: center; justify-content: space-between;
-            padding: 0.9rem 1.1rem; flex-shrink: 0;
+            padding: calc(0.9rem + var(--sat)) 1.1rem 0.9rem; flex-shrink: 0;
         }
         .look-progress-track {
             position: absolute; top: 0; left: 0; right: 0; height: 2px;
@@ -522,7 +661,7 @@
         .look-stamp-fav  { left: 50%; top: 45%; color: #f59e0b; margin-left: -2.2rem; }
 
         /* No action buttons — the gestures are the interface. Just breathing room. */
-        .look-tail { height: 1.75rem; flex-shrink: 0; }
+        .look-tail { height: calc(1.75rem + var(--sab)); flex-shrink: 0; }
         /* Already-favourited is information, not chrome, so it stays visible */
         .look-fav-mark { color: #f59e0b; font-size: 0.8rem; flex-shrink: 0; }
 
@@ -536,7 +675,7 @@
         .fav-star { color: #f59e0b; font-size: 0.7rem; flex-shrink: 0; }
 
         /* --- COMMAND PALETTE (⌘K) --- */
-        #cmdk { align-items: flex-start; justify-content: center; padding: 12vh 1rem 1rem; }
+        #cmdk { align-items: flex-start; justify-content: center; padding: calc(12vh + var(--sat)) 1rem 1rem; }
         @media (max-width: 767px) { #cmdk { padding-top: 5vh; } }
         .cmdk-panel {
             width: 100%; max-width: 34rem;
@@ -632,18 +771,20 @@
         }
         .cmdk-trigger:hover { background: rgba(0, 0, 0, 0.055); color: #525252; }
 
-        /* Flash the card the palette jumped to */
+        /* Flash the card the palette jumped to. The ring goes on .shot, not on
+           .card — the card is an unstyled flex column, so a shadow there draws a
+           square around the image AND the note bubble. */
         @keyframes cardFlash {
             0%   { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); }
             18%  { box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.5); }
             100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); }
         }
-        .card-flash { animation: cardFlash 1.5s var(--ease); }
+        .card-flash .shot { animation: cardFlash 1.5s var(--ease); }
 
         /* --- UPLOAD STAGING TRAY --- */
         #uploadTray {
             position: fixed; z-index: 55;
-            right: 1.5rem; bottom: 1.5rem; width: 19rem;
+            right: 1.5rem; bottom: calc(1.5rem + var(--sab)); width: 19rem;
             background: rgba(255, 255, 255, 0.92);
             backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
             border: 1px solid rgba(0, 0, 0, 0.05);
@@ -657,7 +798,7 @@
             to   { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
         }
         @media (max-width: 767px) {
-            #uploadTray { right: 0.75rem; left: 0.75rem; bottom: 0.75rem; width: auto; }
+            #uploadTray { right: 0.75rem; left: 0.75rem; bottom: calc(0.75rem + var(--sab)); width: auto; }
         }
         .tray-head {
             display: flex; align-items: center; justify-content: space-between;
@@ -699,18 +840,33 @@
         .tray-retry { color: #f43f5e; font-size: 0.625rem; letter-spacing: 0.08em; text-transform: uppercase; flex-shrink: 0; }
 
         /* --- SKELETON LOADING (perceived speed beats a lone spinner) --- */
+        /* Mirrors the real grid: two tall screenshots side by side with a note
+           bubble under each. A single full-width 9:16 card filled the phone
+           screen on its own and pushed the status line below the fold. */
         .skeleton-grid {
-            display: grid; gap: 1.25rem; width: 100%;
-            max-width: 1390px; padding: 0 1.5rem;
-            grid-template-columns: 1fr;
+            display: grid; gap: 10px; width: 100%;
+            max-width: 1390px; padding: 0 1rem;
+            grid-template-columns: repeat(2, 1fr);
         }
-        @media (min-width: 768px) { .skeleton-grid { grid-template-columns: repeat(3, 1fr); gap: 1.5rem; } }
-        .skeleton-card {
-            border-radius: 1.25rem; overflow: hidden;
-            background: #fff; border: 1px solid rgba(0,0,0,0.04);
-            box-shadow: 0 2px 4px -1px rgba(0,0,0,0.02), 0 8px 24px -4px rgba(0,0,0,0.05);
+        @media (min-width: 768px) { .skeleton-grid { grid-template-columns: repeat(3, 1fr); gap: 1.5rem; padding: 0 1.5rem; } }
+        .skeleton-card { display: flex; flex-direction: column; gap: 0.5rem; }
+        .skeleton-shot {
+            aspect-ratio: 9 / 19.5;
+            border-radius: var(--shot-radius);
+            overflow: hidden;
         }
-        .skeleton-card > div { background: #F0EFEC; }
+        @media (min-width: 768px) { .skeleton-shot { aspect-ratio: 9 / 16; } }
+        .skeleton-note { height: 42px; border-radius: 14px; background: var(--bubble); }
+        /* A failed load has nothing to preview — show the message, not a stack
+           of shimmering ghosts the copy has to sit underneath. !important is
+           required: the markup carries Tailwind's `!items-start`, and an
+           !important declaration only loses to another !important one. */
+        .loading-screen.is-failed { align-items: center !important; padding-top: 0 !important; }
+        .loading-screen.is-failed .skeleton-grid { display: none; }
+        .loading-screen.is-failed #loadingText {
+            text-transform: none; letter-spacing: -0.01em; font-size: 0.9375rem;
+            color: var(--body); line-height: 1.6;
+        }
         .shimmer {
             position: relative; overflow: hidden;
             background: #F0EFEC;
@@ -745,13 +901,19 @@
         .card-placeholder { opacity: 0; }
         /* Extra selected cards collapse out of flow while their group is dragged */
         .card-hidden { display: none; }
-        /* Momentary lift when a card is picked up */
+        /* Momentary lift when a card is picked up. The elevation goes on .shot:
+           .card is a transparent flex column, so a shadow there is a rectangle
+           drawn around nothing. */
         .card-lifted {
             transform: scale(1.03);
-            box-shadow: 0 14px 42px -10px rgba(0, 0, 0, 0.28);
-            transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+            transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
             z-index: 30;
             position: relative;
+        }
+        .card-lifted .shot {
+            box-shadow:
+                0 0 0 1px hsl(var(--shadow-hue) / 0.22),
+                0 14px 42px -10px rgba(0, 0, 0, 0.28);
         }
 
         /* Floating clone that follows the pointer */
@@ -762,12 +924,15 @@
             margin: 0;
             z-index: 1000;
             pointer-events: none;
-            border-radius: 1.25rem;
             opacity: 0.96;
-            box-shadow: 0 24px 60px -16px rgba(0, 0, 0, 0.38);
             transform: translate(0, 0);
             transform-origin: top left;
             will-change: transform;
+        }
+        .drag-ghost-live .shot {
+            box-shadow:
+                0 0 0 1px hsl(var(--shadow-hue) / 0.22),
+                0 24px 60px -16px rgba(0, 0, 0, 0.38);
         }
         .drag-ghost-count {
             position: absolute;
@@ -813,12 +978,83 @@
             border-radius: 2px; 
         }
 
-        /* --- HEADER --- */
+        /* --- HEADER ---
+           Two rows: the wordmark row, and the folder rail. Scrolling down tucks
+           the wordmark row away and leaves the rail — so the folder you're in is
+           named at the top of the screen the whole way down. The header itself
+           never leaves, which is why there's no separate breadcrumb any more. */
         .header-glass {
             background: rgba(255, 255, 255, 0.7);
             backdrop-filter: blur(20px);
             -webkit-backdrop-filter: blur(20px);
             border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+            /* The frosted panel starts at y=0 and runs up under the clock; this
+               padding is what keeps the wordmark clear of it. */
+            padding-top: calc(var(--sat) + var(--header-air));
+        }
+        /* main's own top padding has to grow by the same amount, or the first
+           row of cards starts underneath the header at scroll 0. */
+        #mainContainer { padding-top: calc(7.5rem + var(--sat) + var(--header-air)); }
+        @media (min-width: 768px) {
+            #mainContainer { padding-top: calc(8rem + var(--sat) + var(--header-air)); }
+        }
+        /* One content column, shared by the header rows and the grid, so the
+           wordmark, the folder names and the first card all start on the same
+           vertical. The desktop side nav is fixed to the right edge, so the
+           column has to stop short of it or the last card sits underneath it. */
+        .shell { max-width: 1390px; margin-inline: auto; }
+        @media (min-width: 768px) {
+            .shell { max-width: min(1390px, calc(100vw - 260px)); }
+        }
+        #brandRow {
+            overflow: hidden;
+            height: 58px;
+            opacity: 1;
+            transition: height 0.34s var(--ease), opacity 0.24s var(--ease), transform 0.34s var(--ease);
+        }
+        #mainHeader.is-tucked #brandRow {
+            height: 0;
+            opacity: 0;
+            transform: translateY(-10px);
+        }
+        .brand-btn {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            min-width: 0;
+            padding: 0;
+            border: 0;
+            background: none;
+            text-align: left;
+        }
+        .wordmark {
+            width: 118px;
+            height: auto;
+            display: block;
+            flex-shrink: 0;
+            color: var(--ink);
+        }
+        .collection-pill {
+            display: inline-flex;
+            align-items: center;
+            height: 30px;
+            padding: 0 0.9rem;
+            border-radius: 999px;
+            background: rgba(0, 0, 0, 0.055);
+            color: var(--ink);
+            font-size: 0.9375rem;
+            font-weight: 500;
+            letter-spacing: -0.02em;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 42vw;
+            transition: background-color 0.2s var(--ease);
+        }
+        .brand-btn:hover .collection-pill { background: rgba(0, 0, 0, 0.08); }
+        @media (min-width: 768px) {
+            .wordmark { width: 132px; }
+            .collection-pill { max-width: 20rem; }
         }
 
         /* --- BUTTONS --- */
@@ -849,53 +1085,21 @@
             color: #1a1a1a;
         }
 
-        /* --- EXTERNAL LINK BUTTON --- */
-        .external-link-btn {
-            position: absolute;
-            top: 0.75rem;
-            left: 0.75rem;
-            opacity: 0;
-            transform: scale(0.9);
-            transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-        }
-        .group\/image:hover .external-link-btn {
-            opacity: 1;
-            transform: scale(1);
-        }
-
-        /* --- DELETE BUTTON --- */
-        .delete-btn {
-            position: absolute;
-            top: 0.75rem;
-            right: 0.75rem;
-            opacity: 0;
-            transform: scale(0.9);
-            transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-        }
-        .group\/image:hover .delete-btn {
-            opacity: 1;
-            transform: scale(1);
-        }
-
         /* --- FOCUS STATES --- */
         textarea:focus {
             outline: none;
             border-color: rgba(0,0,0,0.2) !important;
         }
 
-        /* --- COLLAPSIBLE NOTES (Mobile Only) --- */
+        /* --- COLLAPSIBLE NOTES (Mobile Only) ---
+           Two lines at rest. The fade has to match the bubble, not the page:
+           it sits INSIDE a solid grey pill now, so the old fade-to-white left a
+           pale smear across the last line. */
         @media (max-width: 767px) {
-            .notes-wrapper {
-                position: relative;
-            }
-            .notes-wrapper .notes-toggle {
-                display: none;
-            }
-            .notes-wrapper .notes-fade {
-                display: none;
-            }
+            .notes-wrapper .notes-toggle { display: none; }
+            .notes-wrapper .notes-fade { display: none; }
             .notes-wrapper.is-collapsible .notes-textarea {
-                max-height: 4.5em;
+                max-height: 2.6em;      /* 2 lines at 1.3 leading */
                 overflow: hidden;
                 transition: max-height 0.35s cubic-bezier(0.16, 1, 0.3, 1);
             }
@@ -905,11 +1109,11 @@
             .notes-wrapper.is-collapsible .notes-fade {
                 display: block;
                 position: absolute;
-                bottom: 1.5rem;
-                left: 0;
-                right: 0;
-                height: 1.5em;
-                background: linear-gradient(to bottom, transparent, white);
+                bottom: 1.4rem;
+                left: 0.75rem;
+                right: 0.75rem;
+                height: 1.1em;
+                background: linear-gradient(to bottom, rgba(237,236,232,0), var(--bubble));
                 pointer-events: none;
                 opacity: 1;
                 transition: opacity 0.2s ease;
@@ -922,8 +1126,9 @@
                 align-items: center;
                 justify-content: center;
                 width: 100%;
-                padding: 0.25rem 0;
-                color: #a3a3a3;
+                margin-top: 0.1rem;
+                padding: 0.1rem 0;
+                color: #8A8A8A;
                 transition: color 0.15s ease;
             }
             .notes-toggle:hover,
@@ -931,7 +1136,7 @@
                 color: #525252;
             }
             .notes-toggle i {
-                font-size: 0.875rem;
+                font-size: 0.8rem;
                 transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
             }
             .notes-wrapper.is-expanded .notes-toggle i {
@@ -1000,34 +1205,77 @@
         /* Filtered-out cards are hidden, not destroyed — no image re-decode */
         .card.is-filtered-out { display: none; }
 
-        /* --- MOBILE: the same progress as a row of pills --- */
-        .fp-track {
-            display: flex; align-items: center; gap: 3px;
+        /* --- CARD INFO SHEET ---
+           The username/link field and the card's actions, reached by the info
+           dot. Everything the old ⋯ menu and the on-image arrow used to do. */
+        .ci-field {
+            display: flex; align-items: center; gap: 0.6rem;
+            padding: 0.55rem 0.7rem;
+            border-radius: 12px;
+            background: rgba(0, 0, 0, 0.035);
+        }
+        .ci-glyph {
+            width: 30px; height: 30px; flex-shrink: 0;
+            display: flex; align-items: center; justify-content: center;
+            border-radius: 9px;
+            color: var(--mute);
+            background: rgba(255, 255, 255, 0.7);
+            box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.05);
+            transition: color 0.18s var(--ease), background-color 0.18s var(--ease);
+        }
+        .ci-glyph i {
+            font-size: 0.95rem;
+            display: block;
+            transition: opacity 0.16s var(--ease), transform 0.24s var(--ease);
+        }
+        .ci-glyph.is-swapping i { opacity: 0; transform: scale(0.7) rotate(-25deg); }
+        .ci-glyph:hover { color: var(--ink); }
+        #ciInput {
             flex: 1; min-width: 0;
+            border: 0; outline: none; background: transparent;
+            font-size: 0.9375rem; font-weight: 400; letter-spacing: -0.01em;
+            color: var(--ink);
         }
-        .fp-seg {
-            position: relative; flex: 1; min-width: 6px;
-            height: 3px; border-radius: 2px;
-            background: rgba(0,0,0,0.10);
-            overflow: hidden;
-            --p: 0;
+        #ciInput::placeholder { color: var(--ghost); }
+        .ci-copy {
+            flex-shrink: 0; width: 30px; height: 30px;
+            display: flex; align-items: center; justify-content: center;
+            border-radius: 9px; color: var(--ghost);
+            transition: color 0.18s var(--ease), background-color 0.18s var(--ease);
         }
-        .fp-seg::after {
-            content: '';
-            position: absolute; inset: 0;
-            background: rgba(0,0,0,0.45);
-            transform: scaleX(var(--p));
-            transform-origin: left center;
-            transition: transform 0.12s linear;
+        .ci-copy:hover { color: var(--ink); background: rgba(0, 0, 0, 0.05); }
+        .ci-hint {
+            font-size: 0.6875rem; color: var(--ghost);
+            padding: 0.45rem 0.25rem 0;
         }
-
-        /* --- MOBILE BREADCRUMB --- */
-        .mobile-breadcrumb {
-            transition: opacity 0.2s ease;
+        .ci-suggest { display: flex; flex-wrap: wrap; gap: 0.4rem; padding-top: 0.6rem; }
+        .ci-suggest button {
+            padding: 0.3rem 0.6rem; border-radius: 8px;
+            background: rgba(0, 0, 0, 0.04);
+            font-size: 0.8125rem; color: var(--body);
+            transition: background-color 0.15s var(--ease);
         }
-        #mobileBreadcrumb.is-visible {
-            opacity: 1;
+        .ci-suggest button:hover { background: rgba(0, 0, 0, 0.08); }
+        .ci-actions {
+            display: flex; flex-direction: column;
+            margin-top: 0.75rem;
+            border-top: 1px solid rgba(0, 0, 0, 0.06);
+            padding-top: 0.35rem;
         }
+        .ci-action {
+            display: flex; align-items: center; gap: 0.7rem;
+            min-height: 44px; padding: 0 0.6rem;
+            border-radius: 10px;
+            font-size: 0.875rem; color: var(--body); text-align: left;
+            transition: background-color 0.15s var(--ease), color 0.15s var(--ease);
+        }
+        .ci-action i { font-size: 1rem; color: var(--ghost); width: 1.15rem; }
+        .ci-action:hover { background: rgba(0, 0, 0, 0.04); color: var(--ink); }
+        .ci-action:hover i { color: var(--ink); }
+        .ci-action[disabled] { opacity: 0.35; pointer-events: none; }
+        .ci-action.is-danger { color: #f43f5e; }
+        .ci-action.is-danger i { color: #f43f5e; }
+        .ci-action.is-danger:hover { background: rgba(244, 63, 94, 0.07); color: #e11d48; }
 
         /* --- DROP OVERLAY --- */
         .drop-overlay-card {
@@ -1040,9 +1288,7 @@
 
         /* --- IMAGE HOVER SCALE (Desktop only, non-touch) --- */
         @media (hover: hover) and (pointer: fine) {
-            .group\/image:hover .img-hover-scale {
-                transform: scale(1.02);
-            }
+            .card:hover .shot-img { transform: scale(1.02); }
         }
 
         /* --- SHARE URL MODAL --- */
@@ -1060,6 +1306,8 @@
         .loading-screen {
             position: fixed;
             inset: 0;
+            padding-top: var(--sat);
+            padding-bottom: var(--sab);
             background: linear-gradient(180deg, #FAFAF8 0%, #F7F6F3 100%);
             display: flex;
             align-items: center;
@@ -1077,14 +1325,8 @@
         .view-mode .card { cursor: default; }
         .view-mode .card textarea { pointer-events: none; }
         .view-mode .card textarea::placeholder { color: transparent; }
-        .view-mode .folder-name-display { cursor: default; }
 
         /* --- FEED / LATEST VIEW --- */
-        .view-tab { display:inline-flex; align-items:center; gap:.45rem; padding:.65rem .25rem; margin-right:1.25rem; margin-bottom:-1px; font-size:.6875rem; font-weight:500; text-transform:uppercase; letter-spacing:.16em; color:#a3a3a3; background:transparent; border:0; border-bottom:2px solid transparent; cursor:pointer; transition:color .18s; touch-action:manipulation; }
-        @media (min-width:768px){ .view-tab { margin-right:1.75rem; padding:.5rem .25rem; } }
-        .view-tab:hover { color:#525252; }
-        .view-tab.is-active { color:#171717; }
-
         /* Mobile filter: one control, its label is the current state */
         .feed-showing {
             display: flex; align-items: center; gap: 0.5rem;
@@ -1111,9 +1353,6 @@
         .feed-filter-chip .feed-filter-count { margin-left:auto; padding-left:.4rem; font-size:.7rem; opacity:.6; font-weight:400; }
         @media (min-width:768px){ .feed-filter-chip { justify-content:flex-start; } }
 
-        .folder-pill { display:inline-flex; align-items:center; gap:.25rem; padding:.15rem .55rem; border-radius:9999px; background:rgba(245,245,245,.9); border:1px solid rgba(0,0,0,.05); color:#737373; font-size:.65rem; font-weight:600; text-transform:uppercase; letter-spacing:.03em; max-width:100%; }
-        .folder-pill span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-
         .fv-check { width:1.25rem; height:1.25rem; border-radius:.4rem; border:1.5px solid #A3A3A3; display:inline-flex; align-items:center; justify-content:center; color:transparent; font-size:.75rem; transition:all .15s; shrink:0; }
         .fv-check.is-on { background:#171717; border-color:#171717; color:#fff; }
 
@@ -1125,9 +1364,9 @@
     <div id="loadingScreen" class="loading-screen !items-start pt-28">
         <div class="w-full flex flex-col items-center gap-8">
             <div class="skeleton-grid">
-                <div class="skeleton-card"><div class="aspect-[9/16] shimmer"></div><div class="p-4 flex flex-col gap-3"><div class="h-2.5 w-2/3 rounded-full shimmer"></div><div class="h-2 w-1/3 rounded-full shimmer"></div></div></div>
-                <div class="skeleton-card hidden md:block"><div class="aspect-[9/16] shimmer"></div><div class="p-4 flex flex-col gap-3"><div class="h-2.5 w-1/2 rounded-full shimmer"></div><div class="h-2 w-2/5 rounded-full shimmer"></div></div></div>
-                <div class="skeleton-card hidden md:block"><div class="aspect-[9/16] shimmer"></div><div class="p-4 flex flex-col gap-3"><div class="h-2.5 w-3/5 rounded-full shimmer"></div><div class="h-2 w-1/4 rounded-full shimmer"></div></div></div>
+                <div class="skeleton-card"><div class="skeleton-shot shimmer"></div><div class="skeleton-note"></div></div>
+                <div class="skeleton-card"><div class="skeleton-shot shimmer"></div><div class="skeleton-note"></div></div>
+                <div class="skeleton-card hidden md:flex"><div class="skeleton-shot shimmer"></div><div class="skeleton-note"></div></div>
             </div>
             <p class="microlabel text-neutral-400 animate-pulse-subtle" id="loadingText">Loading your collection</p>
         </div>
@@ -1136,94 +1375,60 @@
     <!-- Frosted gradient edge: content dissolves under the header instead of colliding with it -->
     <div id="scrollEdge"></div>
 
-    <header id="mainHeader" class="header-glass px-4 md:px-6 py-3 fixed top-0 w-full z-40 transition-transform duration-300 ease-in-out">
-        <!-- Two groups, one row, at every width. Identity leads; modes trail.
-             gap-6 between them is 2x the intra-group gap (better-layout: group
-             with space, not lines). Everything else demoted to the collection
-             sheet, the FAB, or ⌘K — the old row demanded 549px inside 375px. -->
-        <div class="flex items-center justify-between gap-6 max-w-[1390px] mx-auto">
-
-            <!-- Collection identity — ONE tap target, opens the collection sheet.
-                 min-w-0 + truncate so a long name never shoves the modes off-screen. -->
-            <button onclick="openCollectionSheet()" class="flex items-center gap-1.5 min-w-0 min-h-[44px] text-left rounded-lg -ml-2 px-2 hover:bg-black/[0.03] transition-colors" title="This collection">
-                <span class="font-display text-lg leading-none text-neutral-900 shrink-0">SSaved</span>
-                <span id="headerCollectionName" class="microlabel text-neutral-400 truncate"></span>
-                <i class="ph-bold ph-caret-down text-[0.6rem] text-neutral-300 shrink-0"></i>
-            </button>
-
-            <div class="flex items-center gap-1 md:gap-2 shrink-0">
-                <!-- Desktop: width slider -->
-                <div class="hidden md:flex items-center gap-2 bg-neutral-100/50 px-3 py-1.5 rounded-lg border border-neutral-200/50 shrink-0">
-                    <i class="ph ph-corners-in text-neutral-400 text-sm"></i>
-                    <input type="range" min="600" max="2400" value="1390" class="w-20 md:w-24" id="widthSlider" oninput="updateWidth(this.value)">
-                </div>
-
-                <!-- Search — the escape valve for everything demoted, so it never leaves -->
-                <button onclick="openCmdk()" class="hdr-btn md:hidden" title="Search" aria-label="Search"><i class="ph ph-magnifying-glass text-lg"></i></button>
-                <button onclick="openCmdk()" class="cmdk-trigger hidden md:flex shrink-0" title="Search everything">
-                    <i class="ph ph-magnifying-glass text-sm"></i>
-                    <span class="microlabel">Search</span>
-                    <span class="cmdk-kbd">⌘K</span>
+    <header id="mainHeader" class="header-glass fixed top-0 w-full z-40">
+        <!-- ROW 1 — identity. Tapping anywhere on it opens the collection sheet,
+             which is also where the view / density / Look controls live so this
+             row can stay as quiet as the mockup. -->
+        <div id="brandRow">
+            <div class="shell px-4 md:px-6 h-[58px] flex items-center justify-between gap-4">
+                <button onclick="openCollectionSheet()" class="brand-btn" title="This collection">
+                    <svg class="wordmark" viewBox="0 0 240.29 90.89" fill="currentColor" aria-label="SSaved" role="img"><path d="M24.95 73.57Q21 73.57 18.22 72.89Q15.44 72.21 13.48 71.5Q11.51 70.78 9.8 70.78Q7.12 70.78 5.26 73.14H4.56L2.99 52.97H3.92Q7.33 61.82 12.9 66.74Q18.47 71.66 24.97 71.66Q29.79 71.66 32.51 69.29Q35.23 66.92 35.23 62.79Q35.23 59.4 33.05 56.79Q30.87 54.19 25.63 50.83L20.5 47.53Q13.05 42.76 10.05 38.68Q7.05 34.6 7.05 29.15Q7.05 24.31 9.42 20.63Q11.79 16.95 15.87 14.91Q19.95 12.87 25.02 12.87Q28.65 12.87 31.13 13.5Q33.62 14.13 35.5 14.76Q37.38 15.39 38.99 15.39Q41.42 15.39 43.03 13.31H43.74L45.05 32.16H44.13Q41.35 24.53 36.66 20.28Q31.97 16.03 26.42 16.03Q22.1 16.03 19.51 18.31Q16.92 20.59 16.92 24.36Q16.92 27.55 19.09 30.06Q21.25 32.57 26.13 35.68L31.31 39.02Q39.11 44.02 42.17 48.19Q45.23 52.36 45.23 57.98Q45.23 65.28 40.09 69.43Q34.94 73.57 24.95 73.57ZM64.48 73.57Q60.53 73.57 57.75 72.89Q54.97 72.21 53.01 71.5Q51.04 70.78 49.33 70.78Q46.65 70.78 44.79 73.14H44.09L42.52 52.97H43.45Q46.86 61.82 52.43 66.74Q58 71.66 64.5 71.66Q69.32 71.66 72.04 69.29Q74.76 66.92 74.76 62.79Q74.76 59.4 72.58 56.79Q70.4 54.19 65.16 50.83L60.03 47.53Q52.58 42.76 49.58 38.68Q46.58 34.6 46.58 29.15Q46.58 24.31 48.95 20.63Q51.32 16.95 55.4 14.91Q59.48 12.87 64.55 12.87Q68.18 12.87 70.66 13.5Q73.15 14.13 75.03 14.76Q76.91 15.39 78.52 15.39Q80.95 15.39 82.56 13.31H83.27L84.58 32.16H83.66Q80.88 24.53 76.19 20.28Q71.5 16.03 65.95 16.03Q61.63 16.03 59.04 18.31Q56.45 20.59 56.45 24.36Q56.45 27.55 58.62 30.06Q60.78 32.57 65.66 35.68L70.84 39.02Q78.64 44.02 81.7 48.19Q84.76 52.36 84.76 57.98Q84.76 65.28 79.62 69.43Q74.47 73.57 64.48 73.57ZM97.33 73.42Q92.61 73.42 89.82 70.85Q87.04 68.28 87.04 64.05Q87.04 59.74 90.7 56.35Q94.36 52.97 102.62 50.15L109.13 47.92V42.7Q109.13 37.85 107.35 35.53Q105.57 33.21 102.03 33.21Q99.71 33.21 98.28 34.23Q96.85 35.24 96.85 36.99Q96.85 37.68 97.09 38.36Q97.32 39.05 97.75 40.02Q98.17 40.96 98.4 41.63Q98.63 42.31 98.63 43Q98.63 44.9 97.15 46.19Q95.68 47.48 93.43 47.48Q91.12 47.48 89.69 46Q88.26 44.51 88.26 42.15Q88.26 39.15 90.31 36.6Q92.36 34.05 95.94 32.52Q99.52 30.99 104.05 30.99Q111.09 30.99 114.72 34.31Q118.36 37.63 118.36 44.09V64.29Q118.36 68.14 121.05 68.14Q123.16 68.14 124.02 65.17L124.99 65.47Q124.44 69.32 122.31 71.37Q120.17 73.42 116.5 73.42Q112.77 73.42 110.83 71.36Q108.89 69.3 108.89 65.62V64.75L109.05 64.79Q107.66 68.75 104.75 71.09Q101.84 73.42 97.33 73.42ZM102.14 68.65Q104.44 68.65 106.15 66.94Q107.85 65.23 109.13 62.11V49.44L104.94 51.02Q100.53 52.66 98.71 55.03Q96.9 57.4 96.9 61.11Q96.9 64.66 98.28 66.65Q99.66 68.65 102.14 68.65ZM138.83 72.57L127.32 40.42Q126.29 37.52 125.42 36.15Q124.55 34.78 122.83 33.77V33H143.5V33.77Q141.05 34.66 140.13 35.71Q139.21 36.76 139.21 38.29Q139.21 39.7 139.86 41.86L146.94 63.24L152.15 45.28Q153.9 39.32 153.9 37.14Q153.9 35.75 152.92 34.98Q151.94 34.21 148.86 33.77V33H162.5V33.77Q160.72 34.44 159.24 36.35Q157.75 38.26 156.32 42.8L147.19 72.57ZM178.5 73.42Q172.42 73.42 167.84 70.75Q163.27 68.07 160.73 63.27Q158.19 58.47 158.19 52.19Q158.19 46.14 160.7 41.32Q163.21 36.5 167.6 33.74Q171.99 30.99 177.53 30.99Q184.65 30.99 188.83 35.35Q193.01 39.72 193.01 47.28Q193.01 48.35 192.9 49.34Q192.79 50.32 192.62 51.16H167.16V51.32Q167.16 59.36 170.61 63.85Q174.06 68.34 180.24 68.34Q183.65 68.34 186.35 66.87Q189.06 65.4 191.52 62.28L192.29 62.71Q189.75 68.07 185.51 70.74Q181.28 73.42 178.5 73.42ZM167.24 49.7H184.35Q184.53 48.44 184.53 46.5Q184.53 39.99 182.6 36.6Q180.68 33.21 177.03 33.21Q172.99 33.21 170.4 37.61Q167.81 42.02 167.24 49.7ZM211.06 73.42Q206.16 73.42 202.42 70.94Q198.68 68.45 196.63 63.94Q194.58 59.43 194.58 53.55Q194.58 46.79 197.05 41.83Q199.51 36.86 203.79 34.16Q208.07 31.46 213.4 31.46Q216.79 31.46 219.35 32.55Q221.92 33.64 223.65 35.58V25.06Q223.65 21.28 222.63 19.44Q221.6 17.61 218.99 16.65L218.71 15.94L232.42 12.62V60.79Q232.42 64.79 233.24 66.36Q234.06 67.93 236.36 68.5L237.11 68.71L237.03 69.44L224.19 73.42L223.87 63.63L224.11 63.71Q222.51 68.24 219.16 70.83Q215.81 73.42 211.06 73.42ZM214.51 67.87Q217.34 67.87 219.62 65.96Q221.9 64.05 223.65 60.34V38.61Q222.62 36.72 220.62 35.51Q218.62 34.29 216.31 34.29Q211.11 34.29 207.83 39.31Q204.55 44.32 204.55 52.36Q204.55 59.61 207.26 63.74Q209.98 67.87 214.51 67.87Z"/></svg>
+                    <span id="headerCollectionName" class="collection-pill"></span>
                 </button>
 
-                <!-- Look at this -->
-                <button onclick="openLook()" class="hdr-btn md:hidden view-hide" title="Look at this" aria-label="Look at this"><i class="ph ph-cards text-lg"></i></button>
-                <button onclick="openLook()" class="cmdk-trigger hidden md:flex shrink-0 view-hide" title="Look at this — review your pile">
-                    <i class="ph ph-cards text-sm"></i>
-                    <span class="microlabel">Look</span>
-                </button>
-
-                <!-- Desktop keeps the add verbs inline; mobile uses the FAB -->
-                <div class="hidden md:flex items-center gap-2 shrink-0 view-hide">
-                    <button onclick="triggerUpload()" class="btn-primary flex items-center gap-1.5 px-3 py-1.5 text-sm" title="Add screenshot">
+                <!-- Desktop keeps its working controls; the mobile header is the
+                     mockup and nothing else. Everything here is also in the sheet. -->
+                <div class="hidden md:flex items-center gap-2 shrink-0">
+                    <div class="flex items-center gap-2 bg-neutral-100/50 px-3 py-1.5 rounded-lg border border-neutral-200/50 shrink-0" title="Image size">
+                        <i class="ph ph-corners-in text-neutral-400 text-sm"></i>
+                        <input type="range" min="180" max="560" value="300" class="w-24" id="widthSlider" oninput="updateWidth(this.value)">
+                    </div>
+                    <button onclick="openCmdk()" class="cmdk-trigger shrink-0" title="Search everything">
+                        <i class="ph ph-magnifying-glass text-sm"></i>
+                        <span class="microlabel">Search</span>
+                        <span class="cmdk-kbd">⌘K</span>
+                    </button>
+                    <button onclick="openLook()" class="cmdk-trigger shrink-0 view-hide" title="Look at this — review your pile">
+                        <i class="ph ph-cards text-sm"></i>
+                        <span class="microlabel">Look</span>
+                    </button>
+                    <button onclick="triggerUpload()" class="btn-primary flex items-center gap-1.5 px-3 py-1.5 text-sm view-hide" title="Add screenshot">
                         <i class="ph-bold ph-plus text-sm"></i>
                         <i class="ph-bold ph-image text-base"></i>
                     </button>
-                    <button onclick="createNewFolder()" class="btn-primary flex items-center gap-1.5 px-3 py-1.5 text-sm" title="New folder">
+                    <button onclick="createNewFolder()" class="btn-primary flex items-center gap-1.5 px-3 py-1.5 text-sm view-hide" title="New folder">
                         <i class="ph-bold ph-plus text-sm"></i>
                         <i class="ph-bold ph-folder-plus text-base"></i>
                     </button>
                 </div>
-
-                <input type="file" id="fileInput" multiple accept="image/*" class="hidden view-hide" onchange="handleFiles(this.files)">
             </div>
         </div>
+
+        <!-- ROW 2 — the folder rail. data-lenis-prevent so the wheel scrolls the
+             row itself on desktop instead of being eaten by the page's smoothing. -->
+        <div id="folderRail" data-lenis-prevent>
+            <div class="shell"><div id="folderRailInner" class="frail-inner"></div></div>
+        </div>
+
+        <input type="file" id="fileInput" multiple accept="image/*" class="hidden view-hide" onchange="handleFiles(this.files)">
     </header>
 
-    <!-- Mobile Folder Breadcrumb -->
-    <div id="mobileBreadcrumb" class="md:hidden fixed top-0 left-0 right-0 z-35 pointer-events-none opacity-0 transition-all duration-300" style="z-index: 35;">
-        <div class="px-4 pt-2 pb-1">
-            <span class="mobile-breadcrumb flex items-center gap-2.5 text-[10px] font-medium uppercase tracking-wider text-neutral-400 bg-white/80 backdrop-blur-md px-3 py-1.5 rounded-full border border-neutral-100/80 shadow-sm">
-                <span id="breadcrumbText" class="shrink-0 max-w-[9rem] truncate"></span>
-                <span class="fp-track" id="folderProgressTrack"></span>
-            </span>
-        </div>
-    </div>
+    <main id="mainContainer" class="shell px-4 md:px-6 pb-6 relative min-h-screen">
 
-    <main id="mainContainer" class="p-4 md:p-6 pt-24 md:pt-28 relative mx-auto min-h-screen transition-[max-width] duration-200 ease-out" style="max-width: 1390px;">
-        
         <div id="emptyState" class="hidden min-h-[70vh] flex flex-col items-center justify-center text-neutral-400">
             <div class="w-20 h-20 bg-neutral-100 rounded-2xl flex items-center justify-center mb-6 text-neutral-300"><i class="ph-fill ph-images text-4xl"></i></div>
             <p class="font-display text-base text-neutral-600">Nothing saved yet</p>
             <p class="microlabel text-neutral-400 mt-3">Drop screenshots anywhere on this page</p>
-        </div>
-
-        <!-- View tabs: Folders vs Latest (feed) -->
-        <!-- One row, two categories: view mode (tabs on the rule) vs density
-             (enclosed pill above it). The form difference does the grouping —
-             no divider needed. -->
-        <div id="viewTabs" class="flex items-end justify-between mb-6 border-b border-neutral-200/60">
-            <div class="tab-group relative flex items-end">
-                <button onclick="setLayoutMode('folders')" id="tab-folders" class="view-tab"><i class="ph-bold ph-folders text-sm"></i> Folders</button>
-                <button onclick="setLayoutMode('feed')" id="tab-feed" class="view-tab"><i class="ph-bold ph-clock-counter-clockwise text-sm"></i> Latest</button>
-                <span id="tabIndicator"></span>
-            </div>
-
-            <div id="densityToggle" class="md:hidden relative inline-flex mb-1.5 view-hide">
-                <span class="density-thumb"></span>
-                <button onclick="setMobileCols(1)" id="col-btn-1" class="density-cell" aria-label="One column" title="One column"><i class="ph-bold ph-rows text-base"></i></button>
-                <button onclick="setMobileCols(2)" id="col-btn-2" class="density-cell" aria-label="Two columns" title="Two columns"><i class="ph-bold ph-squares-four text-base"></i></button>
-            </div>
         </div>
 
         <div id="folderWrapper" class="flex flex-col gap-12 pb-32"></div>
@@ -1257,13 +1462,13 @@
         </div>
     </div>
 
-    <!-- Tag Overview (long-press a folder tab) -->
+    <!-- Move-to-folder destination picker (from the card info sheet) -->
     <div id="tagOverview" class="fixed inset-0 z-50 hidden items-end md:items-center justify-center modal-backdrop">
         <div class="modal-content sheet-content w-full max-w-md rounded-b-none md:rounded-[1.25rem] max-h-[75vh] flex flex-col">
             <div class="sheet-handle md:hidden shrink-0"><span></span></div>
             <div class="flex items-center justify-between px-5 pt-2 md:pt-5 pb-3 shrink-0">
                 <div>
-                    <h2 class="font-display text-base">Jump to folder</h2>
+                    <h2 class="font-display text-base">Move to folder</h2>
                     <p class="text-xs text-neutral-400 mt-0.5" id="tagOverviewSubtitle"></p>
                 </div>
                 <button onclick="closeTagOverview()" class="p-2 text-neutral-400 hover:text-neutral-900 rounded-lg transition-colors">
@@ -1310,9 +1515,20 @@
         </div>
     </div>
 
-    <!-- Card action menu — Bloom-style: morphs open from the ⋯ button it came from -->
-    <div id="cardMenuLayer" class="fixed inset-0 z-[58] hidden">
-        <div id="cardMenu" role="menu"></div>
+    <!-- Folder sheet — long-press a name in the rail. Everything the in-grid
+         folder header used to carry. -->
+    <div id="folderSheet" class="fixed inset-0 z-[55] hidden items-end md:items-center justify-center p-0 md:p-4 modal-backdrop">
+        <div class="modal-content sheet-content w-full max-w-md p-5 rounded-b-none md:rounded-[1.25rem]">
+            <div class="sheet-handle md:hidden -mt-2"><span></span></div>
+            <h2 class="font-display text-base truncate" id="folderSheetName"></h2>
+            <p class="microlabel text-neutral-400 mt-0.5 mb-3" id="folderSheetMeta"></p>
+            <div class="ci-actions" style="border-top:0; margin-top:0">
+                <button class="ci-action" onclick="folderSheetAction('add')"><i class="ph-bold ph-image"></i> Add screenshot</button>
+                <button class="ci-action" onclick="folderSheetAction('rename')"><i class="ph-bold ph-pencil-simple"></i> Rename</button>
+                <button class="ci-action" id="folderSheetCollapse" onclick="folderSheetAction('collapse')"></button>
+                <button class="ci-action is-danger" id="folderSheetDelete" onclick="folderSheetAction('delete')"><i class="ph-bold ph-trash"></i> Delete folder</button>
+            </div>
+        </div>
     </div>
 
     <!-- Add screenshot — mobile primary action, out of flow so it can't be clipped -->
@@ -1340,7 +1556,45 @@
             </div>
             <p class="text-[0.6875rem] text-neutral-400 leading-relaxed mb-3">Anyone with this link can view and edit. It's the only key to this collection — keep it somewhere safe.</p>
 
-            <div class="border-t border-neutral-100 pt-1">
+            <!-- View + density live here rather than in the header: the mockup's
+                 header is identity only. Both are one tap from the wordmark. -->
+            <div class="border-t border-neutral-100 pt-3 flex flex-col gap-2.5 view-hide">
+                <div class="flex items-center justify-between gap-3">
+                    <span class="microlabel text-neutral-400">View</span>
+                    <div class="seg" role="group" aria-label="View">
+                        <button onclick="setLayoutMode('folders')" id="seg-folders" class="seg-cell"><i class="ph-bold ph-folders"></i> Folders</button>
+                        <button onclick="setLayoutMode('feed')" id="seg-feed" class="seg-cell"><i class="ph-bold ph-clock-counter-clockwise"></i> Latest</button>
+                    </div>
+                </div>
+                <div class="flex items-center justify-between gap-3 md:hidden">
+                    <span class="microlabel text-neutral-400">Columns</span>
+                    <div class="seg" role="group" aria-label="Columns">
+                        <button onclick="setMobileCols(1)" id="seg-col-1" class="seg-cell" aria-label="One column"><i class="ph-bold ph-rows"></i></button>
+                        <button onclick="setMobileCols(2)" id="seg-col-2" class="seg-cell" aria-label="Two columns"><i class="ph-bold ph-squares-four"></i></button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="border-t border-neutral-100 mt-3 pt-1">
+                <button onclick="closeCollectionSheet(); openLook();" class="sheet-row view-hide">
+                    <span class="flex items-center gap-2.5 min-w-0">
+                        <i class="ph ph-cards text-neutral-400"></i>
+                        <span class="text-xs">Look at this</span>
+                    </span>
+                </button>
+                <button onclick="closeCollectionSheet(); openCmdk();" class="sheet-row">
+                    <span class="flex items-center gap-2.5 min-w-0">
+                        <i class="ph ph-magnifying-glass text-neutral-400"></i>
+                        <span class="text-xs">Search</span>
+                    </span>
+                    <span class="sheet-row-state">⌘K</span>
+                </button>
+                <button onclick="closeCollectionSheet(); createNewFolder();" class="sheet-row view-hide">
+                    <span class="flex items-center gap-2.5 min-w-0">
+                        <i class="ph ph-folder-plus text-neutral-400"></i>
+                        <span class="text-xs">New folder</span>
+                    </span>
+                </button>
                 <button onclick="manualBackupToGitHub()" class="sheet-row">
                     <span class="flex items-center gap-2.5 min-w-0">
                         <i class="ph ph-cloud-arrow-up text-neutral-400"></i>
@@ -1348,6 +1602,28 @@
                     </span>
                     <span class="sheet-row-state" id="backupStateLabel">—</span>
                 </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Card info — the username/link pair and everything the ⋯ menu used to do.
+         Reached by the info dot on the screenshot. -->
+    <div id="cardInfo" class="fixed inset-0 z-[55] hidden items-end md:items-center justify-center p-0 md:p-4 modal-backdrop">
+        <div class="modal-content sheet-content w-full max-w-md p-5 rounded-b-none md:rounded-[1.25rem]">
+            <div class="sheet-handle md:hidden -mt-2"><span></span></div>
+            <div class="ci-field">
+                <button class="ci-glyph" id="ciGlyph" onclick="cardInfoGlyphTap()" aria-label="Switch between username and link"></button>
+                <input id="ciInput" type="text" autocomplete="off" spellcheck="false"
+                       oninput="cardInfoEdit(this.value)" onkeydown="if(event.key==='Enter') this.blur()">
+                <button class="ci-copy" id="ciCopy" onclick="cardInfoAction('copy')" aria-label="Copy link"><i class="ph-bold ph-copy"></i></button>
+            </div>
+            <p class="ci-hint" id="ciHint"></p>
+            <div class="ci-suggest" id="ciSuggest"></div>
+
+            <div class="ci-actions">
+                <button class="ci-action" id="ciOpen" onclick="cardInfoAction('open')"><i class="ph-bold ph-arrow-up-right"></i> Open profile</button>
+                <button class="ci-action view-hide" onclick="cardInfoAction('move')"><i class="ph-bold ph-folder-simple"></i> Move to folder</button>
+                <button class="ci-action is-danger view-hide" onclick="cardInfoAction('delete')"><i class="ph-bold ph-trash"></i> Delete</button>
             </div>
         </div>
     </div>
@@ -1402,7 +1678,7 @@
 
     <div id="toastRoot"></div>
 
-    <div id="selectionToolbar" class="fixed bottom-6 left-1/2 -translate-x-1/2 bg-blue-600 backdrop-blur-md text-white pl-5 pr-3 py-2.5 rounded-full shadow-2xl flex items-center gap-3 hidden z-50">
+    <div id="selectionToolbar" style="bottom: calc(1.5rem + var(--sab))" class="fixed left-1/2 -translate-x-1/2 bg-blue-600 backdrop-blur-md text-white pl-5 pr-3 py-2.5 rounded-full shadow-2xl flex items-center gap-3 hidden z-50">
         <span id="selectionCount" class="text-xs font-medium">0 selected</span>
         <button onclick="exitSelectionMode()" class="w-7 h-7 flex items-center justify-center hover:bg-blue-500 rounded-full transition-colors"><i class="ph-bold ph-x text-sm"></i></button>
     </div>
@@ -1460,6 +1736,9 @@
             setupSheetDrag('tagOverview', closeTagOverview);
             setupSheetDrag('folderVisibilityModal', closeFolderVisibilityModal);
             setupSheetDrag('shareModal', closeShareModal);
+            setupSheetDrag('collectionSheet', closeCollectionSheet);
+            setupSheetDrag('cardInfo', closeCardInfo);
+            setupSheetDrag('folderSheet', closeFolderSheet);
             initSmoothScroll();
             initScrollBehavior();
             // AFTER initSmoothScroll: restoreLookSession calls lenis?.stop() to
@@ -1470,10 +1749,10 @@
             preloadImages();
 
             // Prefs (local only)
-            const w = localStorage.getItem('ssaved_width');
+            const w = localStorage.getItem('ssaved_cardw');
             if (w) { document.getElementById('widthSlider').value = w; updateWidth(w); }
             updateLayoutToggleUI();
-            setMobileCols(localStorage.getItem('ssaved_cols') || 1);
+            setMobileCols(localStorage.getItem('ssaved_cols') || 2);
 
             // ESC to exit selection mode
             document.addEventListener('keydown', e => {
@@ -1484,6 +1763,17 @@
         // --- VIEW MODE ---
         const viewMode = new URLSearchParams(window.location.search).get('s') === '1';
         if (viewMode) document.documentElement.classList.add('view-mode');
+
+        // Layout prefs go on <html> BEFORE first paint. setMobileCols() runs after
+        // the collection loads, which is far too late to avoid a 1-col flash on a
+        // 2-col phone (and vice versa).
+        (function applyStoredLayout() {
+            const cols = String(localStorage.getItem('ssaved_cols') || 2) === '1' ? 1 : 2;
+            document.documentElement.style.setProperty('--cols', cols);
+            document.documentElement.setAttribute('data-cols', cols);
+            const w = localStorage.getItem('ssaved_cardw');
+            if (w) document.documentElement.style.setProperty('--card-min', `${w}px`);
+        })();
 
         // --- COLLECTION MANAGEMENT ---
         async function initCollection() {
@@ -1530,9 +1820,11 @@
         function showLoadFailure(id) {
             const el = document.getElementById('loadingText');
             if (!el) return;
+            document.getElementById('loadingScreen')?.classList.add('is-failed');
+            el.classList.remove('animate-pulse-subtle');
             el.innerHTML = `Couldn't reach the server.<br>
-                <span class="text-xs text-neutral-400">Your screenshots are safe — this is a connection problem.</span><br>
-                <button onclick="location.reload()" class="mt-3 px-4 py-2 rounded-full bg-neutral-100 hover:bg-neutral-200 text-neutral-700 text-xs transition-colors">Try again</button>`;
+                <span class="text-xs normal-case tracking-normal text-neutral-400">Your screenshots are safe — this is a connection problem.</span><br>
+                <button onclick="location.reload()" class="mt-3 px-4 py-2 rounded-full bg-neutral-100 hover:bg-neutral-200 text-neutral-700 text-xs normal-case tracking-normal transition-colors">Try again</button>`;
         }
 
         // --- COLLECTION ID GENERATION ---
@@ -1723,53 +2015,67 @@
             requestAnimationFrame(raf);
         }
 
-        // Single entry point so callers don't care whether Lenis loaded
+        // Single entry point so callers don't care whether Lenis loaded.
+        // Duration scales with distance: a flat 0.9s made a jump three folders
+        // down feel like a cut, because the same time covered ten times the
+        // travel. Cubic-out rather than expo-out — expo dumps almost all of its
+        // movement into the first third, which is what reads as "snappy".
         function smoothScrollTo(y) {
-            if (lenis) lenis.scrollTo(y, { duration: 0.9 });
-            else window.scrollTo({ top: y, behavior: 'smooth' });
+            const dist = Math.abs(y - window.scrollY);
+            const duration = Math.min(1.35, Math.max(0.55, 0.45 + dist / 4200));
+            if (lenis) {
+                lenis.scrollTo(y, { duration, easing: t => 1 - Math.pow(1 - t, 3) });
+            } else {
+                window.scrollTo({ top: y, behavior: 'smooth' });
+            }
         }
 
         // --- SCROLL BEHAVIOR ---
+        // The header no longer leaves. Scrolling down tucks ROW 1 (the wordmark)
+        // and leaves the folder rail pinned, so the folder you're reading is
+        // always named at the top — which is what the old floating breadcrumb was
+        // for. One element, two heights, no second overlay to keep in sync.
+        // The header's untucked height, remembered whenever we see it. scrollToFolder
+        // needs it to place a landing, and offsetHeight read mid-tuck is a number
+        // part-way through a 0.34s transition.
+        let headerFullH = 0;
+        // A programmatic scroll is in flight until this timestamp: the header must
+        // not tuck during one, or the landing it was aimed at moves 58px under it.
+        let scrollLockUntil = 0;
+
         function initScrollBehavior() {
             const header = document.getElementById('mainHeader');
-            const breadcrumb = document.getElementById('mobileBreadcrumb');
             const edge = document.getElementById('scrollEdge');
             let lastScrollY = window.scrollY;
 
             // The frosted edge sits flush under the header and rides with it
             const placeEdge = () => {
-                if (!edge) return;
-                const hidden = header.classList.contains('-translate-y-full');
-                edge.style.top = hidden ? '0px' : header.offsetHeight + 'px';
+                if (!edge || !header) return;
+                if (!header.classList.contains('is-tucked')) headerFullH = header.offsetHeight;
+                edge.style.top = header.offsetHeight + 'px';
             };
             placeEdge();
             window.addEventListener('resize', placeEdge);
+            // Geist arriving changes the header's height after first paint, and
+            // headerFullH is read from it — re-measure once the fonts settle.
+            document.fonts?.ready.then(placeEdge);
 
             window.addEventListener('scroll', () => {
                 const currentScrollY = window.scrollY;
                 if (currentScrollY < 0) return;
                 if (edge) edge.classList.toggle('is-on', currentScrollY > 24);
                 if (Math.abs(currentScrollY - lastScrollY) < 10) return;
+                if (performance.now() < scrollLockUntil) { lastScrollY = currentScrollY; return; }
                 const scrollingDown = currentScrollY > lastScrollY && currentScrollY > 60;
-                // The breadcrumb names the folder you're scrolling through — it's a
-                // Folders-view concept. Latest is chronological, so it would only
-                // ever show a stale, meaningless folder name there.
-                if (scrollingDown) {
-                    header.classList.add('-translate-y-full');
-                    if (breadcrumb) breadcrumb.classList.toggle('is-visible', layoutMode === 'folders');
-                } else {
-                    header.classList.remove('-translate-y-full');
-                    if (breadcrumb) breadcrumb.classList.remove('is-visible');
-                }
+                header.classList.toggle('is-tucked', scrollingDown);
+                // offsetHeight is mid-transition here; settle the edge afterwards.
                 placeEdge();
+                setTimeout(placeEdge, 360);
                 lastScrollY = currentScrollY;
             }, { passive: true });
         }
 
-        // --- FOLDER NAV (Desktop side nav + Mobile breadcrumb) ---
-        let folderObserver = null;
-        let activeFolderName = '';
-
+        // --- FOLDER NAV (desktop side rail + the folder rail's underline) ---
         function buildFolderNav() {
             // Desktop side nav — items only; the rail SVG is permanent markup
             const nav = document.getElementById('folderNavItems');
@@ -1780,16 +2086,7 @@
                 clearFolderNavRail();   // fresh items, no stale crest to glide from
             }
 
-            // Mobile: one segment per folder, same progress as the desktop rail
-            const track = document.getElementById('folderProgressTrack');
-            if (track) {
-                track.innerHTML = appData.folders.map(f =>
-                    `<span class="fp-seg" data-folder-id="${f.id}"></span>`
-                ).join('');
-            }
-
-            // Init observer for both desktop and mobile
-            initFolderObserver();
+            resetActiveFolder();
             updateFolderProgress();
         }
 
@@ -1810,7 +2107,13 @@
             // The rail is one line, so its fill front is one number: how far down
             // the stack of nav items the read line has reached.
             let railFill = 0;
-            appData.folders.forEach(f => {
+            // Which folder you're IN is computed here rather than by an
+            // IntersectionObserver. The observer's reading band can't reach the
+            // last section once the page has bottomed out, so the rail kept
+            // naming the second-to-last folder while you looked at the last one.
+            const scrollable = document.documentElement.scrollHeight > window.innerHeight + 4;
+            let activeIdx = -1;
+            appData.folders.forEach((f, i) => {
                 const section = document.getElementById(`folder-${f.id}`);
                 if (!section) return;
                 const top = section.offsetTop;
@@ -1820,9 +2123,50 @@
                 const v = p.toFixed(3);
                 const navItem = document.querySelector(`.side-nav-item[data-folder-id="${f.id}"]`);
                 if (navItem) railFill += p * navItem.offsetHeight;
-                document.querySelector(`.fp-seg[data-folder-id="${f.id}"]`)?.style.setProperty('--p', v);
+                document.querySelector(`.frail-item[data-folder-id="${f.id}"]`)?.style.setProperty('--p', v);
+
+                // The active folder is the LAST one that has started above the
+                // read line — deliberately NOT "the section containing it".
+                // #folderWrapper puts a 48px gap between sections, and a gap
+                // belongs to no section, so a containment test returned -1 every
+                // time the read line crossed one. That fell through to index 0,
+                // which lit Inbox for a few frames and sent the rail scrolling
+                // all the way home and back — the further down you were, the
+                // longer the trip, which is why it only looked broken around
+                // One-off and Typography.
+                if (top <= readLine) activeIdx = Math.max(activeIdx, i);
+                // At the end of the page, the last folder on screen wins.
+                if (atBottom && scrollable && top < viewBottom && top + h > window.scrollY) {
+                    activeIdx = Math.max(activeIdx, i);
+                }
             });
+            const wanted = activeIdx < 0 ? 0 : activeIdx;
+
+            // While a tapped jump is in flight the destination stays lit: the
+            // folders we scroll past are somewhere we're going THROUGH, not
+            // somewhere we are. Released the moment we arrive, or on a timeout so
+            // a jump that never lands can't wedge the rail.
+            if (railJumpTo) {
+                if (appData.folders[wanted]?.id === railJumpTo || performance.now() > railJumpUntil) {
+                    railJumpTo = null;
+                    setActiveFolder(wanted);
+                }
+            } else {
+                setActiveFolder(wanted);
+            }
             drawFolderNavRail(railFill);
+        }
+
+        let activeFolderId = null;
+        function setActiveFolder(idx) {
+            const f = appData.folders[idx];
+            if (!f || f.id === activeFolderId) return;
+            activeFolderId = f.id;
+            document.querySelectorAll('.frail-item.is-active, .side-nav-item.is-active')
+                .forEach(el => el.classList.remove('is-active'));
+            document.querySelector(`.side-nav-item[data-folder-id="${f.id}"]`)?.classList.add('is-active');
+            const railItem = document.querySelector(`.frail-item[data-folder-id="${f.id}"]`);
+            if (railItem) { railItem.classList.add('is-active'); revealRailItem(railItem); }
         }
 
         // One path, top to bottom, bowing out to meet the folder you're in. The
@@ -1918,45 +2262,23 @@
 
         function scrollToFolder(folderId) {
             const section = document.getElementById(`folder-${folderId}`);
-            if (section) {
-                const headerHeight = 120;
-                const y = section.getBoundingClientRect().top + window.scrollY - headerHeight;
-                smoothScrollTo(y);
-            }
+            if (!section) return;
+            const header = document.getElementById('mainHeader');
+            // Open the header and hold it open for the flight, then aim at the
+            // height it will actually have on arrival. Measuring offsetHeight
+            // while it's tucked (or mid-transition) aimed 58px short, so the
+            // first row of the folder you asked for landed under the rail.
+            scrollLockUntil = performance.now() + 1800;
+            header?.classList.remove('is-tucked');
+            const headerHeight = (headerFullH || header?.offsetHeight || 120) + 12;
+            const y = section.getBoundingClientRect().top + window.scrollY - headerHeight;
+            smoothScrollTo(Math.max(0, y));
         }
 
-        function initFolderObserver() {
-            if (folderObserver) folderObserver.disconnect();
-
-            folderObserver = new IntersectionObserver((entries) => {
-                entries.forEach(entry => {
-                    const folderId = entry.target.id.replace('folder-', '');
-                    const folder = appData.folders.find(f => f.id === folderId);
-
-                    // Desktop side nav
-                    const navItem = document.querySelector(`.side-nav-item[data-folder-id="${folderId}"]`);
-                    if (navItem) {
-                        if (entry.isIntersecting) navItem.classList.add('is-active');
-                        else navItem.classList.remove('is-active');
-                        queueFolderProgress();   // the rail's bow follows .is-active
-                    }
-
-                    // Mobile breadcrumb — update to the topmost visible folder
-                    if (entry.isIntersecting && folder) {
-                        activeFolderName = folder.name;
-                        const breadcrumbText = document.getElementById('breadcrumbText');
-                        if (breadcrumbText) breadcrumbText.textContent = folder.name;
-                    }
-                });
-            }, {
-                rootMargin: '-20% 0px -70% 0px',
-                threshold: 0
-            });
-
-            appData.folders.forEach(f => {
-                const section = document.getElementById(`folder-${f.id}`);
-                if (section) folderObserver.observe(section);
-            });
+        // A fresh grid means the previously-active id no longer matches any
+        // element, so setActiveFolder's early-out would skip painting it.
+        function resetActiveFolder() {
+            activeFolderId = null;
         }
 
         // Hide side nav on mobile, show on desktop
@@ -2055,15 +2377,14 @@
 
             const hasCards = appData.cards.length > 0;
             const hasCustomFolders = appData.folders.length > 1;
-            const tabs = document.getElementById('viewTabs');
+            const rail = document.getElementById('folderRail');
 
             if (!hasCards && !hasCustomFolders) {
                 empty.classList.remove('hidden'); wrapper.innerHTML = '';
-                if (tabs) tabs.classList.add('hidden');
+                if (rail) rail.classList.add('is-off');
                 return;
             }
             empty.classList.add('hidden');
-            if (tabs) tabs.classList.remove('hidden');
             wrapper.innerHTML = '';
 
             // The slide-up entrance is a page-load flourish, nothing more. render()
@@ -2074,9 +2395,6 @@
             gridEntranceDone = true;
 
             if (layoutMode === 'feed') { renderFeed(rIds); return; }
-
-            const mCols = localStorage.getItem('ssaved_cols') || 1;
-            const gridClass = `grid-cols-${mCols} md:grid-cols-2 lg:grid-cols-3`;
 
             appData.folders.forEach(folder => {
                 const fCards = appData.cards
@@ -2094,48 +2412,14 @@
                         return b.id - a.id;
                     });
                 const cardsHtml = fCards.map(c => generateCardHTML(c, rIds)).join('');
-                const chevron = folder.isCollapsed ? 'ph-caret-right' : 'ph-caret-down';
                 const gridState = folder.isCollapsed ? 'hidden' : '';
-                const opacity = folder.isCollapsed ? 'opacity-50' : 'opacity-100';
 
-                const addBtn = viewMode ? '' : `
-                <button onclick="event.stopPropagation(); triggerUpload('${folder.id}')"
-                        class="ml-auto flex items-center gap-1 px-2 py-1.5 text-neutral-400 active:text-blue-500 md:text-neutral-300 md:opacity-0 md:group-hover/folder:opacity-100 hover:text-blue-500 hover:bg-blue-50/60 transition-all rounded-md"
-                        title="Add screenshot to this folder">
-                    <i class="ph-bold ph-plus text-xs"></i>
-                    <i class="ph-bold ph-image text-sm"></i>
-                </button>`;
-
-                const deleteBtn = (viewMode || folder.id === getInboxId()) ? '' : `
-                <button onclick="event.stopPropagation(); confirmDeleteFolder('${folder.id}')"
-                        class="mr-4 ml-1 flex items-center p-1.5 text-neutral-400 active:text-red-500 md:text-neutral-300 md:opacity-0 md:group-hover/folder:opacity-100 hover:text-red-500 transition-colors rounded-md"
-                        title="Delete Folder">
-                    <i class="ph-bold ph-x text-sm"></i>
-                </button>`;
-
+                // No folder header in the grid: the rail at the top of the screen
+                // names the folder you're in, and long-pressing its name there is
+                // where rename / add / collapse / delete now live.
                 const section = `
-                <section id="folder-${folder.id}" class="${enterClass} group/folder">
-                    <div class="folder-header mb-5 flex items-end relative pl-1"
-                         data-folder-id="${folder.id}">
-
-                        <div class="folder-tab microlabel select-none cursor-pointer ${opacity}"
-                             onclick="toggleFolder('${folder.id}')">
-                            <i class="ph-bold ${chevron} text-[0.6rem]"></i>
-                            <span class="folder-name-display" ${viewMode ? '' : `ondblclick="event.stopPropagation(); editFolderName('${folder.id}')"`}>${escapeHtml(folder.name)}</span>
-                            ${viewMode ? '' : `<input type="text" id="folder-name-input-${folder.id}" class="folder-name-input microlabel hidden bg-white/90 px-2 py-0.5 rounded border border-neutral-300 text-neutral-700"
-                                   value="${escapeHtml(folder.name)}"
-                                   onblur="saveFolderName('${folder.id}')"
-                                   onkeydown="if(event.key==='Enter') this.blur(); if(event.key==='Escape') cancelEditFolderName('${folder.id}')"
-                                   onclick="event.stopPropagation()">`}
-                            <span class="folder-count">${fCards.length}</span>
-                        </div>
-
-                        ${addBtn}
-                        ${deleteBtn}
-                        <div class="h-px bg-neutral-200/60 w-full mb-px absolute bottom-0 left-0 right-0 -z-10"></div>
-                    </div>
-
-                    <div class="folder-grid-area grid ${gridClass} gap-5 md:gap-6 min-h-[50px] transition-all duration-300 ${gridState}">
+                <section id="folder-${folder.id}" class="${enterClass}" data-folder-id="${folder.id}">
+                    <div class="folder-grid-area card-grid ${gridState}">
                         ${cardsHtml}
                     </div>
                 </section>`;
@@ -2144,9 +2428,111 @@
 
             requestAnimationFrame(() => {
                 initAllNotesCollapsible();
+                // Rail BEFORE nav: buildFolderNav ends in updateFolderProgress,
+                // which paints the active state onto rail items that have to exist.
+                buildFolderRail();
                 buildFolderNav();
-                positionTabIndicator();
             });
+        }
+
+        // --- FOLDER RAIL ---
+        // Sentence-case names in Geist Bold, count as a superscript, 37px apart.
+        // It is the folders view's only chrome, so it carries three jobs: which
+        // folder you're in (colour), how far through it you are (the underline),
+        // and where to jump next (tap).
+        function buildFolderRail() {
+            const rail = document.getElementById('folderRail');
+            const inner = document.getElementById('folderRailInner');
+            if (!rail || !inner) return;
+
+            // Latest is chronological — folder names would name nothing there.
+            if (layoutMode !== 'folders' || (!appData.cards.length && appData.folders.length <= 1)) {
+                inner.innerHTML = '';
+                rail.classList.add('is-off');
+                return;
+            }
+            rail.classList.remove('is-off');
+
+            inner.innerHTML = appData.folders.map(f => {
+                const n = appData.cards.filter(c => c.folderId === f.id && !c.deletedAt).length;
+                return `<button class="frail-item ${f.isCollapsed ? 'is-collapsed' : ''}"
+                                data-folder-id="${f.id}" onclick="railJump('${f.id}')">
+                            <span class="frail-name">${escapeHtml(f.name)}</span
+                            ><span class="frail-count">${n}</span>
+                        </button>`;
+            }).join('');
+        }
+
+        // Tapping a name commits to a destination. Everything below exists so that
+        // ONE smooth slide happens: without the lock, the scroll-spy re-resolves
+        // the active folder on every frame of the page scroll, so the rail chased
+        // Inbox → Design → Art → … in turn. Worse, for the first few frames the
+        // read line is still inside the folder you started in, so the rail snapped
+        // BACK to Inbox before setting off — which is exactly what it looked like.
+        let railJumpTo = null, railJumpUntil = 0;
+
+        function railJump(folderId) {
+            const f = appData.folders.find(x => x.id === folderId);
+            if (!f) return;
+
+            // Paint the destination now and hold it there until we arrive.
+            railJumpTo = folderId;
+            railJumpUntil = performance.now() + 1600;
+            setActiveFolder(appData.folders.indexOf(f));
+
+            if (f.isCollapsed) {
+                // A collapsed folder has nothing to scroll to — open it first.
+                f.isCollapsed = false;
+                saveFolderToDB(f);
+                render();
+                requestAnimationFrame(() => scrollToFolder(folderId));
+                return;
+            }
+            scrollToFolder(folderId);
+        }
+
+        // A deliberate scroll of your own outranks a jump still in flight.
+        function cancelRailJump() { railJumpTo = null; scrollLockUntil = 0; }
+        window.addEventListener('touchstart', cancelRailJump, { passive: true });
+        window.addEventListener('wheel', cancelRailJump, { passive: true });
+
+        // Keep the active name reachable without a horizontal drag. Aligned left,
+        // not centred — the mockup reads left-to-right from the current folder.
+        //
+        // The glide is a rAF lerp, NOT scrollTo({behavior:'smooth'}). Native smooth
+        // scrolling restarts from a standstill every time it's re-issued, and the
+        // spy re-issues it as you scroll — that stutter was the "snappy" feel. A
+        // lerp toward a target that can be moved mid-flight just curves instead.
+        let railScrollTarget = null, railScrollRaf = null;
+
+        function revealRailItem(el, instant = false) {
+            const rail = document.getElementById('folderRail');
+            if (!rail || !el || !rail.offsetWidth) return;
+            const pad = parseFloat(getComputedStyle(el.parentElement).paddingLeft) || 16;
+            const max = Math.max(0, rail.scrollWidth - rail.clientWidth);
+            const target = Math.max(0, Math.min(el.offsetLeft - pad, max));
+            if (Math.abs(rail.scrollLeft - target) < 1) { railScrollTarget = null; return; }
+            if (instant) {
+                railScrollTarget = null;
+                rail.scrollLeft = target;
+                return;
+            }
+            railScrollTarget = target;
+            if (railScrollRaf === null) railScrollRaf = requestAnimationFrame(stepRailScroll);
+        }
+
+        function stepRailScroll() {
+            railScrollRaf = null;
+            const rail = document.getElementById('folderRail');
+            if (!rail || railScrollTarget === null) return;
+            const d = railScrollTarget - rail.scrollLeft;
+            if (Math.abs(d) < 0.5) {
+                rail.scrollLeft = railScrollTarget;
+                railScrollTarget = null;
+                return;
+            }
+            rail.scrollLeft += d * 0.12;   // ~0.6s to settle, no overshoot
+            railScrollRaf = requestAnimationFrame(stepRailScroll);
         }
 
         // --- FEED / LATEST VIEW ---
@@ -2162,43 +2548,17 @@
             localStorage.setItem('ssaved_layout', mode);
             if (selectionMode) exitSelectionMode();
 
-            // Paint the tab state + start the indicator transition FIRST, then let
-            // the browser commit that frame before the expensive grid rebuild.
-            // Doing render() synchronously here is what made the underline stutter.
+            // Paint the control state FIRST, then let the browser commit that
+            // frame before the expensive grid rebuild.
             updateLayoutToggleUI();
             requestAnimationFrame(() => requestAnimationFrame(() => render()));
         }
 
         function updateLayoutToggleUI() {
             ['folders','feed'].forEach(m => {
-                const tab = document.getElementById(`tab-${m}`);
-                if (tab) tab.className = `view-tab ${layoutMode === m ? 'is-active' : ''}`;
+                document.getElementById(`seg-${m}`)?.classList.toggle('is-active', layoutMode === m);
             });
-            positionTabIndicator();
         }
-
-        // Fluid indicator: slides + stretches to the active tab (pasito-style).
-        // Compositor-only — see the #tabIndicator CSS note.
-        const TAB_INDICATOR_BASE = 100;
-        let tabIndicatorReady = false;
-        function positionTabIndicator() {
-            const indicator = document.getElementById('tabIndicator');
-            const active = document.querySelector('.view-tab.is-active');
-            if (!indicator || !active || !active.offsetWidth) return;
-            const scale = active.offsetWidth / TAB_INDICATOR_BASE;
-
-            // First placement should appear, not animate in from zero width
-            if (!tabIndicatorReady) {
-                indicator.style.transition = 'none';
-                indicator.style.transform = `translate3d(${active.offsetLeft}px, 0, 0) scaleX(${scale})`;
-                void indicator.offsetWidth;          // flush before re-enabling
-                indicator.style.transition = '';
-                tabIndicatorReady = true;
-                return;
-            }
-            indicator.style.transform = `translate3d(${active.offsetLeft}px, 0, 0) scaleX(${scale})`;
-        }
-        window.addEventListener('resize', positionTabIndicator);
 
         function toggleFeedFilter(id) {
             if (feedFilter.has(id)) feedFilter.delete(id); else feedFilter.add(id);
@@ -2338,14 +2698,7 @@
             const navItems = document.getElementById('folderNavItems');
             if (navItems) navItems.innerHTML = '';
             clearFolderNavRail();
-            // No folder breadcrumb in the feed. Remove the WINNING class —
-            // #mobileBreadcrumb.is-visible (1,1,0) outranks .opacity-0 (0,1,0),
-            // so adding opacity-0 here never actually hid it.
-            const bc = document.getElementById('mobileBreadcrumb');
-            if (bc) { bc.classList.remove('is-visible'); bc.classList.add('opacity-0'); }
-
-            const mCols = localStorage.getItem('ssaved_cols') || 1;
-            const gridClass = `grid-cols-${mCols} md:grid-cols-2 lg:grid-cols-3`;
+            buildFolderRail();   // folder names name nothing here — this hides the rail
 
             // Count live cards per folder for the filter list
             const counts = {};
@@ -2406,7 +2759,7 @@
             </div>`;
 
             const feedGrid = cards.length
-                ? `<div class="folder-grid-area grid ${gridClass} gap-5 md:gap-6 flex-1">${cards.map(c => generateCardHTML(c, rIds, true)).join('')}</div>`
+                ? `<div class="folder-grid-area card-grid flex-1">${cards.map(c => generateCardHTML(c, rIds, true)).join('')}</div>`
                 : '';
 
             // Filter sits ABOVE the grid at every width, not in a sidebar. A
@@ -2420,85 +2773,53 @@
             wrapper.innerHTML = `<div class="feed-layout flex flex-col gap-4">${filterPanel}${feedGrid}${feedEmpty}</div>`;
             applyFeedFilter();   // paint the current filter onto the fresh DOM
 
-            requestAnimationFrame(() => { initAllNotesCollapsible(); positionTabIndicator(); });
+            requestAnimationFrame(() => initAllNotesCollapsible());
         }
 
+        // The italic i, outlined from Queens so it doesn't depend on the font
+        // being installed. One constant, not a per-card copy of the path data.
+        const INFO_GLYPH = '<svg viewBox="0 0 33.18 33.18" aria-hidden="true"><path d="M14.02,27.5c-.68,0-1.22-.19-1.61-.57s-.68-.9-.85-1.56c-.18-.66-.06-1.6.35-2.81.41-1.21.91-2.39,1.51-3.53.59-1.14,1.02-2.19,1.28-3.15.26-.96.1-1.36-.47-1.18-.58.17-1.12.4-1.64.69-.52.29-1,.42-1.46.4,0-.33.08-.66.25-1s.47-.65.93-.94c.46-.29,1.06-.61,1.8-.96.75-.35,1.45-.52,2.12-.52.71.08,1.2.31,1.49.69.29.39.37.9.25,1.54s-.45,1.51-.98,2.59c-.53,1.08-1.09,2.24-1.67,3.49s-.84,2.2-.78,2.87c.06.67.44,1.06,1.14,1.18.69.12,1.48-.03,2.36-.46.88-.42,1.65-.88,2.31-1.35.66-.48,1.1-.74,1.31-.78.21-.04.34.21.41.74-1.58,1.38-2.91,2.42-4,3.12-1.09.7-1.9,1.12-2.45,1.27-.55.15-1.08.22-1.58.22ZM17.15,5.68c.61,0,1.11.17,1.52.5.4.33.63.73.68,1.18,0,.4-.13.78-.38,1.14-.25.35-.63.56-1.14.61-.76-.08-1.31-.28-1.67-.63-.35-.34-.53-.71-.53-1.12,0-.3.14-.66.42-1.07s.64-.62,1.1-.62Z"/></svg>';
+
+        // The card is a screenshot and a note. Identity (username + link) and
+        // every action moved behind the info dot — the mockup's whole point is
+        // that a saved thing looks like the thing, not like a form.
         function generateCardHTML(c, rIds, showFolderTag = false) {
             const isRestored = c.isRestored ? "is-restored" : "";
             const restoreAttr = c.isRestored ? `onmouseenter="clearRestoreStatus(${c.id})"` : "";
             const pulse = c.isScanning ? "animate-pulse-subtle" : "";
             const enter = rIds.includes(c.id) ? 'animate-restore' : '';
-            
-            const linkMode = isLinkMode(c);
-            const hasSuggestions = !c.isScanning && c.suggestions && c.suggestions.length !== 1;
-            let tooltip = "";
-            if (hasSuggestions) {
-                const content = c.suggestions.length === 0 
-                    ? `<div class="bg-white/95 backdrop-blur-md rounded-xl p-3 shadow-xl border border-neutral-100 text-xs text-neutral-500 text-center">No valid text found.</div>`
-                    : `<div class="bg-white/95 backdrop-blur-md rounded-xl p-3 shadow-xl border border-neutral-100"><div class="flex flex-wrap gap-2">${c.suggestions.map(w => `<button onmousedown="event.preventDefault(); applySuggestion(${c.id}, '${cleanString(w)}')" class="px-2.5 py-1.5 bg-neutral-50 hover:bg-neutral-100 border border-neutral-200 text-neutral-600 text-xs font-medium rounded-lg transition-all">${w}</button>`).join('')}</div></div>`;
-                tooltip = `<div id="tooltip-${c.id}" class="tooltip-container absolute bottom-full left-0 w-full mb-3 z-50"><div class="tooltip-arrow relative">${content}</div></div>`;
-            }
 
             const dragAttrs = (viewMode || showFolderTag) ? '' : `data-card-id="${c.id}"`;
-            const folderTag = showFolderTag ? `
-                    <div class="flex flex-wrap items-center gap-1.5 pt-0.5">
-                        <span class="folder-pill"><i class="ph-bold ph-folder-simple text-[10px]"></i><span>${getFolderName(c.folderId)}</span></span>
-                    </div>` : '';
             const isSelected = selectionMode && selectedCardIds.has(c.id);
             const selClass = isSelected ? 'is-selected' : '';
+            const emptyNote = (c.notes || '').trim() ? '' : 'is-empty';
 
             return `
             <div id="card-${c.id}" ${dragAttrs}
                  ${restoreAttr}
                  style="view-transition-name: card-${c.id}"
-                 class="card group flex flex-col ${selClass} ${isRestored} ${pulse} ${enter}">
+                 class="card ${selClass} ${isRestored} ${pulse} ${enter}">
 
-                <div class="aspect-[9/16] bg-neutral-100 relative overflow-hidden group/image shrink-0 cursor-pointer" onclick="handleImageClick(event, ${c.id})">
-                    <img src="${c.imageUrl}" class="w-full h-full object-cover object-top pointer-events-none transition-transform duration-500 img-hover-scale" loading="lazy">
+                <div class="shot" onclick="cardTap(event, ${c.id})">
+                    <img src="${c.imageUrl}" class="shot-img" loading="lazy" alt="">
 
                     ${isSelected ? '<div class="selection-check"><i class="ph-bold ph-check"></i></div>' : ''}
+                    ${isFavourite(c.id) ? '<i class="ph-fill ph-star fav-star" title="Favourite"></i>' : ''}
 
-                    ${selectionMode ? '' : `<button onclick="event.stopPropagation(); openProfile(${c.id})" class="external-link-btn p-2 bg-white/80 hover:bg-white backdrop-blur-md border border-white/50 text-neutral-600 hover:text-neutral-900 rounded-lg shadow-lg transition-all">
-                        <i class="ph-bold ph-arrow-up-right text-base"></i>
-                    </button>`}
-
-                    ${(viewMode || selectionMode) ? '' : `<button onclick="event.stopPropagation(); openCardMenu(event, ${c.id})" class="delete-btn card-menu-btn p-2 bg-white/80 hover:bg-white backdrop-blur-md border border-white/50 text-neutral-600 hover:text-neutral-900 rounded-lg shadow-lg transition-all" aria-label="More actions">
-                        <i class="ph-bold ph-dots-three text-base"></i>
-                    </button>`}
+                    ${selectionMode ? '' : `<button class="info-dot" aria-label="Details"
+                            onclick="event.stopPropagation(); openCardInfo(${c.id})">${INFO_GLYPH}</button>`}
                 </div>
 
-                <div class="p-4 flex flex-col gap-3 flex-1">
-                    <div class="relative username-wrapper z-10">
-                        ${tooltip}
-                        <div class="relative group/input">
-                            ${isFavourite(c.id) ? '<i class="ph-fill ph-star fav-star absolute -top-3 right-0 z-10" title="Favourite"></i>' : ''}
-                            <div class="absolute inset-y-0 left-0 pl-1 flex items-center ${viewMode ? 'pointer-events-none' : 'cursor-pointer'} z-10" style="touch-action: manipulation; user-select: none;" ${viewMode ? '' : `onclick="handleTagTap(${c.id})" title="${linkMode ? 'Double-tap to switch to username' : hasSuggestions ? 'Tap for suggestions · double-tap for link' : 'Double-tap to switch to link'}"`}>
-                                ${linkMode
-                                    ? `<i class="ph-bold ph-link text-neutral-400 text-sm"></i>`
-                                    : `<span class="${hasSuggestions ? 'text-neutral-400' : 'text-neutral-200'} font-medium">@</span>`}
-                            </div>
-                            <textarea
-                                oninput="${linkMode ? '' : 'autoResize(this); '}updateCard(${c.id}, 'username', this.value)"
-                                onfocus="${linkMode ? 'expandLinkField(this)' : 'autoResize(this)'}"
-                                onblur="${linkMode ? 'collapseLinkField(this)' : ''}"
-                                class="${linkMode ? 'link-field w-full pl-6 pr-10 py-1 bg-transparent border-0 border-b border-neutral-100 focus:border-neutral-300 outline-none text-sm font-normal text-neutral-500 group-hover/input:text-neutral-700 focus:text-neutral-900 transition-colors placeholder:text-neutral-300 overflow-hidden whitespace-nowrap resize-none' : 'auto-grow w-full pl-6 pr-2 py-1 bg-transparent border-0 border-b border-neutral-100 focus:border-neutral-300 outline-none text-sm font-normal text-neutral-500 group-hover/input:text-neutral-700 focus:text-neutral-900 transition-colors placeholder:text-neutral-300'}"
-                                style="${linkMode ? 'height: 24px; transition: height 0.2s ease, white-space 0.2s ease;' : ''}"
-                                placeholder="${linkMode ? 'Paste link...' : 'Username'}" rows="1">${escapeHtml(linkMode ? c.link : c.username)}</textarea>
-                            ${linkMode && c.link ? `<button onclick="event.stopPropagation(); copyCardLink(${c.id})" class="copy-link-btn absolute inset-y-0 right-0 pl-4 pr-1 flex items-center text-neutral-300 hover:text-neutral-600 transition-colors bg-gradient-to-l from-white from-60% to-transparent" title="Copy link"><i class="ph-bold ph-copy text-xs"></i></button>` : ''}
-                        </div>
-                    </div>
-                    <div class="notes-wrapper" id="notes-wrapper-${c.id}">
-                        <div class="notes-fade"></div>
-                        <textarea 
-                            oninput="autoResize(this); updateCard(${c.id}, 'notes', this.value); checkNotesCollapsible(${c.id})" 
-                            onfocus="autoResize(this)"
-                            class="notes-textarea auto-grow w-full text-xs text-neutral-500 bg-transparent border-0 border-b border-neutral-50 focus:border-neutral-200 outline-none resize-none p-1 placeholder:text-neutral-300" 
-                            rows="1" placeholder="Add notes...">${escapeHtml(c.notes)}</textarea>
-                        <button class="notes-toggle" onclick="toggleNotes(${c.id})" aria-label="Expand notes">
-                            <i class="ph-bold ph-caret-down"></i>
-                        </button>
-                    </div>
-                    ${folderTag}
+                <div class="note-bubble notes-wrapper ${emptyNote}" id="notes-wrapper-${c.id}">
+                    <div class="notes-fade"></div>
+                    <textarea
+                        oninput="autoResize(this); updateCard(${c.id}, 'notes', this.value); checkNotesCollapsible(${c.id})"
+                        onfocus="autoResize(this)"
+                        class="notes-textarea auto-grow"
+                        rows="1" placeholder="Add a note">${escapeHtml(c.notes)}</textarea>
+                    <button class="notes-toggle" onclick="toggleNotes(${c.id})" aria-label="Expand note">
+                        <i class="ph-bold ph-caret-down"></i>
+                    </button>
                 </div>
             </div>`;
         }
@@ -2510,10 +2831,11 @@
         }
 
         // --- COLLAPSIBLE NOTES (Mobile) ---
-        // Notes are 13px at 1.6 leading = 20.8px. Left at 18 the collapse
-        // threshold fires a line early on every card.
+        // Notes are 16px at 1.3 leading = 20.8px. Keep this in step with
+        // .notes-textarea and with .is-collapsible's max-height (MAX_LINES × 1.3em)
+        // — a mismatch shows the chevron on notes that already fit.
         const LINE_HEIGHT = 21;
-        const MAX_LINES = 3;
+        const MAX_LINES = 2;
         const DWELL_DELAY = 1500;
         let dwellTimers = new Map();
         let notesObserver = null;
@@ -2622,29 +2944,32 @@
         // (see setupLongPress in the POINTER DRAG section). Tapping additional cards
         // while parked in selection mode adds them via toggleCardSelection().
 
-        // --- FOLDER LONG-PRESS → TAG OVERVIEW ---
+        // --- FOLDER LONG-PRESS → FOLDER SHEET ---
+        // Same gesture as before, moved from the in-grid folder header to the
+        // rail, which is the only place a folder name is shown now. The rail is
+        // a horizontal scroller, so a press that turns into a swipe must abandon
+        // cleanly — hence the same 10px slop the header version used.
         function setupFolderLongPress() {
-            const wrapper = document.getElementById('folderWrapper');
+            const rail = document.getElementById('folderRail');
+            if (!rail) return;
             let pressTimer = null, startX = 0, startY = 0, fired = false, targetFolderId = null;
 
-            wrapper.addEventListener('pointerdown', e => {
-                if (selectionMode) return;
-                const tab = e.target.closest('.folder-tab');
-                if (!tab) return;
-                const header = tab.closest('.folder-header');
-                if (!header) return;
+            rail.addEventListener('pointerdown', e => {
+                if (selectionMode || viewMode) return;
+                const item = e.target.closest('.frail-item');
+                if (!item) return;
                 startX = e.clientX; startY = e.clientY;
                 fired = false;
-                targetFolderId = header.dataset.folderId;
+                targetFolderId = item.dataset.folderId;
                 pressTimer = setTimeout(() => {
                     pressTimer = null;
                     fired = true;
                     if (navigator.vibrate) navigator.vibrate(10);
-                    showTagOverview(targetFolderId);
+                    openFolderSheet(targetFolderId);
                 }, 500);
             });
 
-            wrapper.addEventListener('pointermove', e => {
+            rail.addEventListener('pointermove', e => {
                 if (!pressTimer) return;
                 if (Math.abs(e.clientX - startX) > 10 || Math.abs(e.clientY - startY) > 10) {
                     clearTimeout(pressTimer); pressTimer = null;
@@ -2652,55 +2977,27 @@
             });
 
             const cancel = () => { if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; } };
-            wrapper.addEventListener('pointerup', cancel);
-            wrapper.addEventListener('pointercancel', cancel);
+            rail.addEventListener('pointerup', cancel);
+            rail.addEventListener('pointercancel', cancel);
 
-            // Swallow the toggle-folder click that fires right after a long press
-            wrapper.addEventListener('click', e => {
-                if (fired && e.target.closest('.folder-tab')) {
+            // Swallow the jump click that fires right after a long press
+            rail.addEventListener('click', e => {
+                if (fired && e.target.closest('.frail-item')) {
                     e.stopPropagation();
                     e.preventDefault();
                     fired = false;
                 }
             }, true);
 
-            // Prevent the browser context menu during a long press on a folder tab
-            wrapper.addEventListener('contextmenu', e => {
-                if (pressTimer && e.target.closest('.folder-tab')) e.preventDefault();
+            // Prevent the browser context menu during a long press on a name
+            rail.addEventListener('contextmenu', e => {
+                if (pressTimer && e.target.closest('.frail-item')) e.preventDefault();
             });
         }
 
-        function showTagOverview(activeFolderId = null) {
-            const modal = document.getElementById('tagOverview');
-            const list = document.getElementById('tagOverviewList');
-            const subtitle = document.getElementById('tagOverviewSubtitle');
-            if (!modal || !list) return;
-
-            // Reset the title — openMoveToFolder borrows this same shell
-            const heading = modal.querySelector('h2');
-            if (heading) heading.textContent = 'Jump to folder';
-
-            const total = appData.cards.filter(c => !c.deletedAt).length;
-            if (subtitle) subtitle.textContent = `${appData.folders.length} folder${appData.folders.length === 1 ? '' : 's'} · ${total} item${total === 1 ? '' : 's'}`;
-
-            list.innerHTML = appData.folders.map(f => {
-                const count = appData.cards.filter(c => c.folderId === f.id && !c.deletedAt).length;
-                const isActive = f.id === activeFolderId;
-                return `
-                <button onclick="jumpToFolderFromOverview('${f.id}')"
-                        class="w-full flex items-center justify-between gap-3 px-4 py-3 rounded-xl text-left transition-colors ${isActive ? 'bg-neutral-100' : 'hover:bg-neutral-50 active:bg-neutral-100'}">
-                    <span class="flex items-center gap-2.5 min-w-0">
-                        <i class="ph-bold ph-folder text-neutral-400 shrink-0"></i>
-                        <span class="text-sm font-medium text-neutral-700 truncate">${f.name}</span>
-                    </span>
-                    <span class="text-xs font-medium text-neutral-400 shrink-0">${count}</span>
-                </button>`;
-            }).join('');
-
-            modal.classList.remove('hidden');
-            modal.classList.add('flex');
-        }
-
+        // The "jump to folder" list this shell was built for is gone — the rail
+        // does that job in one tap. openMoveToFolder is now its only filler, so
+        // the heading in the markup is "Move to folder" and never changes.
         function closeTagOverview() {
             const modal = document.getElementById('tagOverview');
             if (!modal) return;
@@ -2766,70 +3063,135 @@
             if (e.target.id === 'folderVisibilityModal') closeFolderVisibilityModal();
         });
 
-        // --- CARD ACTION MENU ---
-        // One shared menu rather than per-card DOM (cards re-render constantly).
-        // It grows out of the corner of the ⋯ that opened it — origin-aware, so
-        // it reads as that button expanding rather than a panel appearing.
-        let cardMenuId = null;
+        // --- CARD INFO SHEET ---
+        // The username/link pair plus every card action, behind the info dot.
+        // Replaces both the on-image ⋯ menu and the card's inline text fields.
+        let cardInfoId = null;
+        let ciTapTimer = null;
 
-        function openCardMenu(e, id) {
-            const card = appData.cards.find(c => c.id === id);
-            if (!card) return;
-            const layer = document.getElementById('cardMenuLayer');
-            const menu = document.getElementById('cardMenu');
-            if (!layer || !menu) return;
-            cardMenuId = id;
-
-            const hasLink = card.link && card.link !== '#';
-            menu.innerHTML = `
-                <button class="card-menu-item" onclick="cardMenuAction('open')" ${hasLink ? '' : 'disabled style="opacity:.4"'}>
-                    <i class="ph-bold ph-arrow-up-right"></i> Open profile
-                </button>
-                <button class="card-menu-item" onclick="cardMenuAction('copy')" ${hasLink ? '' : 'disabled style="opacity:.4"'}>
-                    <i class="ph-bold ph-copy"></i> Copy link
-                </button>
-                <button class="card-menu-item" onclick="cardMenuAction('move')">
-                    <i class="ph-bold ph-folder-simple"></i> Move to folder
-                </button>
-                <div class="card-menu-sep"></div>
-                <button class="card-menu-item is-danger" onclick="cardMenuAction('delete')">
-                    <i class="ph-bold ph-trash"></i> Delete
-                </button>`;
-
-            layer.classList.remove('hidden');
-
-            // Position against the trigger, flipping near the viewport edges
-            const btn = e.currentTarget.getBoundingClientRect();
-            menu.style.visibility = 'hidden';
-            menu.style.top = '0px'; menu.style.left = '0px';
-            const mw = menu.offsetWidth, mh = menu.offsetHeight;
-            const flipX = btn.right - mw < 8;
-            const flipY = btn.bottom + mh + 8 > window.innerHeight;
-            const left = flipX ? Math.max(8, btn.left) : Math.min(window.innerWidth - mw - 8, btn.right - mw);
-            const top = flipY ? Math.max(8, btn.top - mh - 6) : btn.bottom + 6;
-            menu.style.left = left + 'px';
-            menu.style.top = top + 'px';
-            menu.style.transformOrigin = `${flipX ? 'left' : 'right'} ${flipY ? 'bottom' : 'top'}`;
-            menu.style.visibility = '';
+        function openCardInfo(id) {
+            const c = appData.cards.find(x => x.id === id);
+            const modal = document.getElementById('cardInfo');
+            if (!c || !modal) return;
+            cardInfoId = id;
+            renderCardInfoField();
+            renderCardInfoSuggestions(false);
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
         }
 
-        function closeCardMenu() {
-            document.getElementById('cardMenuLayer')?.classList.add('hidden');
-            cardMenuId = null;
+        function closeCardInfo() {
+            const modal = document.getElementById('cardInfo');
+            if (!modal) return;
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+            // Anything typed or toggled in here must not wait on the 600ms
+            // debounce to survive a phone locking straight after.
+            flushCardSaves();
+            cardInfoId = null;
+            clearTimeout(ciTapTimer); ciTapTimer = null;
         }
 
-        function cardMenuAction(action) {
-            const id = cardMenuId;
-            closeCardMenu();
-            if (id == null) return;
-            if (action === 'open') openProfile(id);
-            else if (action === 'copy') {
-                const c = appData.cards.find(x => x.id === id);
-                if (c?.link) { navigator.clipboard.writeText(c.link); toast('Link copied'); }
+        // Paints ONLY the glyph, the input and the action states — never
+        // innerHTML on the sheet, so the caret and any selection survive.
+        function renderCardInfoField() {
+            const c = appData.cards.find(x => x.id === cardInfoId);
+            if (!c) return;
+            const linkMode = isLinkMode(c);
+            const glyph = document.getElementById('ciGlyph');
+            const input = document.getElementById('ciInput');
+            const hint  = document.getElementById('ciHint');
+            const openBtn = document.getElementById('ciOpen');
+            const copyBtn = document.getElementById('ciCopy');
+            if (!glyph || !input) return;
+
+            glyph.innerHTML = linkMode
+                ? '<i class="ph-bold ph-link"></i>'
+                : '<span style="font-weight:500">@</span>';
+            input.value = linkMode ? (c.link === '#' ? '' : c.link) : c.username;
+            input.placeholder = linkMode ? 'Paste a link' : 'Username';
+            // .view-mode only neutralises the card's textareas; this is an <input>
+            // in a sheet, so it needs its own read-only pass.
+            input.readOnly = viewMode;
+            if (hint) {
+                const folder = getFolderName(c.folderId);
+                hint.textContent = linkMode
+                    ? `In ${folder} · double-tap the icon for a username`
+                    : `In ${folder} · double-tap the icon for a link`;
             }
+            const hasLink = c.link && c.link !== '#';
+            if (openBtn) openBtn.toggleAttribute('disabled', !hasLink);
+            if (copyBtn) copyBtn.style.visibility = hasLink ? '' : 'hidden';
+        }
+
+        // Single tap = OCR suggestions (when there are any), double = switch mode.
+        // Same 260ms window the card's @ used to use.
+        function cardInfoGlyphTap() {
+            if (ciTapTimer) {
+                clearTimeout(ciTapTimer); ciTapTimer = null;
+                toggleLinkModeSeamless();
+                return;
+            }
+            ciTapTimer = setTimeout(() => {
+                ciTapTimer = null;
+                renderCardInfoSuggestions(true);
+            }, 260);
+        }
+
+        // Swaps @ ↔ link INSIDE the open sheet. No render() — a full rebuild
+        // would tear down the sheet's own DOM under the finger that tapped it,
+        // and the grid shows neither field, so there is nothing to repaint.
+        function toggleLinkModeSeamless() {
+            const c = appData.cards.find(x => x.id === cardInfoId);
+            if (!c || viewMode) return;
+            const glyph = document.getElementById('ciGlyph');
+            c.linkMode = !c.linkMode;
+            c.username = '';
+            c.link = c.linkMode ? '' : '#';
+            queueCardSave(c);
+            renderCardInfoSuggestions(false);
+            if (!glyph) { renderCardInfoField(); return; }
+            // Fade the old glyph out, swap at the midpoint, fade the new one in.
+            glyph.classList.add('is-swapping');
+            setTimeout(() => {
+                renderCardInfoField();
+                glyph.classList.remove('is-swapping');
+            }, 160);
+        }
+
+        function cardInfoEdit(v) {
+            if (cardInfoId == null || viewMode) return;
+            updateCard(cardInfoId, 'username', v);
+        }
+
+        function renderCardInfoSuggestions(show) {
+            const box = document.getElementById('ciSuggest');
+            const c = appData.cards.find(x => x.id === cardInfoId);
+            if (!box) return;
+            const usable = show && c && !isLinkMode(c) && !c.isScanning && c.suggestions && c.suggestions.length;
+            if (!usable) { box.innerHTML = ''; return; }
+            box.innerHTML = c.suggestions
+                .map(w => `<button onclick="applySuggestion(${c.id}, '${cleanString(w)}')">${escapeHtml(w)}</button>`)
+                .join('');
+        }
+
+        function cardInfoAction(action) {
+            const id = cardInfoId;
+            if (id == null) return;
+            if (action === 'copy') {
+                const c = appData.cards.find(x => x.id === id);
+                if (c?.link && c.link !== '#') { navigator.clipboard.writeText(c.link); toast('Link copied'); }
+                return;
+            }
+            closeCardInfo();
+            if (action === 'open') openProfile(id);
             else if (action === 'move') openMoveToFolder(id);
             else if (action === 'delete') deleteCard(id);
         }
+
+        document.getElementById('cardInfo')?.addEventListener('click', e => {
+            if (e.target.id === 'cardInfo') closeCardInfo();
+        });
 
         // Reuses the existing folder sheet/modal shell for the destination picker
         function openMoveToFolder(id) {
@@ -2869,11 +3231,7 @@
             toast(`Moved to ${getFolderName(folderId)}`);
         }
 
-        document.getElementById('cardMenuLayer')?.addEventListener('click', e => {
-            if (e.target.id === 'cardMenuLayer') closeCardMenu();
-        });
-        window.addEventListener('keydown', e => { if (e.key === 'Escape') closeCardMenu(); });
-        window.addEventListener('scroll', () => { if (cardMenuId != null) closeCardMenu(); }, { passive: true });
+        window.addEventListener('keydown', e => { if (e.key === 'Escape') closeCardInfo(); });
 
         // --- LOOK AT THIS (card triage) ---
         // Persistence adapter. Everything reviewed/favourite goes through these
@@ -3586,8 +3944,12 @@
             requestAnimationFrame(() => {
                 const el = document.getElementById(`card-${id}`);
                 if (!el) return;
-                const y = el.getBoundingClientRect().top + window.scrollY - 140;
-                smoothScrollTo(y);
+                const header = document.getElementById('mainHeader');
+                scrollLockUntil = performance.now() + 1800;
+                header?.classList.remove('is-tucked');
+                const y = el.getBoundingClientRect().top + window.scrollY
+                          - ((headerFullH || header?.offsetHeight || 110) + 24);
+                smoothScrollTo(Math.max(0, y));
                 el.classList.remove('card-flash');
                 void el.offsetWidth; // restart the animation
                 el.classList.add('card-flash');
@@ -4101,21 +4463,65 @@
             const f = appData.folders.find(x => x.id === id);
             if (!f) return;
             f.isCollapsed = !f.isCollapsed;
-            // Collapse in place: show/hide the grid and flip the chevron. A full
+            // Collapse in place: show/hide the grid and dim the rail name. A full
             // render here rebuilt every other folder's cards too.
-            const section = document.getElementById(`folder-${id}`);
-            const grid = section?.querySelector('.folder-grid-area');
-            const tab = section?.querySelector('.folder-tab');
-            const chev = tab?.querySelector('i');
+            const grid = document.getElementById(`folder-${id}`)?.querySelector('.folder-grid-area');
             if (grid) grid.classList.toggle('hidden', f.isCollapsed);
-            if (tab) tab.classList.toggle('opacity-50', f.isCollapsed);
-            if (chev) {
-                chev.classList.toggle('ph-caret-right', f.isCollapsed);
-                chev.classList.toggle('ph-caret-down', !f.isCollapsed);
-            }
+            document.querySelector(`.frail-item[data-folder-id="${id}"]`)
+                ?.classList.toggle('is-collapsed', f.isCollapsed);
             queueFolderProgress();
             await saveFolderToDB(f);
         }
+
+        // --- FOLDER SHEET (long-press a name in the rail) ---
+        // With the in-grid folder headers gone, this is where the folder's own
+        // verbs live: rename, add, collapse, delete.
+        let folderSheetId = null;
+
+        function openFolderSheet(id) {
+            const f = appData.folders.find(x => x.id === id);
+            const modal = document.getElementById('folderSheet');
+            if (!f || !modal || viewMode) return;
+            folderSheetId = id;
+            const n = appData.cards.filter(c => c.folderId === id && !c.deletedAt).length;
+            document.getElementById('folderSheetName').textContent = f.name;
+            document.getElementById('folderSheetMeta').textContent =
+                `${n} item${n === 1 ? '' : 's'}${f.isCollapsed ? ' · collapsed' : ''}`;
+            document.getElementById('folderSheetCollapse').innerHTML = f.isCollapsed
+                ? '<i class="ph-bold ph-caret-down"></i> Expand'
+                : '<i class="ph-bold ph-caret-right"></i> Collapse';
+            // The Inbox is where deleted folders send their cards — it can't go.
+            document.getElementById('folderSheetDelete').classList.toggle('hidden', id === getInboxId());
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+        }
+
+        function closeFolderSheet() {
+            const modal = document.getElementById('folderSheet');
+            if (!modal) return;
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+            folderSheetId = null;
+        }
+
+        async function folderSheetAction(action) {
+            const id = folderSheetId;
+            if (!id) return;
+            if (action === 'collapse') {
+                await toggleFolder(id);
+                buildFolderRail();
+                closeFolderSheet();
+                return;
+            }
+            closeFolderSheet();
+            if (action === 'add') triggerUpload(id);
+            else if (action === 'rename') renameFolder(id);
+            else if (action === 'delete') confirmDeleteFolder(id);
+        }
+
+        document.getElementById('folderSheet')?.addEventListener('click', e => {
+            if (e.target.id === 'folderSheet') closeFolderSheet();
+        });
 
         let pendingDeleteFolderId = null;
 
@@ -4160,51 +4566,32 @@
             render();
         }
 
-        // --- EDIT FOLDER NAME ---
-        function editFolderName(folderId) {
-            const input = document.getElementById(`folder-name-input-${folderId}`);
-            const display = input?.previousElementSibling;
-            if (!input || !display) return;
-
-            display.classList.add('hidden');
-            input.classList.remove('hidden');
-            input.focus();
-            input.select();
-        }
-
-        function cancelEditFolderName(folderId) {
-            const input = document.getElementById(`folder-name-input-${folderId}`);
-            const display = input?.previousElementSibling;
+        // --- RENAME FOLDER ---
+        // Inline editing lived in the folder header. With the header gone the
+        // rail item is the only place a name is shown, and swapping a 22px bold
+        // name for an input mid-row reflows the whole scroller — so this is a
+        // prompt, matching createNewFolder.
+        async function renameFolder(folderId) {
             const folder = appData.folders.find(f => f.id === folderId);
-            if (!input || !display || !folder) return;
+            if (!folder) return;
+            const next = prompt('Folder name:', folder.name);
+            if (next === null) return;
+            const newName = next.trim();
+            if (!newName || newName === folder.name) return;
 
-            input.value = folder.name; // Reset to original
-            input.classList.add('hidden');
-            display.classList.remove('hidden');
-        }
-
-        async function saveFolderName(folderId) {
-            const input = document.getElementById(`folder-name-input-${folderId}`);
-            const display = input?.previousElementSibling;
-            const folder = appData.folders.find(f => f.id === folderId);
-            if (!input || !display || !folder) return;
-
-            const newName = input.value.trim();
-            if (!newName || newName === folder.name) {
-                cancelEditFolderName(folderId);
-                return;
-            }
-
+            const previous = folder.name;
             folder.name = newName;
+            buildFolderRail();
+            buildFolderNav();
+
             const { error } = await db.from('folders').update({ name: newName }).eq('id', folderId);
             if (error) {
                 console.error('Rename failed:', error);
+                folder.name = previous;      // don't leave a name on screen that isn't saved
+                buildFolderRail();
+                buildFolderNav();
                 toast('Rename not saved', { duration: 5000 });
             }
-
-            input.classList.add('hidden');
-            display.textContent = newName;
-            display.classList.remove('hidden');
         }
 
         // --- FILE & OCR ---
@@ -4430,17 +4817,20 @@
                 if (!actual) return;
                 Object.assign(actual, {
                     username: best,
-                    link: `https://instagram.com/${best}`,
+                    // An empty read used to write "https://instagram.com/" — and
+                    // now that tapping the screenshot IS the link, that sent you
+                    // to Instagram's home page instead of doing nothing.
+                    link: best ? `https://instagram.com/${best}` : '#',
                     suggestions: valid,
                     isScanning: false
                 });
                 await saveCardToDB(actual);
 
-                const el = document.getElementById(`card-${actual.id}`);
-                if (el) {
-                    const txt = el.querySelector('textarea[placeholder="Username"]');
-                    if (txt && document.activeElement !== txt) { txt.value = best; autoResize(txt); }
-                    el.classList.remove('animate-pulse-subtle');
+                document.getElementById(`card-${actual.id}`)?.classList.remove('animate-pulse-subtle');
+                // The card no longer shows the username — the info sheet does.
+                // If it happens to be open on this card, repaint it in place.
+                if (cardInfoId === actual.id && document.activeElement !== document.getElementById('ciInput')) {
+                    renderCardInfoField();
                 }
             } catch (e) {
                 console.error('OCR failed:', e);
@@ -4583,76 +4973,36 @@
             document.getElementById('fileInput').click();
         }
         
-        function handleImageClick(e, id) {
+        // Tapping the screenshot IS the link now — no hover-revealed arrow.
+        // In selection mode the same tap toggles the card instead.
+        function cardTap(e, id) {
             if (e.target.closest('button')) return;
             if (selectionMode) { toggleCardSelection(id); return; }
-        }
-        
-        function openProfile(id) {
-            const c = appData.cards.find(x => x.id === id);
-            if (c && c.link !== '#') openExternal(c.link);
+            openProfile(id);
         }
 
-        window.addEventListener('click', (e) => { 
-            if (!e.target.closest('.username-wrapper')) closeAllTooltips(); 
-        });
-        window.addEventListener('keydown', (e) => { 
+        function openProfile(id) {
+            const c = appData.cards.find(x => x.id === id);
+            if (!c) return;
+            if (!c.link || c.link === '#') { toast('No link on this one yet'); return; }
+            openExternal(c.link);
+        }
+
+        window.addEventListener('keydown', (e) => {
             if (e.key === 'Escape') {
-                closeAllTooltips();
                 closeShareModal();
                 closeTagOverview();
             }
         });
-        
-        function triggerTooltip(id) { 
-            closeAllTooltips(); 
-            document.getElementById(`tooltip-${id}`)?.classList.add('active'); 
-        }
-        function closeAllTooltips() { 
-            document.querySelectorAll('.tooltip-container').forEach(e => e.classList.remove('active')); 
-        }
-        
-        async function applySuggestion(id, w) { 
-            const c = appData.cards.find(x => x.id === id); 
-            if(c) { 
-                c.username = w; 
-                c.link = `https://instagram.com/${w}`; 
-                await saveCardToDB(c); 
-                const el = document.getElementById(`card-${id}`).querySelector('textarea[placeholder="Username"]');
-                if(el) { el.value = w; autoResize(el); }
-                closeAllTooltips(); 
-            } 
-        }
-        
-        function expandLinkField(el) {
-            el.style.whiteSpace = 'normal';
-            el.style.overflow = 'hidden';
-            el.style.height = 'auto';
-            el.style.height = el.scrollHeight + 'px';
-        }
 
-        function collapseLinkField(el) {
-            el.style.whiteSpace = 'nowrap';
-            el.style.overflow = 'hidden';
-            el.style.height = '24px';
-        }
-
-        function copyCardLink(id) {
+        async function applySuggestion(id, w) {
             const c = appData.cards.find(x => x.id === id);
-            if (c?.link) {
-                navigator.clipboard.writeText(c.link);
-                showSaved();
-                // Icon morphs copy → check, then back
-                const icon = document.querySelector(`#card-${id} .copy-link-btn i`);
-                if (icon) {
-                    icon.className = 'ph-bold ph-check text-xs icon-pop';
-                    icon.closest('button').classList.add('text-emerald-500');
-                    setTimeout(() => {
-                        icon.className = 'ph-bold ph-copy text-xs icon-pop';
-                        icon.closest('button')?.classList.remove('text-emerald-500');
-                    }, 1200);
-                }
-            }
+            if (!c) return;
+            c.username = w;
+            c.linkMode = false;
+            c.link = `https://instagram.com/${w}`;
+            await saveCardToDB(c);
+            if (cardInfoId === id) { renderCardInfoField(); renderCardInfoSuggestions(false); }
         }
 
         function isLinkMode(card) {
@@ -4664,48 +5014,6 @@
             if (!card.link || card.link === '#' || !card.username) return false;
             const expectedIgLink = `https://instagram.com/${card.username}`;
             return card.link !== expectedIgLink;
-        }
-
-        function toggleLinkMode(id) {
-            const c = appData.cards.find(x => x.id === id);
-            if (!c) return;
-
-            if (c.linkMode) {
-                // Switch to username mode
-                c.linkMode = false;
-                c.username = '';
-                c.link = '#';
-            } else {
-                // Switch to link mode
-                c.linkMode = true;
-                c.username = '';
-                c.link = '';
-            }
-            saveCardToDB(c);
-            transitionRender();
-        }
-
-        // Tap the @ / link icon: a single tap shows OCR suggestions (when the card has
-        // any), a double tap toggles URL (link) mode. The timer lets us tell them apart
-        // so the two actions never conflict on the same hotspot.
-        const tagTapTimers = {};
-        function handleTagTap(id) {
-            if (tagTapTimers[id]) {
-                // Second tap inside the window → double tap → switch to/from URL mode.
-                clearTimeout(tagTapTimers[id]);
-                delete tagTapTimers[id];
-                closeAllTooltips();
-                toggleLinkMode(id);
-                return;
-            }
-            tagTapTimers[id] = setTimeout(() => {
-                delete tagTapTimers[id];
-                // Single tap → show suggestions if this card has any to offer.
-                const c = appData.cards.find(x => x.id === id);
-                if (c && !isLinkMode(c) && !c.isScanning && c.suggestions && c.suggestions.length !== 1) {
-                    triggerTooltip(id);
-                }
-            }, 260);
         }
 
         // Notes/username fire on every keystroke. Writing a full row per
@@ -4743,8 +5051,12 @@
                     c.link = v;
                     c.username = v;
                 } else {
-                    c.link = `https://instagram.com/${v}`;
+                    c.link = v.trim() ? `https://instagram.com/${v}` : '#';
                 }
+            }
+            if (f === 'notes') {
+                // The bubble is quieter while it holds nothing
+                document.getElementById(`notes-wrapper-${id}`)?.classList.toggle('is-empty', !v.trim());
             }
             queueCardSave(c);
         }
@@ -4914,30 +5226,31 @@
             }));
         }
 
-        function updateWidth(val) { 
-            document.getElementById('mainContainer').style.maxWidth = val > 2350 ? '100%' : `${val}px`; 
-            localStorage.setItem('ssaved_width', val); 
+        // Desktop lever: the SIZE of a card, not the width of the page. The grid
+        // is auto-fill, so making cards smaller adds columns — which is what
+        // "control the image size" actually means to the eye.
+        // NOTE the storage key changed with the units. The old ssaved_width held
+        // 600–2400 (a container width); feeding one of those to --card-min would
+        // give a single 1390px-wide column.
+        function updateWidth(val) {
+            document.documentElement.style.setProperty('--card-min', `${val}px`);
+            localStorage.setItem('ssaved_cardw', val);
         }
-        
+
         function setMobileCols(n) {
-            const changed = String(localStorage.getItem('ssaved_cols') || 1) !== String(n);
+            n = String(n) === '1' ? 1 : 2;
+            const changed = String(localStorage.getItem('ssaved_cols') || 2) !== String(n);
             localStorage.setItem('ssaved_cols', n);
 
-            // Thumb translates; cells only change colour. Equal-width cells, so
-            // translate only — no stretch (that vocabulary belongs to the tabs).
-            const thumb = document.querySelector('.density-thumb');
-            if (thumb) thumb.style.transform = `translate3d(${(n - 1) * 44}px, 0, 0)`;
+            // One variable on <html> drives both the column count and the
+            // screenshot aspect (2-up keeps the phone's native 19.5:9).
+            document.documentElement.style.setProperty('--cols', n);
+            document.documentElement.setAttribute('data-cols', n);
             [1, 2].forEach(i => {
-                document.getElementById(`col-btn-${i}`)?.classList.toggle('is-active', String(i) === String(n));
+                document.getElementById(`seg-col-${i}`)?.classList.toggle('is-active', i === n);
             });
 
             if (!changed) return;
-            // Swap the column class on the existing grids — rebuilding would
-            // re-create every <img> and flash the screen for a layout tweak.
-            document.querySelectorAll('#folderWrapper .folder-grid-area').forEach(g => {
-                g.classList.remove('grid-cols-1', 'grid-cols-2');
-                g.classList.add(`grid-cols-${n}`);
-            });
             queueFolderProgress();
         }
 

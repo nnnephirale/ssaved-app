@@ -1,5 +1,197 @@
 # SSaved App - Development Log
 
+## ✅ /cf is the live build now — UI overhaul ported, rail motion fixed (Aug 2, 2026)
+
+**Deploy target is `cf/index.html`, not the root.** Supabase is 402 until the billing
+cycle turns over, so Marilyn moved the app to a Cloudflare Worker over R2 at
+https://nnnephirale.github.io/ssaved-app/cf/?c=seasontwo. The root `index.html` is the
+same UI on the dead Supabase backend — keep it in step, but **/cf is what ships**.
+
+**How the port was done, because it will need doing again.** The Cloudflare delta is
+small (381 lines, 45 hunks — it swaps `db.from()` for `cloudFetch`/`saveState` and adds
+the write-key row); the UI overhaul is large (1749 lines). So the merge runs the UI as
+the base and replays the backend onto it:
+
+```
+git merge-file -p <new-ui> <7facf75:index.html> <cf/index.html>
+```
+
+One conflict, always the same one: `renameFolder` — take the UI's `buildFolderRail()` +
+`buildFolderNav()` repaint AND the CF `saveState({ immediate: true })`. Verify after with
+`grep -c "supabase\|db\.from("` = 0 and the orphan-id / handler sweeps.
+
+Local harness for the CF build: `.claude/mkcf.py` stubs `window.fetch` for the Worker
+origin (GET/PUT `/s/<id>`, PUT/GET `/s/<id>/img/<name>`) so nothing touches her real
+collection. **`<img src>` never goes through `window.fetch`** — the harness has to
+override `getPublicImageUrl` separately or every card shows a broken-image icon.
+
+### The rail "snapped back to Inbox" — two separate causes
+
+1. **The one that mattered: a 48px gap belongs to no section.** `updateFolderProgress`
+   picked the active folder with a containment test (`readLine >= top && readLine < top+h`).
+   `#folderWrapper` is `gap-12`, so every time the read line crossed between two folders
+   the test matched nothing, `activeIdx` stayed `-1`, and the fallback `activeIdx < 0 ? 0`
+   lit **Inbox**. Harmless-looking near the top; near One-off/Typography the rail then
+   scrolled ~300px home and back. Now: **the last folder whose top is above the read
+   line** (`if (top <= readLine) activeIdx = Math.max(activeIdx, i)`), which is monotonic
+   and has no holes. Verified by walking the page in 90px steps in both directions —
+   6 transitions down, 6 up, zero backtracks.
+2. **A tapped jump chased every folder it passed.** The spy re-resolves on every frame of
+   a 0.9s scroll, so tapping "Typography" walked the rail through Design → Art → One-off.
+   `railJumpTo` now pins the destination for the flight (released on arrival, on a 1600ms
+   timeout, or on the user's own touch/wheel).
+
+**Also in that pass:** `revealRailItem` used `scrollTo({behavior:'smooth'})`, which
+restarts from a standstill every time it is re-issued — replaced with a rAF lerp
+(`stepRailScroll`, factor 0.12) that curves toward a target it can move mid-flight.
+`smoothScrollTo` now scales duration with distance (0.55–1.35s) and uses **cubic-out, not
+expo-out** — expo dumps its movement into the first third, which is what read as "snappy".
+And `scrollToFolder` holds the header open for the flight (`scrollLockUntil`) and aims at
+`headerFullH`: measuring `offsetHeight` while the header was tucking aimed 58px short, so
+the folder you asked for landed under the rail.
+
+### Full-bleed / safe area
+
+`viewport-fit=cover` plus `--sat`/`--sab` (`env(safe-area-inset-*)`, 0 on desktop). The
+frosted header now runs up **behind** the clock and battery rather than starting below
+them, with `padding-top: calc(var(--sat) + var(--header-air))` keeping the wordmark clear
+— 8px of air, which is the gap in the mockup. Everything pinned to an edge adds one of
+the two: `#mainContainer`, `#toastRoot`, `#uploadTray`, `#addFab`, `#selectionToolbar`,
+`.sheet-content`, `.look-bar`, `.look-tail`, `.loading-screen`, `#cmdk`. `min-height`
+is `100dvh` (vh does not track Safari's collapsing toolbars). **`#mainContainer`'s
+Tailwind `pt-*` had to be deleted** — the CDN injects after the inline `<style>`, so a
+utility class beats the stylesheet rule at equal specificity.
+
+### The wordmark really is the asset
+
+Asked whether we could "just use the actual SVG in ASSETS". We do — `ASSETS/SSaved.svg`
+is a `<text>` element in `QueensVar-Regular`, which is installed on the Mac and **not on
+the phone**, so shipping it as-is renders a system serif on the one device the mockup is
+for. The inlined paths were converted from her own `~/Library/Fonts/QueensVar.ttf` at
+`wght 400, wdth 100`. Proven identical: both rendered at 760px and overlaid in
+multiply blend, red vs blue — **no red-only or blue-only pixel anywhere**. The info glyph
+is `ASSETS/Info.svg` byte-for-byte (path + viewBox), now 21px inside a 38px dot (0.55,
+the mockup's proportion) with a 54px hit area.
+
+## ⚠️ SUPABASE IS RESTRICTED (root build only) — Aug 2, 2026
+
+Every request to `uauqqdaalnddedgjdgcg.supabase.co` returns **402**:
+
+> `Service for this project is restricted due to the following violations:`
+> `exceed_cached_egress_quota. The project owner must upgrade their plan or`
+> `remove spend caps to restore service.`
+
+Storage AND PostgREST both. So `?c=…` shows the retry screen, and no upload can land.
+Nothing in the app can fix this — it's the Supabase billing dashboard (raise/remove the
+spend cap, or upgrade). **Cached egress** is the meter: full-resolution screenshots are
+served straight from the public bucket on every grid paint. If it keeps recurring, the
+real fix is serving resized derivatives (`?width=` via the Supabase image transform, or
+a thumbnail on upload) instead of the originals — `preloadImages` already caps decode at
+12, but that's decode, not transfer.
+
+Because of this the Aug 2 UI overhaul below was built and verified against a **local
+Supabase stub** (`scratchpad/mkharness.py` — an in-memory `db.from()/db.storage` mock
+patched over `index.html`, images served off `python3 -m http.server`). Re-verify the
+upload/OCR path against the real backend once the project is unblocked.
+
+## ✅ UI overhaul — the mockup build (Aug 2, 2026)
+
+Marilyn supplied a 2x iPhone mockup and a written spec. `index.html` +957/−792.
+**Everything below is measured off that mockup at half its pixel values** (826px export
+÷ 2 = a 413pt frame; the card maths confirms it — 15 + 185 + 10 + 185 + 15 = 410). So her
+"74px apart" is **37 CSS px** and "notes at 32pt" is **16px**. If a future mockup arrives
+at 1x, halve nothing.
+
+**Type: IBM Plex Mono is gone, Geist is the whole app.** `--font-ui: 'Geist'`, one
+Google Fonts variable request (300..700), and `.microlabel` tracking dropped 0.16em →
+0.11em because Geist caps read spaced-out at the mono's setting. Her *global* CLAUDE.md
+still says Plex Mono is the house font — this project now overrides that.
+
+**The wordmark is outlined, not live text.** `ASSETS/SSaved.svg` is a `<text>` element
+in `QueensVar-Regular`; on any machine without Queens installed it silently falls back
+to a system serif. Converted to paths with fontTools against
+`~/Library/Fonts/QueensVar.ttf` at `wght 400, wdth 100` and inlined into the header
+(also saved as `ASSETS/SSaved-outlined.svg`). **Re-do this, don't re-add the text SVG,
+if the wordmark ever changes** — the script is in the session log; the tspan x-offsets
+(0 / 39.53 / 81.06 / 118.14 / 157.24) and the −0.03em inside "ed" are the whole layout.
+
+**Folder headers in the grid are gone. The rail IS the header.** `#folderRail` is a
+horizontal scroller of sentence-case names in Geist Bold 22px/-0.03em, count as a
+superscript, `gap: 37px`, no visible scrollbar. Active `#171717`, inactive **`#909090`
+(3.06:1 — the AA floor for large text; #A3A3A3 was 2.53:1 and failed)**. Consequences,
+all of them deliberate:
+- `render()` emits a bare `<section id="folder-…">` + `.card-grid`. The section ids and
+  `.folder-grid-area` still exist, so the pointer-drag engine and cross-folder drops are
+  untouched.
+- The header has two rows and **no longer slides away**: scrolling down collapses
+  `#brandRow` to 0 and leaves the rail pinned. That replaced `#mobileBreadcrumb` and its
+  `.fp-seg` pill row entirely — both deleted, along with `#viewTabs`/`#tabIndicator`/
+  `#densityToggle` (view + columns moved into the collection sheet).
+- Read-progress is now a 2px underline under the ACTIVE rail name. It needs the faint
+  track (`::before` at 0.09) — a bare fill at 2% paints a 3px dash that reads as a
+  rendering artefact.
+- Rename/add/collapse/delete moved to a **long-press on the rail name** → `#folderSheet`.
+  `setupFolderLongPress` was repointed from `#folderWrapper`/`.folder-tab` to
+  `#folderRail`/`.frail-item`; the 10px slop matters more here because the host is a
+  horizontal scroller. Inline rename is gone (swapping a 22px bold name for an input
+  reflows the scroller) — it's a `prompt()`, and it **reverts the name on write failure**.
+
+**Scroll-spy is computed, not observed.** `IntersectionObserver` with
+`rootMargin: -20%/-70%` can never reach the last section once the page has bottomed out,
+so the rail kept naming the second-to-last folder while you looked at the last one.
+`updateFolderProgress` now picks the active index directly (it already had every
+section's top/height) and `setActiveFolder` paints both the rail and the desktop side
+nav. `initFolderObserver` is now `resetActiveFolder()` — it only clears the memo so a
+fresh grid repaints.
+
+**The card is a screenshot and a note.** No white panel, no border, no card shadow.
+- `.shot` carries a Comeau shadow (one light source above, four layers on a fixed ratio,
+  warm `hsl(30deg 8% 62%)` not black) plus a liquid-glass rim: `inset 0 0 0 1px
+  rgba(255,255,255,.5)`, a top sheen and a weighted bottom edge.
+- Aspect is **9/19.5 in the mobile 2-up** (the phone's own ratio, nothing cropped) and
+  9/16 everywhere else, switched by `html[data-cols]`.
+- **Tapping the image opens the link.** The hover-revealed arrow and the `⋯` menu are
+  both gone. Side-effect worth knowing: `ocrCard` used to write
+  `https://instagram.com/` + `''` on an empty read, which now sent a tap to Instagram's
+  home page — it writes `'#'` instead.
+- Username/link and every action live behind the italic-i **info dot** (30px frosted,
+  46px hit area via `::before`) → `#cardInfo`.
+- Notes: 16px Geist Medium in a `#EDECE8` bubble, collapse at **2 lines** (`MAX_LINES`
+  2, `max-height: 2.6em` — keep those two in step), dwell auto-expand unchanged.
+- `.card` is transparent, so **every elevation had to move onto `.shot`**:
+  `.card-lifted`, `.drag-ghost-live`, `.card-flash`, `.is-selected`, `.is-restored`. A
+  shadow left on `.card` draws a rectangle around nothing.
+
+**The double-tap requirement, precisely.** In `#cardInfo`, double-tapping the @ swaps to
+the link glyph with **no render at all** — `toggleLinkModeSeamless` mutates the card,
+crossfades the glyph and repaints only the input. Verified: the `#ciInput` node and the
+first `.card` node are `===` the same objects afterwards. This is only possible *because*
+the grid no longer shows the username, so there is nothing to repaint; `closeCardInfo`
+just `flushCardSaves()`. Don't reintroduce a `transitionRender()` here.
+
+**Desktop.** Side nav + running vertical rail kept as asked. The size lever now drives
+`--card-min` on an `auto-fill` grid — it changes card size AND column count, which is
+what "control the image size" means to the eye. **New storage key `ssaved_cardw`**: the
+old `ssaved_width` held 600–2400 (a container width), and feeding one of those to
+`--card-min` gives a single 1390px column. A shared `.shell` class caps the content
+column at `min(1390px, 100vw - 260px)` on desktop so the fixed side nav stops sitting on
+top of the last card.
+
+**Deferred at Marilyn's request:** search / Look / column toggle / Latest have no place
+in the mobile header yet ("future consideration, i want to get the base of the UI design
+right first"). They're all in the collection sheet (tap the pill), plus ⌘K. Look mode,
+Latest and the 1-column view are otherwise untouched.
+
+**Sweep after all this:** the orphan-id check from Jul 31 was re-run — `saveIndicator`
+is still the only one, and still deliberately null-guarded. A second pass checks every
+`on*="fn("` handler against the declared functions: zero missing. Deleted as dead:
+`showTagOverview` (the rail does that in one tap; the shell it borrowed is now only
+"Move to folder"), `handleImageClick`, `handleTagTap`, `toggleLinkMode`, `triggerTooltip`,
+`closeAllTooltips`, `expandLinkField`, `collapseLinkField`, `copyCardLink`,
+`openCardMenu`/`closeCardMenu`/`cardMenuAction`, `editFolderName`/`cancelEditFolderName`/
+`saveFolderName`, `positionTabIndicator`, `folderObserver`, `activeFolderName`, and the
+CSS for the tooltip, card menu, folder pill, tab indicator and density toggle.
+
 ## ✅ "Failed" uploads that weren't, and dead OCR — one null deref (Jul 31, 2026)
 
 Marilyn: "when i upload an image it often says failed and retry, but the truth is the image
