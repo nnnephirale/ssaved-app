@@ -1487,6 +1487,22 @@
         if (_linkSecret) setWorkerSecret(_linkSecret);
         function canWrite() { return !!workerSecret; }
 
+        // canWrite() only says a key EXISTS. This asks the Worker whether it accepts it —
+        // the difference between the two is why "Set" sat there while every upload 401'd.
+        // GET /entries is auth-gated and read-only, so it is a harmless probe.
+        let keyVerdict = null;   // null = unchecked, true = accepted, false = rejected
+        async function verifyWorkerSecret() {
+            if (!workerSecret) { keyVerdict = null; return null; }
+            try {
+                const res = await cloudFetch('/entries', {}, 15000);
+                keyVerdict = res.status !== 401;
+                return keyVerdict;
+            } catch (e) {
+                keyVerdict = null;   // unreachable is not the same as rejected
+                return null;
+            }
+        }
+
         // No request may hang forever: a phone that loses signal mid-write used to leave the
         // promise pending with nothing to report.
         function withDeadline(ms) {
@@ -3387,7 +3403,18 @@
             document.getElementById('collectionSheetUrl').textContent = window.location.href;
 
             const secretLabel = document.getElementById('secretStateLabel');
-            if (secretLabel) secretLabel.textContent = canWrite() ? 'Set' : 'Read-only';
+            if (secretLabel) {
+                secretLabel.textContent = !canWrite() ? 'Not set'
+                    : keyVerdict === true ? 'Working'
+                    : keyVerdict === false ? 'Rejected — wrong key'
+                    : 'Checking…';
+                if (canWrite() && keyVerdict === null) {
+                    verifyWorkerSecret().then(ok => {
+                        secretLabel.textContent = ok === true ? 'Working'
+                            : ok === false ? 'Rejected — wrong key' : 'Could not reach the Worker';
+                    });
+                }
+            }
 
             const { token, repo } = getGitHubConfig();
             const last = localStorage.getItem('ssaved_last_backup');
@@ -3406,18 +3433,38 @@
             const current = canWrite() ? '(a key is set — leave blank to keep it, or type "clear" to remove)' : '';
             const v = prompt('Write key for this collection ' + current);
             if (v === null) return;
-            if (v.trim() === 'clear') { setWorkerSecret(null); if (!opts.silent) toast('Now read-only'); }
-            else if (v.trim()) { setWorkerSecret(v.trim()); if (!opts.silent) toast('Write key saved'); }
-            if (!opts.silent) openCollectionSheet();
+            if (v.trim() === 'clear') { setWorkerSecret(null); keyVerdict = null; if (!opts.silent) toast('Now read-only'); return; }
+            if (!v.trim()) return;
+            setWorkerSecret(v.trim());
+            keyVerdict = null;
+            // Check it immediately rather than letting the first upload be the test. Saying
+            // "saved" about a key the server rejects is what made this take all afternoon.
+            if (!opts.silent) {
+                toast('Checking the key…', { id: 'keychk', duration: 2000 });
+                verifyWorkerSecret().then(ok => {
+                    toast(ok === true ? 'Key accepted — you can upload'
+                        : ok === false ? 'Key rejected by the Worker — check for a typo or stray space'
+                        : 'Could not reach the Worker to check the key',
+                        { id: 'keychk', duration: 7000 });
+                    openCollectionSheet();
+                });
+            }
         }
 
         // Sets up another device in one tap instead of retyping the key. The link carries it
         // in the fragment, so treat it like a password — it only needs to travel once.
         async function copySetupLink() {
             if (!canWrite()) return toast('No write key set on this device yet');
-            const link = location.origin + location.pathname + '#k=' + encodeURIComponent(workerSecret);
-            try { await navigator.clipboard.writeText(link); toast('Setup link copied — open it on the other device'); }
-            catch (e) { prompt('Copy this link:', link); }
+            const link = location.origin + location.pathname + location.search +
+                '#k=' + encodeURIComponent(workerSecret);
+            // clipboard access is refused in plenty of situations; show the link either way so
+            // there is never a silent no-op that looks like it worked
+            try {
+                await navigator.clipboard.writeText(link);
+                toast('Setup link copied — it ends in #k=…', { duration: 6000 });
+            } catch (e) {
+                prompt('Copy this link (it ends in #k=…):', link);
+            }
         }
 
         function closeCollectionSheet() {
