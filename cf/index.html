@@ -419,7 +419,11 @@
                 0 2px 8px rgba(0, 0, 0, 0.12);
             color: #1F1F1F;
             z-index: 3;
+            transition: color 0.2s var(--ease);
         }
+        /* Unconfirmed = the username/link has never been checked, so the glyph
+           sits back. Confirming (the lock) is what darkens it. */
+        .info-dot.is-unconfirmed { color: rgba(31, 31, 31, 0.28); }
         /* 50px tap target under a 34px dot — still past the 44px minimum */
         .info-dot::before { content: ''; position: absolute; inset: -8px; border-radius: 50%; }
         /* The glyph is ASSETS/Info.svg verbatim (path + viewBox), at the same
@@ -1432,6 +1436,91 @@
         .ci-action.is-danger i { color: #f43f5e; }
         .ci-action.is-danger:hover { background: rgba(244, 63, 94, 0.07); color: #e11d48; }
 
+        /* The card sheet's actions are a single row of tiles, not a list —
+           scoped to #cardInfo so the folder sheet keeps its vertical list. */
+        #cardInfo .ci-actions {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 0.4rem;
+            /* No rule above the tiles — the tiles' own fills already group them. */
+            border-top: 0;
+            padding-top: 0;
+            margin-top: 0.35rem;
+        }
+        #cardInfo .ci-hint { padding: 0.4rem 0.25rem 0; }
+        /* The suggestion row is empty most of the time, and an empty flex box
+           still spends its padding — which is most of the gap under the hint. */
+        #cardInfo .ci-suggest:empty { display: none; }
+        /* The grabber was landing on the field. It keeps its negative top pull
+           from the markup; the air goes underneath it. */
+        #cardInfo .sheet-handle { padding: 0.5rem 0 0.85rem; }
+        #cardInfo .ci-action {
+            flex-direction: column; justify-content: center; gap: 0.3rem;
+            min-height: 62px; padding: 0.5rem 0.2rem;
+            background: rgba(255, 255, 255, 0.4);
+            box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.45);
+            font-size: 0.6875rem; letter-spacing: -0.005em; text-align: center;
+        }
+        #cardInfo .ci-action i { font-size: 1.05rem; width: auto; }
+        #cardInfo .ci-action:hover { background: rgba(255, 255, 255, 0.72); }
+        /* Both lock states are full ink — the shackle carries the meaning, and
+           the tile itself carries the state: raised when unlocked, pressed in
+           when locked. */
+        #cardInfo .ci-action.is-unlocked,
+        #cardInfo .ci-action.is-locked { color: var(--ink); }
+        #cardInfo .ci-action.is-locked {
+            background: rgba(0, 0, 0, 0.075);
+            box-shadow:
+                inset 0 1px 3px rgba(0, 0, 0, 0.16),
+                inset 0 0 0 1px rgba(0, 0, 0, 0.05);
+        }
+        #cardInfo .ci-action.is-locked:hover { background: rgba(0, 0, 0, 0.1); }
+        /* Lengths inside an SVG resolve in viewBox units (256 across, drawn at
+           19px) — a "3px" nudge here would be a fifth of a screen pixel. */
+        #cardInfo .ci-action.is-unlocked .lock-shackle {
+            transform: translate(-26px, -30px) rotate(-18deg);
+        }
+
+        /* The scrim stays clear — the screenshot underneath is the context.
+           The frosting lives on the sheet itself, which is what makes it read
+           as a pane of glass laid over the grid rather than a fogged window. */
+        #cardInfo.modal-backdrop {
+            background: rgba(0, 0, 0, 0.24);
+            backdrop-filter: none;
+            -webkit-backdrop-filter: none;
+        }
+        #cardInfo .modal-content {
+            position: relative;
+            background: rgba(252, 252, 251, 0.62);
+            backdrop-filter: blur(30px) saturate(180%);
+            -webkit-backdrop-filter: blur(30px) saturate(180%);
+            box-shadow: 0 24px 80px -12px rgba(0, 0, 0, 0.28);
+        }
+        /* Same liquid-glass rim as .shot: a bright inner hairline, a top sheen
+           and a weighted bottom edge. */
+        #cardInfo .modal-content::after {
+            content: '';
+            position: absolute; inset: 0;
+            border-radius: inherit;
+            pointer-events: none;
+            box-shadow:
+                inset 0 0 0 1px rgba(255, 255, 255, 0.5),
+                inset 0 1px 0 rgba(255, 255, 255, 0.75),
+                inset 0 -1px 0 rgba(0, 0, 0, 0.05);
+            background: linear-gradient(
+                180deg,
+                rgba(255,255,255,0.22) 0%,
+                rgba(255,255,255,0) 16%,
+                rgba(255,255,255,0) 84%,
+                rgba(0,0,0,0.03) 100%);
+        }
+        /* The sheet's own children have to sit above that rim layer. */
+        #cardInfo .modal-content > * { position: relative; z-index: 1; }
+        #cardInfo .ci-field {
+            background: rgba(255, 255, 255, 0.45);
+            box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.5);
+        }
+
         /* --- DROP OVERLAY --- */
         .drop-overlay-card {
             background: rgba(255,255,255,0.9);
@@ -1800,9 +1889,10 @@
             <div class="ci-suggest" id="ciSuggest"></div>
 
             <div class="ci-actions">
-                <button class="ci-action" id="ciOpen" onclick="cardInfoAction('open')"><i class="ph-bold ph-arrow-up-right"></i> Open profile</button>
-                <button class="ci-action view-hide" onclick="cardInfoAction('move')"><i class="ph-bold ph-folder-simple"></i> Move to folder</button>
+                <button class="ci-action" id="ciOpen" onclick="cardInfoAction('open')"><i class="ph-bold ph-arrow-up-right"></i> Open</button>
+                <button class="ci-action view-hide" onclick="cardInfoAction('move')"><i class="ph-bold ph-folder-simple"></i> Move</button>
                 <button class="ci-action is-danger view-hide" onclick="cardInfoAction('delete')"><i class="ph-bold ph-trash"></i> Delete</button>
+                <button class="ci-action view-hide" id="ciLock" onclick="cardInfoAction('lock')"></button>
             </div>
         </div>
     </div>
@@ -2144,6 +2234,7 @@
                 createdAt: c.createdAt || null,
                 suggestions: c.suggestions || [],
                 deletedAt: c.deletedAt || null,
+                confirmed: !!c.confirmed,
                 isScanning: false
             })).sort((a, b) => a.order - b.order);
 
@@ -2513,7 +2604,8 @@
                     cards: appData.cards.map(c => ({
                         id: c.id, username: c.username, notes: c.notes, link: c.link,
                         imagePath: c.imagePath, folderId: c.folderId, order: c.order,
-                        createdAt: c.createdAt, suggestions: c.suggestions, deletedAt: c.deletedAt || null
+                        createdAt: c.createdAt, suggestions: c.suggestions, deletedAt: c.deletedAt || null,
+                        confirmed: !!c.confirmed
                     }))
                 });
                 const headers = { 'content-type': 'application/json' };
@@ -3006,7 +3098,7 @@
                     ${isSelected ? '<div class="selection-check"><i class="ph-bold ph-check"></i></div>' : ''}
                     ${isFavourite(c.id) ? '<i class="ph-fill ph-star fav-star" title="Favourite"></i>' : ''}
 
-                    ${selectionMode ? '' : `<button class="info-dot" aria-label="Details"
+                    ${selectionMode ? '' : `<button class="info-dot ${isConfirmed(c.id) ? '' : 'is-unconfirmed'}" aria-label="Details"
                             onclick="event.stopPropagation(); openCardInfo(${c.id})">${INFO_GLYPH}</button>`}
                 </div>
 
@@ -3268,6 +3360,37 @@
         let cardInfoId = null;
         let ciTapTimer = null;
 
+        // One glyph for both states. Phosphor's two lock icons differ by a few
+        // pixels of shackle offset, which is invisible at 17px — so the shackle
+        // is its own path here and CSS lifts and tilts it when unlocked.
+        const LOCK_GLYPH = `<svg viewBox="0 0 256 256" width="19" height="19" fill="none"
+             stroke="currentColor" stroke-width="20" stroke-linecap="round"
+             stroke-linejoin="round" style="display:block">
+            <rect x="42" y="106" width="172" height="128" rx="14" fill="currentColor" stroke="none"></rect>
+            <path class="lock-shackle" d="M92 106V66a36 36 0 0 1 72 0v40"
+                  style="transition: transform 0.28s var(--ease); transform-origin: 128px 106px"></path>
+        </svg>`;
+
+        // --- CONFIRMED (the lock) ---
+        // Unlocked is the default and means "I have not checked that this
+        // username/link is right". Locked means checked, and freezes the field.
+        // Single seam: nothing else reads or writes the flag.
+        function isConfirmed(id) {
+            return !!appData.cards.find(c => c.id === id)?.confirmed;
+        }
+        function setConfirmed(id, on) {
+            const c = appData.cards.find(x => x.id === id);
+            if (!c) return;
+            c.confirmed = !!on;
+            saveState({ immediate: true });
+        }
+        // Locking closes the sheet, so the dot has to be repainted without a
+        // render() — a full rebuild here would tear down the grid mid-gesture.
+        function paintInfoDot(id) {
+            document.querySelector(`#card-${id} .info-dot`)
+                ?.classList.toggle('is-unconfirmed', !isConfirmed(id));
+        }
+
         function openCardInfo(id) {
             const c = appData.cards.find(x => x.id === id);
             const modal = document.getElementById('cardInfo');
@@ -3302,6 +3425,8 @@
             const hint  = document.getElementById('ciHint');
             const openBtn = document.getElementById('ciOpen');
             const copyBtn = document.getElementById('ciCopy');
+            const lockBtn = document.getElementById('ciLock');
+            const locked = isConfirmed(c.id);
             if (!glyph || !input) return;
 
             glyph.innerHTML = linkMode
@@ -3311,12 +3436,20 @@
             input.placeholder = linkMode ? 'Paste a link' : 'Username';
             // .view-mode only neutralises the card's textareas; this is an <input>
             // in a sheet, so it needs its own read-only pass.
-            input.readOnly = viewMode;
+            input.readOnly = viewMode || locked;
             if (hint) {
                 const folder = getFolderName(c.folderId);
-                hint.textContent = linkMode
-                    ? `In ${folder} · double-tap the icon for a username`
-                    : `In ${folder} · double-tap the icon for a link`;
+                hint.textContent = locked
+                    ? `In ${folder} · locked — tap the lock to edit`
+                    : linkMode
+                        ? `In ${folder} · double-tap the icon for a username`
+                        : `In ${folder} · double-tap the icon for a link`;
+            }
+            if (lockBtn) {
+                lockBtn.classList.toggle('is-locked', locked);
+                lockBtn.classList.toggle('is-unlocked', !locked);
+                lockBtn.innerHTML = LOCK_GLYPH + (locked ? ' Locked' : ' Unlocked');
+                lockBtn.setAttribute('aria-pressed', locked ? 'true' : 'false');
             }
             const hasLink = c.link && c.link !== '#';
             if (openBtn) openBtn.toggleAttribute('disabled', !hasLink);
@@ -3342,7 +3475,7 @@
         // and the grid shows neither field, so there is nothing to repaint.
         function toggleLinkModeSeamless() {
             const c = appData.cards.find(x => x.id === cardInfoId);
-            if (!c || viewMode) return;
+            if (!c || viewMode || isConfirmed(c.id)) return;
             const glyph = document.getElementById('ciGlyph');
             c.linkMode = !c.linkMode;
             c.username = '';
@@ -3359,7 +3492,7 @@
         }
 
         function cardInfoEdit(v) {
-            if (cardInfoId == null || viewMode) return;
+            if (cardInfoId == null || viewMode || isConfirmed(cardInfoId)) return;
             updateCard(cardInfoId, 'username', v);
         }
 
@@ -3367,7 +3500,8 @@
             const box = document.getElementById('ciSuggest');
             const c = appData.cards.find(x => x.id === cardInfoId);
             if (!box) return;
-            const usable = show && c && !isLinkMode(c) && !c.isScanning && c.suggestions && c.suggestions.length;
+            const usable = show && c && !isLinkMode(c) && !c.isScanning && !isConfirmed(c.id)
+                && c.suggestions && c.suggestions.length;
             if (!usable) { box.innerHTML = ''; return; }
             box.innerHTML = c.suggestions
                 .map(w => `<button onclick="applySuggestion(${c.id}, '${cleanString(w)}')">${escapeHtml(w)}</button>`)
@@ -3380,6 +3514,17 @@
             if (action === 'copy') {
                 const c = appData.cards.find(x => x.id === id);
                 if (c?.link && c.link !== '#') { navigator.clipboard.writeText(c.link); toast('Link copied'); }
+                return;
+            }
+            if (action === 'lock') {
+                if (viewMode) return;
+                const nowLocked = !isConfirmed(id);
+                setConfirmed(id, nowLocked);
+                paintInfoDot(id);
+                // Confirming is the end of the job, so the sheet gets out of the
+                // way. Unlocking is the start of one, so it stays open to edit in.
+                if (nowLocked) { closeCardInfo(); return; }
+                renderCardInfoField();
                 return;
             }
             closeCardInfo();
@@ -3691,6 +3836,7 @@
             e.stopPropagation();
             const card = currentLookCard();
             if (!card) return;
+            if (isConfirmed(card.id)) { toast('Locked — unlock it from the info dot to edit'); return; }
             const next = prompt('Link for this screenshot:', card.link && card.link !== '#' ? card.link : 'https://');
             if (next === null) return;
             const val = next.trim();
@@ -5340,7 +5486,7 @@
 
         async function applySuggestion(id, w) {
             const c = appData.cards.find(x => x.id === id);
-            if (!c) return;
+            if (!c || isConfirmed(id)) return;
             c.username = w;
             c.linkMode = false;
             c.link = `https://instagram.com/${w}`;
@@ -5644,7 +5790,8 @@
                     order: c.order,
                     createdAt: c.createdAt,
                     suggestions: c.suggestions,
-                    deletedAt: c.deletedAt
+                    deletedAt: c.deletedAt,
+                    confirmed: !!c.confirmed
                 }))
             }, null, 2);
         }

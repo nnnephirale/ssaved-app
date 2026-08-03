@@ -73,6 +73,88 @@ multiply blend, red vs blue — **no red-only or blue-only pixel anywhere**. The
 is `ASSETS/Info.svg` byte-for-byte (path + viewBox), now 21px inside a 38px dot (0.55,
 the mockup's proportion) with a 54px hit area.
 
+## ✅ The lock — confirming a card's username/link (Aug 3, 2026)
+
+Marilyn: "a lock icon. in unlocked state, it actually means i've not confirmed if the
+username or url is correct."
+
+**Both builds. Three changes to `#cardInfo`:**
+
+1. **The scrim is clear, the sheet is the glass.** `#cardInfo.modal-backdrop` is
+   `rgba(0,0,0,.24)` with `backdrop-filter: none` (id beats the shared `.modal-backdrop`
+   class; every other sheet keeps `rgba(0,0,0,.4)` + `blur(4px)`). The frosting lives on
+   `#cardInfo .modal-content`: `rgba(252,252,251,.62)` + `blur(30px) saturate(180%)`, plus
+   the **same liquid-glass rim as `.shot`** on an `::after` (bright inner hairline, top
+   sheen, weighted bottom edge) and matching translucent fills on `.ci-field` and the
+   tiles. Blurring at the panel rather than at the scrim is what makes it read as a pane
+   of glass laid on the grid instead of a fogged window. The rim layer needs
+   `#cardInfo .modal-content > * { position: relative; z-index: 1 }` under it.
+2. **The actions are a row of four tiles**, not a list — icon over an 11px label,
+   "Open / Move / Delete / Unlocked". Scoped `#cardInfo .ci-actions { display: grid }`
+   because `.ci-actions`/`.ci-action` are **shared with `#folderSheet`**, which must stay
+   a vertical list — and the scoped rule also zeroes the inherited `border-top`, so there
+   is no rule above the row. Labels shortened ("Open profile" → "Open") to fit 4 × ~79px
+   at 375px.
+   - **`#cardInfo .ci-suggest:empty { display: none }`.** The OCR chip row is empty most
+     of the time, and an empty flex box still spends its `padding-top` — that 9.6px was
+     most of the gap under the hint, and no amount of margin tuning on `.ci-actions`
+     would have found it.
+   - The grabber was landing on the username field: the markup's `-mt-2` pulls the
+     handle up and its own padding was `0.6rem 0 0.1rem`, leaving ~1.6px. Scoped to
+     `0.5rem 0 0.85rem`, so the air is under the notch rather than above it.
+3. **The lock.** The tile is labelled by STATE, not by action — **Unlocked** (the default,
+   = never checked) and **Locked**. Unlocked drops the card's info-dot glyph to
+   `rgba(31,31,31,0.28)` (`.info-dot.is-unconfirmed`); tapping it locks, **closes the
+   sheet**, and the glyph goes to full `#1F1F1F`. Tapping again unlocks and **stays open**,
+   because unlocking is the start of an edit.
+   - **Both states are full ink** — an amber "unlocked" tile was tried and dropped. The
+     shackle carries the meaning and the TILE carries the state: raised glass when
+     unlocked, **pressed in** when locked (`rgba(0,0,0,.075)` + an inset top shadow, and
+     no bright rim), so it reads as depressed against its three raised siblings.
+   - **The padlock is one inline SVG, not two Phosphor icons.** `ph-lock-simple` and
+     `ph-lock-simple-open` differ by a few pixels of shackle offset, which is invisible at
+     19px — and the whole point was that unlocked should be obvious. So `LOCK_GLYPH` draws
+     the body as a filled `<rect>` and the shackle as its own `.lock-shackle` path, and CSS
+     lifts and tilts it when unlocked.
+   - **Gotcha:** lengths in a transform on an SVG child resolve in **viewBox units**
+     (`transform-box: view-box` is the default), so on a 256-unit box drawn at 19px a
+     `translate(-3px,-3px)` moves it about a fifth of a screen pixel. The working values
+     are `translate(-26px, -30px) rotate(-18deg)`.
+
+**Locked freezes the identity fields, and there are five ways in, not one:** `#ciInput`
+(`readOnly`), `cardInfoEdit`, `toggleLinkModeSeamless` (it blanks username AND link),
+`applySuggestion` (the OCR chips — also hidden while locked), and Look mode's pencil
+(`editLookLink`, which toasts instead). Notes, move and delete stay available — the lock
+is about the username/link only.
+
+**Closing the sheet can't re-render, so the dot is repainted by hand.** `paintInfoDot(id)`
+toggles the class on `#card-<id> .info-dot` directly. A `render()` here would tear the grid
+down under the finger — the same constraint that `toggleLinkModeSeamless` already lives
+under.
+
+**Storage differs between the two builds, deliberately, behind one seam.** UI code only
+ever calls `isConfirmed(id)` / `setConfirmed(id, on)`.
+- **cf/** — `confirmed` is a field on the card in the JSON doc (`flushState`,
+  `loadCollection` and `buildBackupJSON` all carry it). Syncs across devices.
+- **root/** — a localStorage id-set via the existing `loadIdSet`/`saveIdSet`
+  (`ssaved_confirmed_<collection>`), because the Supabase `cards` table has **no
+  `confirmed` column** and adding one to the upsert payload would fail every write.
+  Per-device, like reviewed/favourite. Swap those two functions if a column ever lands.
+- Keeping the seam identical is what lets the `git merge-file` port keep working — the
+  delta stays inside the backend block.
+
+**Bug found on the way (root only):** `initLookState()` ran in `DOMContentLoaded` *after*
+`initCollection()`, i.e. after the first `render()`. So `favouriteIds` was empty at first
+paint and **favourite stars never showed until something re-rendered** — the confirmed dot
+would have inherited it. Now also called at the end of `loadCollection()`, before its
+`render()`.
+
+**Verified in both harnesses** (`.claude/mkcf.py`, `.claude/mkharness.py`): lock persists
+to the stub doc / localStorage, survives a `render()`, input goes read-only, username and
+linkMode are unchanged after hostile `cardInfoEdit`/`toggleLinkModeSeamless`/
+`applySuggestion` calls, `#folderSheet .ci-actions` still computes `flex` while
+`#cardInfo` computes `grid`, and `#folderSheet` still computes `blur(4px)`.
+
 ## ⚠️ SUPABASE IS RESTRICTED (root build only) — Aug 2, 2026
 
 Every request to `uauqqdaalnddedgjdgcg.supabase.co` returns **402**:
