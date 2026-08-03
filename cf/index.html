@@ -1465,9 +1465,13 @@
             } catch (e) { return null; }
         }
 
-        let workerSecret = null;
-        try { workerSecret = localStorage.getItem(SECRET_KEY) || null; } catch (e) {}
-        if (!workerSecret) workerSecret = readSharedSecret();
+        // The shared entry wins over this app's own older copy. Both are written together
+        // whenever a key is set, so they only diverge when the private one is stale — which
+        // is exactly how a key rotated in the other app got ignored here.
+        let workerSecret = readSharedSecret();
+        if (!workerSecret) {
+            try { workerSecret = localStorage.getItem(SECRET_KEY) || null; } catch (e) {}
+        }
 
         function setWorkerSecret(v) {
             workerSecret = v || null;
