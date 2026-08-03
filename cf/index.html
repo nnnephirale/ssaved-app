@@ -1347,6 +1347,13 @@
                     </span>
                     <span class="sheet-row-state" id="backupStateLabel">—</span>
                 </button>
+                <button onclick="copySetupLink()" class="sheet-row">
+                    <span class="flex items-center gap-2.5 min-w-0">
+                        <i class="ph ph-link text-neutral-400"></i>
+                        <span class="text-xs">Copy setup link</span>
+                    </span>
+                    <span class="sheet-row-state">for another device</span>
+                </button>
                 <button onclick="promptWorkerSecret()" class="sheet-row">
                     <span class="flex items-center gap-2.5 min-w-0">
                         <i class="ph ph-key text-neutral-400"></i>
@@ -1433,12 +1440,51 @@
         // so anyone with a share link could delete the collection.
         const WORKER_URL = 'https://deposits.nnnephirale.workers.dev';
         const SECRET_KEY = 'ssaved_worker_secret';
+        // Shared with deposits. Both apps are served from this origin and talk to the same
+        // Worker, so one stored credential serves both — enter it in either and the other
+        // already has it. Retyping a 48-character key per app is how keys get mistyped.
+        const SHARED_KEY = 'cf-worker';
+
+        function readSharedSecret() {
+            try {
+                const v = JSON.parse(localStorage.getItem(SHARED_KEY));
+                return v && v.secret ? v.secret : null;
+            } catch (e) { return null; }
+        }
+
+        // A setup link carries the key in the URL fragment: #k=<secret>. A fragment is never
+        // sent to a server and never lands in an access log, and it is stripped from the
+        // address bar as soon as it is read so it does not linger in history.
+        function readSetupLink() {
+            try {
+                const h = new URLSearchParams((location.hash || '').replace(/^#/, ''));
+                const k = h.get('k');
+                if (!k) return null;
+                history.replaceState(null, '', location.pathname + location.search);
+                return k;
+            } catch (e) { return null; }
+        }
+
         let workerSecret = null;
         try { workerSecret = localStorage.getItem(SECRET_KEY) || null; } catch (e) {}
+        if (!workerSecret) workerSecret = readSharedSecret();
+
         function setWorkerSecret(v) {
             workerSecret = v || null;
-            try { v ? localStorage.setItem(SECRET_KEY, v) : localStorage.removeItem(SECRET_KEY); } catch (e) {}
+            try {
+                if (v) {
+                    localStorage.setItem(SECRET_KEY, v);
+                    localStorage.setItem(SHARED_KEY, JSON.stringify({ url: WORKER_URL, secret: v }));
+                } else {
+                    localStorage.removeItem(SECRET_KEY);
+                    localStorage.removeItem(SHARED_KEY);
+                }
+            } catch (e) {}
         }
+
+        // a setup link wins over anything stored: it is the newer, deliberate instruction
+        const _linkSecret = readSetupLink();
+        if (_linkSecret) setWorkerSecret(_linkSecret);
         function canWrite() { return !!workerSecret; }
 
         // No request may hang forever: a phone that loses signal mid-write used to leave the
@@ -3363,6 +3409,15 @@
             if (v.trim() === 'clear') { setWorkerSecret(null); if (!opts.silent) toast('Now read-only'); }
             else if (v.trim()) { setWorkerSecret(v.trim()); if (!opts.silent) toast('Write key saved'); }
             if (!opts.silent) openCollectionSheet();
+        }
+
+        // Sets up another device in one tap instead of retyping the key. The link carries it
+        // in the fragment, so treat it like a password — it only needs to travel once.
+        async function copySetupLink() {
+            if (!canWrite()) return toast('No write key set on this device yet');
+            const link = location.origin + location.pathname + '#k=' + encodeURIComponent(workerSecret);
+            try { await navigator.clipboard.writeText(link); toast('Setup link copied — open it on the other device'); }
+            catch (e) { prompt('Copy this link:', link); }
         }
 
         function closeCollectionSheet() {
