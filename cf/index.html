@@ -44,6 +44,13 @@
             --font-ui: 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
             --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
             --ease: cubic-bezier(0.16, 1, 0.3, 1);
+            /* Ease-out CUBIC, for movement that has to be WATCHED rather than
+               felt. --ease is expo: it spends ~85% of its travel in the first
+               quarter of the duration, which is right for something arriving but
+               reads as a snap when the distance is small — a 6px change in font
+               size is over before the eye finds it. Same lesson smoothScrollTo
+               learned. */
+            --ease-watch: cubic-bezier(0.33, 1, 0.68, 1);
 
             /* Four text greys. #737373 (4.74:1) is the hard floor for any glyph
                carrying information — the old #C4C4C4 (1.74:1) and #D4D4D4 (1.48:1)
@@ -71,7 +78,7 @@
                the header will grow and shrink as the active name moves. */
             --frail-sm: 1.375rem;
             --frail-lg: 1.75rem;
-            --section-gap: 104px;
+            --section-gap: 114px;
             /* The colour an empty note bubble had — a wash of ink over the page
                rather than an opaque grey. Marilyn preferred it, so every note
                uses it now, written or not. Being translucent, it picks up the
@@ -93,7 +100,7 @@
             --sab: env(safe-area-inset-bottom, 0px);
             --header-air: 8px;
         }
-        @media (min-width: 768px) { :root { --section-gap: 136px; } }
+        @media (min-width: 768px) { :root { --section-gap: 150px; } }
         /* Standalone mode has no browser chrome to overscroll into, so a bounce
            at either end exposes the root element — paint it, or you get a white
            flash where the app should be. */
@@ -178,7 +185,7 @@
             min-height: 33px;
             color: var(--dim);
             cursor: pointer;
-            transition: color 0.28s var(--ease), font-size 0.34s var(--ease);
+            transition: color 0.28s var(--ease), font-size 0.48s var(--ease-watch);
             /* the row is a scroller; a tap must never be read as a drag-scroll */
             touch-action: manipulation;
         }
@@ -224,18 +231,19 @@
            incoming one fades up already full-length. So the arriving bar is
            primed to zero for one frame and then eased out to its real progress,
            while the outgoing one drains in the direction of travel — one gesture
-           crossing the boundary instead of two fades. 0.44s here, in step with
-           RAIL_HANDOFF. */
+           crossing the boundary instead of two fades. 0.48s here, in step with
+           RAIL_HANDOFF — the name's expansion, the drain and the fill are one
+           gesture, so they share a duration AND a curve. */
         .frail-item.is-arriving::after {
             transform-origin: var(--o, left) center;
-            transition: transform 0.44s var(--ease), opacity 0.3s var(--ease);
+            transition: transform 0.48s var(--ease-watch), opacity 0.3s var(--ease);
         }
         .frail-item.is-leaving::before { opacity: 0.09; }
         .frail-item.is-leaving::after {
             opacity: 0.32;
             transform: scaleX(0);
             transform-origin: var(--o, right) center;
-            transition: transform 0.44s var(--ease), opacity 0.3s var(--ease);
+            transition: transform 0.48s var(--ease-watch), opacity 0.3s var(--ease);
         }
         /* Last, so it wins if it ever overlaps with .is-arriving. */
         .frail-item.is-priming::after { transition: none; }
@@ -2521,7 +2529,7 @@
         // How long a boundary takes to play out. The name's expansion, the
         // outgoing bar's drain and the incoming one's fill are one gesture, so
         // they share a duration — keep in step with the CSS above.
-        const RAIL_HANDOFF = 440;
+        const RAIL_HANDOFF = 480;
         let railHandoffTimer = null;
 
         function handOffRailUnderline(prev, next, forward) {
