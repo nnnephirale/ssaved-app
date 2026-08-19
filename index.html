@@ -62,6 +62,17 @@
             --cols: 2;
             --card-min: 300px;
             --shot-radius: 14px;
+
+            /* --- CHAPTER MARKERS ---
+               A folder boundary has to be legible three ways at once: the name
+               in the rail EXPANDS into it, its underline FILLS rather than
+               appearing, and the grid leaves a band of nothing between sections.
+               --frail-sm/lg are the two rail sizes; if --frail-lg changes, the
+               min-height on .frail-item has to clear its line box (lg x 1.15) or
+               the header will grow and shrink as the active name moves. */
+            --frail-sm: 1.375rem;
+            --frail-lg: 1.75rem;
+            --section-gap: 104px;
             /* The colour an empty note bubble had — a wash of ink over the page
                rather than an opaque grey. Marilyn preferred it, so every note
                uses it now, written or not. Being translucent, it picks up the
@@ -83,6 +94,7 @@
             --sab: env(safe-area-inset-bottom, 0px);
             --header-air: 8px;
         }
+        @media (min-width: 768px) { :root { --section-gap: 136px; } }
         /* Standalone mode has no browser chrome to overscroll into, so a bounce
            at either end exposes the root element — paint it, or you get a white
            flash where the app should be. */
@@ -156,18 +168,26 @@
             border: 0;
             background: none;
             white-space: nowrap;
-            font-size: 1.375rem;
+            font-size: var(--frail-sm);
             font-weight: 700;
             letter-spacing: -0.03em;
             line-height: 1.15;
+            /* Every item reserves the ENLARGED line box, so the row's height —
+               and with it the underline's y and the header's height — is the
+               same whichever name is active. Without this the whole header
+               breathes in and out as you scroll past a boundary. */
+            min-height: 33px;
             color: var(--dim);
             cursor: pointer;
-            transition: color 0.28s var(--ease);
+            transition: color 0.28s var(--ease), font-size 0.34s var(--ease);
             /* the row is a scroller; a tap must never be read as a drag-scroll */
             touch-action: manipulation;
         }
         .frail-item:hover { color: #6b6b6b; }
-        .frail-item.is-active { color: var(--ink); }
+        /* The name grows into the folder you have arrived in. font-size rather
+           than a transform: the neighbours are meant to slide out of its way, and
+           transformed text renders softer than text set at the size. */
+        .frail-item.is-active { color: var(--ink); font-size: var(--frail-lg); }
         .frail-item.is-collapsed .frail-name { opacity: 0.55; }
         .frail-count {
             font-size: 0.46em;
@@ -197,6 +217,29 @@
         }
         .frail-item.is-active::before { opacity: 0.09; }
         .frail-item.is-active::after  { opacity: 0.32; }
+
+        /* --- THE HANDOFF ---
+           Left alone, the bar crossfades from the end of one word to the start of
+           the next and never travels: EVERY item carries its true --p at all
+           times (updateFolderProgress writes all of them each frame), so the
+           incoming one fades up already full-length. So the arriving bar is
+           primed to zero for one frame and then eased out to its real progress,
+           while the outgoing one drains in the direction of travel — one gesture
+           crossing the boundary instead of two fades. 0.44s here, in step with
+           RAIL_HANDOFF. */
+        .frail-item.is-arriving::after {
+            transform-origin: var(--o, left) center;
+            transition: transform 0.44s var(--ease), opacity 0.3s var(--ease);
+        }
+        .frail-item.is-leaving::before { opacity: 0.09; }
+        .frail-item.is-leaving::after {
+            opacity: 0.32;
+            transform: scaleX(0);
+            transform-origin: var(--o, right) center;
+            transition: transform 0.44s var(--ease), opacity 0.3s var(--ease);
+        }
+        /* Last, so it wins if it ever overlaps with .is-arriving. */
+        .frail-item.is-priming::after { transition: none; }
 
         /* --- THE LOZENGE ---
            One shape, used twice: pinned to the end of the rail as the way into
@@ -1172,6 +1215,13 @@
            wordmark, the folder names and the first card all start on the same
            vertical. The desktop side nav is fixed to the right edge, so the
            column has to stop short of it or the last card sits underneath it. */
+        /* Chapters are separated by a band of nothing rather than by a rule.
+           The old 48px was ~an eighth of one screenshot's height, so it read as a
+           loose row; --section-gap reads as a break. updateFolderProgress
+           subtracts half of it when deciding which folder you are in, so the name
+           in the rail changes WHILE the empty band crosses the read line rather
+           than long after it has gone by. */
+        #folderWrapper { gap: var(--section-gap); }
         .shell { max-width: 1390px; margin-inline: auto; }
         @media (min-width: 768px) {
             .shell { max-width: min(1390px, calc(100vw - 260px)); }
@@ -1691,7 +1741,7 @@
             <p class="microlabel text-neutral-400 mt-3">Drop screenshots anywhere on this page</p>
         </div>
 
-        <div id="folderWrapper" class="flex flex-col gap-12 pb-32"></div>
+        <div id="folderWrapper" class="flex flex-col pb-32"></div>
 
     </main>
 
@@ -2392,6 +2442,12 @@
             // last section once the page has bottomed out, so the rail kept
             // naming the second-to-last folder while you looked at the last one.
             const scrollable = document.documentElement.scrollHeight > window.innerHeight + 4;
+            // Half the empty band between sections. The boundary is a stretch of
+            // nothing, not a line, so aim at its middle: the rail changes name
+            // while the band is crossing the read line, which is the whole point
+            // of the band being there.
+            const halfGap = (parseFloat(getComputedStyle(document.documentElement)
+                .getPropertyValue('--section-gap')) || 0) / 2;
             let activeIdx = -1;
             appData.folders.forEach((f, i) => {
                 const section = document.getElementById(`folder-${f.id}`);
@@ -2407,14 +2463,16 @@
 
                 // The active folder is the LAST one that has started above the
                 // read line — deliberately NOT "the section containing it".
-                // #folderWrapper puts a 48px gap between sections, and a gap
+                // #folderWrapper puts --section-gap between sections, and a gap
                 // belongs to no section, so a containment test returned -1 every
                 // time the read line crossed one. That fell through to index 0,
                 // which lit Inbox for a few frames and sent the rail scrolling
                 // all the way home and back — the further down you were, the
                 // longer the trip, which is why it only looked broken around
                 // One-off and Typography.
-                if (top <= readLine) activeIdx = Math.max(activeIdx, i);
+                // Subtracting a constant keeps this monotonic, so it stays free
+                // of that hole.
+                if (top - halfGap <= readLine) activeIdx = Math.max(activeIdx, i);
                 // At the end of the page, the last folder on screen wins.
                 if (atBottom && scrollable && top < viewBottom && top + h > window.scrollY) {
                     activeIdx = Math.max(activeIdx, i);
@@ -2441,12 +2499,66 @@
         function setActiveFolder(idx) {
             const f = appData.folders[idx];
             if (!f || f.id === activeFolderId) return;
+            // Which way we crossed decides which way the bar hands over. Captured
+            // before activeFolderId moves, and before the class comes off.
+            const prevIdx = appData.folders.findIndex(x => x.id === activeFolderId);
+            const forward = prevIdx < 0 || idx > prevIdx;
+            const prevRail = document.querySelector('.frail-item.is-active');
             activeFolderId = f.id;
             document.querySelectorAll('.frail-item.is-active, .side-nav-item.is-active')
                 .forEach(el => el.classList.remove('is-active'));
             document.querySelector(`.side-nav-item[data-folder-id="${f.id}"]`)?.classList.add('is-active');
             const railItem = document.querySelector(`.frail-item[data-folder-id="${f.id}"]`);
             if (railItem) { railItem.classList.add('is-active'); revealRailItem(railItem); }
+            handOffRailUnderline(prevRail, railItem, forward);
+        }
+
+        // How long a boundary takes to play out. The name's expansion, the
+        // outgoing bar's drain and the incoming one's fill are one gesture, so
+        // they share a duration — keep in step with the CSS above.
+        const RAIL_HANDOFF = 440;
+        let railHandoffTimer = null;
+
+        function handOffRailUnderline(prev, next, forward) {
+            if (railHandoffTimer) { clearTimeout(railHandoffTimer); railHandoffTimer = null; }
+            // Scrolling fast enough to cross two boundaries inside one handoff is
+            // normal, so clear whatever the last one left mid-flight.
+            document.querySelectorAll('.frail-item.is-leaving, .frail-item.is-arriving')
+                .forEach(el => {
+                    el.classList.remove('is-leaving', 'is-arriving', 'is-priming');
+                    el.style.removeProperty('--o');
+                });
+
+            if (prev && prev !== next) {
+                prev.style.setProperty('--o', forward ? 'right' : 'left');
+                prev.classList.add('is-leaving');
+            }
+            if (next) {
+                // Collapse it with the transition switched off and force the style
+                // to land, THEN hand it back to an eased one. Without the prime
+                // the bar is already sitting at its true length — every item
+                // carries its real --p whether it is active or not — so there is
+                // nothing left to fill and the arrival reads as a fade.
+                next.classList.add('is-priming');
+                next.style.setProperty('--p', '0');
+                void next.offsetWidth;
+                next.classList.remove('is-priming');
+                next.style.removeProperty('--p');
+                next.style.setProperty('--o', forward ? 'left' : 'right');
+                next.classList.add('is-arriving');
+            }
+
+            railHandoffTimer = setTimeout(() => {
+                railHandoffTimer = null;
+                prev?.classList.remove('is-leaving');
+                next?.classList.remove('is-arriving');
+                prev?.style.removeProperty('--o');
+                next?.style.removeProperty('--o');
+                // The name that shrank was to one side of the one that grew, so
+                // the scroll target computed when the flight began has since
+                // moved. Re-aim now the row has settled.
+                if (next?.classList.contains('is-active')) revealRailItem(next);
+            }, RAIL_HANDOFF);
         }
 
         // One path, top to bottom, bowing out to meet the folder you're in. The
