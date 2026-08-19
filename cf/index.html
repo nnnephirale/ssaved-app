@@ -1152,6 +1152,15 @@
            rail its top padding. Worth 16px, on top of the 58px brand row. */
         #mainHeader.is-tucked { padding-top: var(--sat); }
         #mainHeader.is-tucked .frail-inner { padding-top: 0; }
+        /* ...but only on the phone, where --sat is a real notch inset and screen
+           height is the scarce thing. On desktop --sat is 0, so giving up both
+           lots of air lands the folder names hard against the top of the window.
+           The tuck has already recovered the 58px brand row there; it doesn't
+           need these last 22px too. */
+        @media (min-width: 768px) {
+            #mainHeader.is-tucked { padding-top: calc(var(--sat) + var(--header-air)); }
+            #mainHeader.is-tucked .frail-inner { padding-top: 0.9rem; }
+        }
         /* main's own top padding has to grow by the same amount, or the first
            row of cards starts underneath the header at scroll 0. */
         #mainContainer { padding-top: calc(7.5rem + var(--sat) + var(--header-air)); }
