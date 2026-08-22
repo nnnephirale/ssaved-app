@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>SSaved — copy images into R2</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300..700&display=swap" rel="stylesheet">
+<style>
+    :root {
+        --font-ui: 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+        --ease: cubic-bezier(0.16, 1, 0.3, 1);
+        --ink: #171717; --body: #404040; --mute: #737373; --ghost: #A3A3A3;
+    }
+    * { box-sizing: border-box; }
+    body {
+        margin: 0; min-height: 100dvh;
+        background: linear-gradient(#FAFAF8, #F7F6F3);
+        font-family: var(--font-ui); color: var(--body);
+        font-size: 15px; line-height: 1.55;
+        padding: 40px 20px 96px;
+    }
+    .wrap { max-width: 660px; margin-inline: auto; }
+    h1 { font-size: 1.5rem; font-weight: 700; letter-spacing: -0.03em; color: var(--ink); margin: 0 0 6px; }
+    .sub { color: var(--mute); margin: 0 0 28px; }
+    .microlabel {
+        font-size: 0.625rem; font-weight: 500; text-transform: uppercase;
+        letter-spacing: 0.11em; color: var(--ghost);
+    }
+    .card {
+        background: rgba(255,255,255,0.72);
+        border: 1px solid rgba(0,0,0,0.04);
+        border-radius: 20px;
+        box-shadow: 0 1px 2px rgba(0,0,0,0.03), 0 8px 24px -12px rgba(0,0,0,0.08);
+        padding: 20px 22px; margin-bottom: 16px;
+    }
+    .row { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+    .name { font-size: 1.125rem; font-weight: 600; letter-spacing: -0.02em; color: var(--ink); }
+    .meta { color: var(--mute); font-size: 0.8125rem; }
+    button {
+        font: inherit; font-weight: 500; color: var(--ink);
+        background: rgba(0,0,0,0.045);
+        border: 1px solid rgba(0,0,0,0.05); border-radius: 12px;
+        padding: 9px 16px; cursor: pointer; white-space: nowrap;
+        transition: background 0.2s var(--ease), transform 0.15s var(--ease);
+    }
+    button:hover:not(:disabled) { background: rgba(0,0,0,0.07); }
+    button:active:not(:disabled) { transform: scale(0.98); }
+    button:disabled { opacity: 0.4; cursor: default; }
+    .bar { height: 3px; border-radius: 2px; background: rgba(0,0,0,0.06); margin-top: 16px; overflow: hidden; }
+    .bar span { display: block; height: 100%; width: 0; background: var(--ink); opacity: 0.35;
+                transition: width 0.3s cubic-bezier(0.33,1,0.68,1); }
+    .log {
+        margin-top: 14px; max-height: 240px; overflow-y: auto;
+        font-size: 0.75rem; font-variant-numeric: tabular-nums; color: var(--mute);
+    }
+    .log div { padding: 2px 0; display: flex; gap: 8px; }
+    .log .p { color: var(--ghost); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ok { color: #4d7c5f; } .skip { color: var(--ghost); } .bad { color: #b4636c; }
+    .note { font-size: 0.8125rem; color: var(--mute); margin-top: 22px; }
+    .note b { color: var(--body); font-weight: 600; }
+    code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.9em;
+           background: rgba(0,0,0,0.04); padding: 1px 5px; border-radius: 5px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+    <h1>Copy images into R2</h1>
+    <p class="sub">Supabase Storage → the Cloudflare Worker, for collections that already have
+        their cards in <code>/cf/</code> but no image files behind them.</p>
+
+    <div id="keyState" class="card"></div>
+    <div id="cols"></div>
+
+    <p class="note">
+        <b>This never writes the collection document.</b> It only adds image objects, and it
+        skips anything already in R2 — so it is safe to run twice, and safe to stop and resume.
+        Your cards, folders and notes in <code>/cf/</code> are not read from Supabase and cannot
+        be overwritten by it.
+    </p>
+</div>
+
+<script>
+// One-off migration tool. It runs HERE, on the app's own origin, because that is where the
+// write key lives — nothing has to be typed or handed to anybody.
+const WORKER = 'https://deposits.nnnephirale.workers.dev';
+const SUPA   = 'https://uauqqdaalnddedgjdgcg.supabase.co/storage/v1/object/public/images/';
+const SECRET_KEY = 'ssaved_worker_secret';
+const COLLECTIONS = ['july', 'feb'];
+const PARALLEL = 3;      // enough to keep the pipe full; low enough not to stall on 9 MB objects
+
+let secret = null;
+try { secret = localStorage.getItem(SECRET_KEY); } catch (e) {}
+
+const keyBox = document.getElementById('keyState');
+if (secret) {
+    keyBox.innerHTML = '<div class="microlabel">Write key</div>' +
+        '<div style="color:#4d7c5f">Found in this browser. Nothing to enter.</div>';
+} else {
+    keyBox.innerHTML = '<div class="microlabel">Write key</div>' +
+        '<div class="bad">Not found on this origin.</div>' +
+        '<div class="meta" style="margin-top:6px">Open <code>/cf/?c=july</code>, tap the collection ' +
+        'pill and enter the write key there once, then come back to this page.</div>';
+}
+
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const mb  = b => (b / 1048576).toFixed(0);
+const imgUrl = p => WORKER + '/s/' + encodeURIComponent(p.slice(0, p.indexOf('/'))) +
+                    '/img/' + encodeURIComponent(p.slice(p.indexOf('/') + 1));
+
+COLLECTIONS.forEach(id => {
+    const el = document.createElement('div');
+    el.className = 'card';
+    el.innerHTML =
+        '<div class="row"><div><div class="name">' + esc(id) + '</div>' +
+        '<div class="meta" id="meta-' + id + '">reading the document…</div></div>' +
+        '<button id="btn-' + id + '" disabled>Copy images</button></div>' +
+        '<div class="bar"><span id="bar-' + id + '"></span></div>' +
+        '<div class="log" id="log-' + id + '"></div>';
+    document.getElementById('cols').appendChild(el);
+    prepare(id);
+});
+
+async function prepare(id) {
+    const meta = document.getElementById('meta-' + id);
+    const btn  = document.getElementById('btn-' + id);
+    let paths;
+    try {
+        const doc = await (await fetch(WORKER + '/s/' + id, { cache: 'no-store' })).json();
+        // Only live cards. A soft-deleted card's image is on its way out anyway.
+        paths = [...new Set((doc.cards || [])
+            .filter(c => !c.deletedAt && c.imagePath)
+            .map(c => c.imagePath))];
+    } catch (e) {
+        meta.innerHTML = '<span class="bad">could not read the document: ' + esc(e.message) + '</span>';
+        return;
+    }
+    meta.textContent = paths.length + ' images referenced — checking what is already there…';
+
+    // Ask R2 first so a re-run costs nothing and a half-finished run picks up where it stopped.
+    const todo = [];
+    await pool(paths, 8, async p => {
+        const r = await fetch(imgUrl(p), { method: 'HEAD' }).catch(() => null);
+        if (!r || !r.ok) todo.push(p);
+    });
+
+    meta.textContent = paths.length + ' referenced · ' + (paths.length - todo.length) +
+                       ' already in R2 · ' + todo.length + ' to copy';
+    if (!todo.length) { btn.textContent = 'Nothing to do'; return; }
+    btn.textContent = 'Copy ' + todo.length + ' images';
+    btn.disabled = !secret;
+    btn.onclick = () => run(id, todo, btn, meta);
+}
+
+async function run(id, todo, btn, meta) {
+    btn.disabled = true; btn.textContent = 'Copying…';
+    const log = document.getElementById('log-' + id);
+    const bar = document.getElementById('bar-' + id);
+    let done = 0, bytes = 0, failed = [];
+
+    const line = (cls, path, msg) => {
+        const d = document.createElement('div');
+        d.innerHTML = '<span class="p">' + esc(path) + '</span><span class="' + cls + '">' + esc(msg) + '</span>';
+        log.prepend(d);
+    };
+
+    await pool(todo, PARALLEL, async p => {
+        try {
+            const src = await fetch(SUPA + p, { cache: 'no-store' });
+            if (!src.ok) throw new Error('supabase ' + src.status);
+            const blob = await src.blob();
+            const put = await fetch(imgUrl(p), {
+                method: 'PUT',
+                headers: { 'authorization': 'Bearer ' + secret,
+                           'content-type': blob.type || 'image/png' },
+                body: blob
+            });
+            if (put.status === 401) throw new Error('write key rejected');
+            if (!put.ok) throw new Error('worker ' + put.status);
+            bytes += blob.size;
+            line('ok', p, mb(blob.size) + ' MB');
+        } catch (e) {
+            failed.push(p);
+            line('bad', p, e.message);
+        } finally {
+            done++;
+            bar.style.width = (done / todo.length * 100) + '%';
+            meta.textContent = done + ' / ' + todo.length + ' · ' + mb(bytes) + ' MB moved' +
+                               (failed.length ? ' · ' + failed.length + ' failed' : '');
+        }
+    });
+
+    btn.textContent = failed.length ? 'Retry ' + failed.length : 'Done';
+    btn.disabled = !failed.length;
+    if (failed.length) btn.onclick = () => run(id, failed.slice(), btn, meta);
+}
+
+// Fixed-size worker pool. Sequential was the proven-reliable shape on a phone, but these are
+// 4 MB objects over a desktop connection and a pool of three keeps the pipe full without
+// putting three 9 MB blobs in flight per tab.
+async function pool(items, n, fn) {
+    const queue = items.slice();
+    await Promise.all(Array.from({ length: Math.min(n, queue.length) }, async () => {
+        while (queue.length) await fn(queue.shift());
+    }));
+}
+</script>
+</body>
+</html>
