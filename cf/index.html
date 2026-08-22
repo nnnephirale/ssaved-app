@@ -420,10 +420,15 @@
         .shot-img {
             width: 100%; height: 100%;
             object-fit: cover; object-position: top;
-            pointer-events: none;
             display: block;
             transition: transform 0.5s var(--ease);
         }
+        /* NO pointer-events: none here. It used to be, and it cost the right-click
+           menu its "Save image as…": with the <img> transparent to hit-testing the
+           context target was the wrapping div, and a div holds no image to offer.
+           Nothing needed it — a click on the image bubbles to .shot's own handler,
+           and the one elementFromPoint call resolves through .closest(), so it
+           lands on the same section either way. */
         /* Liquid-glass rim: a bright inner hairline plus a top sheen and a
            weighted bottom edge, so the image reads as sitting under glass
            rather than inside a stroke. */
